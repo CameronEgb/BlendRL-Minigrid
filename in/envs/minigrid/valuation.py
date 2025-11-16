@@ -1,0 +1,157 @@
+import torch as th
+
+# ============================================================
+# Minimal batch fix helpers
+# ============================================================
+
+def ensure_batch(x):
+    """
+    Ensures tensor has shape (batch, ...).
+    GUI mode sends unbatched 1D tensors → add batch dim.
+    Vectorized envs send (batch, ...) → unchanged.
+    """
+    if x.dim() == 1:
+        return x.unsqueeze(0)
+    return x
+
+
+# ============================================================
+# Your original predicates (minimal modifications only)
+# ============================================================
+
+def front_clear(agent, wall):
+    agent = ensure_batch(agent)
+    wall = ensure_batch(wall)
+
+    ax = agent[:, 0]
+    ay = agent[:, 1]
+    ad = agent[:, 2]
+
+    wx = wall[:, 0]
+    wy = wall[:, 1]
+
+    # DIRECTIONS (your original style)
+    # 0: right, 1: down, 2: left, 3: up
+    dx = th.zeros_like(ax)
+    dy = th.zeros_like(ay)
+
+    dx = th.where(ad == 0, th.ones_like(dx), dx)
+    dy = th.where(ad == 1, th.ones_like(dy), dy)
+    dx = th.where(ad == 2, -th.ones_like(dx), dx)
+    dy = th.where(ad == 3, -th.ones_like(dy), dy)
+
+    nx = ax + dx
+    ny = ay + dy
+
+    inbounds = (nx >= 0) & (nx < 5) & (ny >= 0) & (ny < 5)
+    occupied = (nx == wx) & (ny == wy)
+
+    return (~occupied & inbounds).float()
+
+
+def left_clear(agent, wall):
+    agent = ensure_batch(agent)
+    wall = ensure_batch(wall)
+
+    ax = agent[:, 0]
+    ay = agent[:, 1]
+    ad = agent[:, 2]
+
+    wx = wall[:, 0]
+    wy = wall[:, 1]
+
+    dx = th.zeros_like(ax)
+    dy = th.zeros_like(ay)
+
+    dy = th.where(ad == 0, -1, dy)
+    dx = th.where(ad == 1,  1, dx)
+    dy = th.where(ad == 2,  1, dy)
+    dx = th.where(ad == 3, -1, dx)
+
+    nx = ax + dx
+    ny = ay + dy
+
+    inbounds = (nx >= 0) & (nx < 5) & (ny >= 0) & (ny < 5)
+    occupied = (nx == wx) & (ny == wy)
+
+    return (~occupied & inbounds).float()
+
+
+def right_clear(agent, wall):
+    agent = ensure_batch(agent)
+    wall = ensure_batch(wall)
+
+    ax = agent[:, 0]
+    ay = agent[:, 1]
+    ad = agent[:, 2]
+
+    wx = wall[:, 0]
+    wy = wall[:, 1]
+
+    dx = th.zeros_like(ax)
+    dy = th.zeros_like(ay)
+
+    dy = th.where(ad == 0,  1, dy)
+    dx = th.where(ad == 1, -1, dx)
+    dy = th.where(ad == 2, -1, dy)
+    dx = th.where(ad == 3,  1, dx)
+
+    nx = ax + dx
+    ny = ay + dy
+
+    inbounds = (nx >= 0) & (nx < 5) & (ny >= 0) & (ny < 5)
+    occupied = (nx == wx) & (ny == wy)
+
+    return (~occupied & inbounds).float()
+
+
+def blocked_ahead(agent, wall):
+    agent = ensure_batch(agent)
+    wall = ensure_batch(wall)
+
+    ax = agent[:, 0]
+    ay = agent[:, 1]
+    ad = agent[:, 2]
+
+    wx = wall[:, 0]
+    wy = wall[:, 1]
+
+    dx = th.zeros_like(ax)
+    dy = th.zeros_like(ay)
+
+    dx = th.where(ad == 0, 1, dx)
+    dy = th.where(ad == 1, 1, dy)
+    dx = th.where(ad == 2, -1, dx)
+    dy = th.where(ad == 3, -1, dy)
+
+    nx = ax + dx
+    ny = ay + dy
+
+    return ((nx == wx) & (ny == wy)).float()
+
+
+def on_goal(agent, goal):
+    agent = ensure_batch(agent)
+    goal = ensure_batch(goal)
+
+    ax = agent[:, 0]
+    ay = agent[:, 1]
+
+    gx = goal[:, 0]
+    gy = goal[:, 1]
+
+    return ((ax == gx) & (ay == gy)).float()
+
+
+def adjacent_goal(agent, goal):
+    agent = ensure_batch(agent)
+    goal = ensure_batch(goal)
+
+    ax = agent[:, 0]
+    ay = agent[:, 1]
+
+    gx = goal[:, 0]
+    gy = goal[:, 1]
+
+    d = (th.abs(ax - gx) + th.abs(ay - gy))
+    return (d == 1).float()

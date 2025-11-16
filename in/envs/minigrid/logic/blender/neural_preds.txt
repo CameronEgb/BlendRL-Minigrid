@@ -1,0 +1,6 @@
+front_clear:1:agent
+left_clear:1:agent
+right_clear:1:agent
+on_goal:2:agent,goal
+adjacent_goal:2:agent,goal
+blocked_ahead:2:agent,wall

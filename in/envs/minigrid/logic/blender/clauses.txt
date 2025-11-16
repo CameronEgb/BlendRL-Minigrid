@@ -1,0 +1,7 @@
+move_forward(A):-front_clear(A).
+move_left(A):-left_clear(A).
+move_right(A):-right_clear(A).
+done(A):-on_goal(A,G).
+turn_left(A):-blocked_ahead(A,W).
+turn_right(A):-blocked_ahead(A,W).
+move_forward(A):-adjacent_goal(A,G).

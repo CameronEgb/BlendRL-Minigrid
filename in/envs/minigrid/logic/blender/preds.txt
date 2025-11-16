@@ -1,0 +1,6 @@
+move_left:1:image
+move_right:1:image
+move_forward:1:image
+turn_left:1:image
+turn_right:1:image
+done:1:image

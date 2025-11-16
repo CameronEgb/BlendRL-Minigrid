@@ -1,0 +1,22 @@
+#training
+
+#takes really long time, 60M is default
+python train_blenderl.py --env-name minigrid --joint-training --num-steps 64 --num-envs 4 --gamma 0.99
+#fastest run, 100k
+python train_blenderl.py --env-name minigrid --joint-training --num-steps 64 --num-envs 4 --total-timesteps 100000 --gamma 0.99
+#fast run, 2M
+python train_blenderl.py --env-name minigrid --joint-training --num-steps 64 --num-envs 4 --total-timesteps 2000000 --gamma 0.99
+#disable rtpt
+python train_blenderl.py --env-name minigrid --joint-training --num-steps 64 --num-envs 4 --gamma 0.99 --disable-rtpt
+
+#20k step run
+python train_blenderl.py --env-name minigrid --joint-training --num-steps 64 --num-envs 4 --total-timesteps 20000 --gamma 0.99
+
+#super short
+python train_blenderl.py --env-name minigrid --joint-training --num-steps 32 --num-envs 2 --gamma 0.99
+
+
+#running the game
+python play_gui.py --env-name minigrid --agent-path out/runs/minigrid_softmax_blender_logic_lr_0.00025_llr_0.00025_blr_0.00025_gamma_0.99_bentcoef_0.01_numenvs_4_steps_64__0
+
+python play_gui.py --env-name minigrid --agent-path out/runs/minigrid_softmax_blender_logic_lr_0.00025_llr_0.00025_blr_0.00025_gamma_0.99_bentcoef_0.01_numenvs_4_steps_64__0
