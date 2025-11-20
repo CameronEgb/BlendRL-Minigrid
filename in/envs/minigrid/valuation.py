@@ -156,3 +156,60 @@ def adjacent_goal(agent, goal):
 
     d = (th.abs(ax - gx) + th.abs(ay - gy))
     return bool_to_probs((d == 1))
+
+def enemy_close(agent, enemy):
+    ax, ay = agent[:,0], agent[:,1]
+    ex, ey = enemy[:,0], enemy[:,1]
+    dist = (ax - ex).abs() + (ay - ey).abs()
+    return (dist <= 1).float()  # 1 tile away
+
+
+def enemy_ahead(agent, enemy):
+    ax, ay, ad = agent[:,0], agent[:,1], agent[:,2]
+    ex, ey = enemy[:,0], enemy[:,1]
+
+    dx = ex - ax
+    dy = ey - ay
+
+    # ad: 0=right,1=down,2=left,3=up (MiniGrid standard)
+    cond = (
+            ((ad==0) & (dx>0) & (dy==0)) |
+            ((ad==2) & (dx<0) & (dy==0)) |
+            ((ad==1) & (dy>0) & (dx==0)) |
+            ((ad==3) & (dy<0) & (dx==0))
+    )
+    return cond.float()
+
+
+def enemy_left(agent, enemy):
+    ax, ay, ad = agent[:,0], agent[:,1], agent[:,2]
+    ex, ey = enemy[:,0], enemy[:,1]
+
+    dx = ex - ax
+    dy = ey - ay
+
+    # ad: 0=right,1=down,2=left,3=up (MiniGrid standard)
+    cond = (
+            ((ad==0) & (dx>0) & (dy==0)) |
+            ((ad==2) & (dx<0) & (dy==0)) |
+            ((ad==1) & (dy>0) & (dx==0)) |
+            ((ad==3) & (dy<0) & (dx==0))
+    )
+    return cond.float()
+
+
+def enemy_right(agent, enemy):
+    ax, ay, ad = agent[:,0], agent[:,1], agent[:,2]
+    ex, ey = enemy[:,0], enemy[:,1]
+
+    dx = ex - ax
+    dy = ey - ay
+
+    # ad: 0=right,1=down,2=left,3=up (MiniGrid standard)
+    cond = (
+            ((ad==0) & (dx>0) & (dy==0)) |
+            ((ad==2) & (dx<0) & (dy==0)) |
+            ((ad==1) & (dy>0) & (dx==0)) |
+            ((ad==3) & (dy<0) & (dx==0))
+    )
+    return cond.float()

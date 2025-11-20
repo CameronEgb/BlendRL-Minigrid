@@ -1,4 +1,6 @@
 neural_agent(X):-blocked_ahead(A,W).
+neural_agent(X):-enemy_close(A,E).
+logic_agent(X):-enemy_ahead(A,E).
 logic_agent(X):-front_clear(A,W).
 logic_agent(X):-adjacent_goal(A,G).
 logic_agent(X):-on_goal(A,G).

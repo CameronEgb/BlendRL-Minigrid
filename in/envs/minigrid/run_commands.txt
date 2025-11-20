@@ -24,3 +24,7 @@ python play_gui.py --env-name minigrid --agent-path out/runs/minigrid_softmax_bl
 
 #evaluating the game
 python evaluate.py --env-name minigrid --agent-path out/runs/minigrid_softmax_blender_logic_lr_0.00025_llr_0.00025_blr_0.00025_gamma_0.99_bentcoef_0.01_numenvs_4_steps_64__0 --episodes 10
+
+#super short training to test run
+python train_blenderl.py --env-name minigrid --joint-training --num-steps 64 --num-envs 4 --total-timesteps 2001 --gamma 0.99 --num_balls 2
+python play_gui.py --env-name minigrid --agent-path out/runs/minigrid_softmax_blender_logic_lr_0.00025_llr_0.00025_blr_0.00025_gamma_0.99_bentcoef_0.01_numenvs_4_steps_64__0

@@ -37,22 +37,32 @@ class Renderer:
             env_kwargs: dict = None,
             render_predicate_probs=True,
             seed=0,
-    ):
+            num_balls=None,
 
+    ):
+        self.num_balls = num_balls
         self.fps = fps
         self.deterministic = deterministic
         self.render_predicate_probs = render_predicate_probs
+        if env_kwargs is None:
+            env_kwargs = {}
 
         # Load model and environment
-        self.model = load_model(
-            agent_path, env_kwargs_override=env_kwargs, device=device
-        )
+        self.model = load_model(agent_path, device=device)
+
+        # model.env_kwargs was set inside load_model()
+        env_kwargs = dict(self.model.env_kwargs)
+
         self.env = NudgeBaseEnv.from_name(
-            env_name, mode="deictic", seed=seed, **env_kwargs
+            env_name,
+            mode="deictic",
+            seed=seed,
+            **env_kwargs
         )
+
         # self.env = self.model.env
         self.env.reset()
-
+        self.model.env_kwargs = env_kwargs
         print(self.model._print())
 
         print(

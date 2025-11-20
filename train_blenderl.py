@@ -56,8 +56,10 @@ class Args:
     capture_video: bool = False
     """whether to capture videos of the agent performances (check out `videos` folder)"""
 
+    num_balls: int = None  # None = default Minigrid behavior
+    """number of enemies spawned in the env"""
     # Algorithm specific arguments
-    env_id: str = "Seaquest-v4"
+    env_id: str = None
     """the id of the environment"""
     total_timesteps: int = 60000000
     """total timesteps of the experiments"""
@@ -111,7 +113,7 @@ class Args:
     """the mode for the agent"""
     rules: str = "default"
     """the ruleset used in the agent"""
-    save_steps: int = 5000000
+    save_steps: int = 2000
     """the number of steps to save models"""
     pretrained: bool = False
     """to use pretrained neural agent"""
@@ -137,14 +139,14 @@ def main():
     #print("DEBUG:", args.total_timesteps, args.num_envs, args.num_steps)
     #print("ITER:", args.total_timesteps // (args.num_envs * args.num_steps))
     max_iters = max(args.num_iterations, 1)
+    args.batch_size = int(args.num_envs * args.num_steps)
+    args.minibatch_size = int(args.batch_size // args.num_minibatches)
+    args.num_iterations = max(args.total_timesteps // args.batch_size, 1)
     rtpt = RTPT(
         name_initials="HS",
         experiment_name="BlendeRL",
-        max_iterations=max_iters,
+        max_iterations=args.num_iterations,
     )
-    args.batch_size = int(args.num_envs * args.num_steps)
-    args.minibatch_size = int(args.batch_size // args.num_minibatches)
-    args.num_iterations = args.total_timesteps // args.batch_size
     model_description = "{}_blender_{}".format(args.blend_function, args.blender_mode)
     learning_description = f"lr_{args.learning_rate}_llr_{args.logic_learning_rate}_blr_{args.blender_learning_rate}_gamma_{args.gamma}_bentcoef_{args.blend_ent_coef}_numenvs_{args.num_envs}_steps_{args.num_steps}_"
     run_name = f"{args.env_name}_{model_description}_{learning_description}_{args.seed}"
@@ -185,7 +187,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     envs = VectorizedNudgeBaseEnv.from_name(
-        args.env_name, n_envs=args.num_envs, mode=args.algorithm, seed=args.seed
+        args.env_name, n_envs=args.num_envs, mode=args.algorithm, seed=args.seed, num_balls=args.num_balls
     )  # $, **env_kwargs)
 
     agent = BlenderActorCritic(

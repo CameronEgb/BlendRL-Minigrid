@@ -6,10 +6,11 @@ import tyro
 
 
 def main(
-    env_name: str = "seaquest",
+    env_name: str = "minigrid",
     agent_path: str = "models/kangaroo_demo",
     seed: int = 0,
     fps: int = 5,
+    num_balls: int = None
 ) -> None:
     renderer = Renderer(
         agent_path=agent_path,
@@ -19,6 +20,8 @@ def main(
         env_kwargs=dict(render_oc_overlay=True),
         render_predicate_probs=True,
         seed=seed,
+        num_balls=num_balls,
+
     )
     renderer.run()
 

@@ -5,3 +5,7 @@ done(A):-on_goal(A,G).
 turn_left(A):-blocked_ahead(A,W).
 turn_right(A):-blocked_ahead(A,W).
 move_forward(A):-adjacent_goal(A,G).
+turn_left(A):-enemy_ahead(A,E).
+turn_right(A):-enemy_ahead(A,E).
+move_right(A):-enemy_left(A,E).
+move_left(A):-enemy_right(A,E).

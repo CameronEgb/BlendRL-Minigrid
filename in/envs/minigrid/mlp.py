@@ -38,7 +38,7 @@ class MLP(nn.Module):
         # ----------------------------------------------
         # Input dimensions
         # ----------------------------------------------
-        self.logic_input_dim = 16       # 4*4
+        self.logic_input_dim = 20       # 4*4
         self.neural_input_dim = 4 * 84 * 84   #4 * 84 * 84
 
         input_dim = self.logic_input_dim if logic else self.neural_input_dim

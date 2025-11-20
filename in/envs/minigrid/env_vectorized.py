@@ -5,7 +5,7 @@ import gymnasium as gym
 
 from blendrl.env_vectorized import VectorizedNudgeBaseEnv
 from minigrid.wrappers import FullyObsWrapper
-from minigrid.core.world_object import Goal, Wall
+from minigrid.core.world_object import Goal, Wall, Ball
 
 
 class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
@@ -34,14 +34,18 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
     pred_names: Sequence
 
     def __init__(self, mode: str, n_envs: int,
-                 render_mode="rgb_array", render_oc_overlay=False, seed=None):
+                 render_mode="rgb_array", render_oc_overlay=False, seed=None,num_balls=None):
         super().__init__(mode)
 
         self.n_envs = n_envs
         self.seed = seed
         self.render_mode = render_mode
+        self.num_balls = num_balls
 
-        self.n_objects = 4
+        env_kwargs = {}
+        if self.num_balls is not None:
+            env_kwargs["n_obstacles"] = self.num_balls
+        self.n_objects = 5
         self.n_features = 4
 
         self.n_actions = 7
@@ -49,7 +53,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
 
         self.envs = []
         for i in range(n_envs):
-            env = gym.make("MiniGrid-Dynamic-Obstacles-6x6-v0", render_mode=render_mode)
+            env = gym.make("MiniGrid-Dynamic-Obstacles-6x6-v0", render_mode=render_mode,**env_kwargs)
             env = FullyObsWrapper(env)
             self.envs.append(env)
 
@@ -140,12 +144,36 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
             if found_wall:
                 break
 
+        # --- ENEMIES: nearest enemy summary for this env ---
+        enemy_positions = []
+        if hasattr(uenv, "obstacles") and uenv.obstacles is not None:
+            enemy_positions.extend([tuple(obj.cur_pos) for obj in uenv.obstacles])
+
+        if not enemy_positions:
+            for x in range(uenv.width):
+                for y in range(uenv.height):
+                    obj = uenv.grid.get(x, y)
+                    if isinstance(obj, Ball):
+                        enemy_positions.append((x, y))
+
+        if enemy_positions:
+            dists = [
+                (abs(ax - ex) + abs(ay - ey), ex, ey)
+                for (ex, ey) in enemy_positions
+            ]
+            dists.sort()
+            _, ex, ey = dists[0]
+            enemy_row = [ex, ey, 0, 1]
+        else:
+            enemy_row = [-1, -1, 0, 1]
+
         logic = th.tensor(
             [
                 [0, 0, 0, 0],
                 [ax, ay, ad, 1],
                 [gx, gy, 0, 1],
                 [wx, wy, 0, 1],
+                enemy_row,
             ],
             dtype=th.int32,
         )

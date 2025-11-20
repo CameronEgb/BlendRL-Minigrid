@@ -99,10 +99,18 @@ def load_model(model_dir,
 
     algorithm = config["algorithm"]
     environment = config["env_name"]
-    # env_kwargs = config["env_kwargs"]
-    # env_kwargs.update(env_kwargs_override)
-    # env_kwargs = dict(render_oc_overlay=True)
-    env_kwargs = {}
+    # Start from config env_kwargs if present, otherwise empty
+    if "env_kwargs" in config and isinstance(config["env_kwargs"], dict):
+        env_kwargs = dict(config["env_kwargs"])
+    else:
+        env_kwargs = {}
+
+    if "num_balls" in config:
+        env_kwargs["num_balls"] = config["num_balls"]
+
+    # Apply overrides from caller (e.g. play_gui / Renderer)
+    if env_kwargs_override is not None:
+        env_kwargs.update(env_kwargs_override)
 
     # Setup the environment
     env = NudgeBaseEnv.from_name(environment, mode=algorithm, **env_kwargs)
@@ -122,7 +130,8 @@ def load_model(model_dir,
             reasoner = "nsfr"
         model = BlenderActorCritic(env, rules=rules, actor_mode=config["actor_mode"], blender_mode=config["blender_mode"], \
             blend_function=config["blend_function"], reasoner=reasoner, device=device, explain=explain).to(device)
-
+    model.env = env
+    model.env_kwargs = env_kwargs
     # Load the model weights
     with open(checkpoint_path, "rb") as f:
         model.load_state_dict(state_dict=torch.load(f, map_location=torch.device('cpu')))

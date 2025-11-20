@@ -4,3 +4,7 @@ right_clear:2:agent,wall
 on_goal:2:agent,goal
 adjacent_goal:2:agent,goal
 blocked_ahead:2:agent,wall
+enemy_close:2:agent,enemy
+enemy_left:2:agent,enemy
+enemy_right:2:agent,enemy
+enemy_ahead:2:agent,enemy

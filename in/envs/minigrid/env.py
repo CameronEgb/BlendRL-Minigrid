@@ -4,7 +4,7 @@ import gymnasium as gym
 
 from nudge.env import NudgeBaseEnv
 from minigrid.wrappers import FullyObsWrapper
-from minigrid.core.world_object import Goal, Wall
+from minigrid.core.world_object import Goal, Wall, Ball
 
 
 class NudgeEnv(NudgeBaseEnv):
@@ -18,6 +18,7 @@ class NudgeEnv(NudgeBaseEnv):
         row 1: agent                          -> [ax, ay, dir, 1]
         row 2: goal                           -> [gx, gy, 0, 1]
         row 3: wall (first wall found)        -> [wx, wy, 0, 1]
+        row 4:enemy                           -> [ex, ey, dir, 1]
 
     Shapes:
         logic_state:  (4, 4)
@@ -34,24 +35,34 @@ class NudgeEnv(NudgeBaseEnv):
         "done": 6,
     }
 
-    def __init__(self, mode: str, render_mode="rgb_array", render_oc_overlay=False, seed=None):
+    def __init__(self, mode: str, render_mode="rgb_array", render_oc_overlay=False, seed=None, num_balls=None):
         super().__init__(mode)
 
         self.render_mode = render_mode
         self.seed = seed
+        self.num_balls = num_balls
+
+        env_kwargs = {}
+
+        # Only set n_obstacles if user explicitly passed a number
+        if self.num_balls is not None:
+            env_kwargs["n_obstacles"] = self.num_balls
 
         self.env = gym.make(
             "MiniGrid-Dynamic-Obstacles-6x6-v0",
             render_mode=render_mode,
+            **env_kwargs
         )
+
         self.env = FullyObsWrapper(self.env)
 
         # 4 objects x 4 features
-        self.n_objects = 4
+        self.n_objects = 5
         self.n_features = 4
 
         self.n_actions = 7
         self.n_raw_actions = 7
+
 
     def reset(self):
         if self.seed is not None:
@@ -67,6 +78,10 @@ class NudgeEnv(NudgeBaseEnv):
         return logic_state.unsqueeze(0), neural_state.unsqueeze(0)
 
     def step(self, action, is_mapped: bool = False):
+        uenv = self.env.unwrapped
+        self.last_agent_pos = tuple(uenv.agent_pos)
+        self.last_obstacle_positions = [tuple(obj.cur_pos) for obj in uenv.obstacles]
+
         obs, reward, terminated, truncated, info = self.env.step(int(action))
         done = terminated or truncated
 
@@ -74,6 +89,9 @@ class NudgeEnv(NudgeBaseEnv):
 
         logic_state = self.extract_logic_state_objects()
         neural_state = self.extract_neural_state(img)
+
+
+
 
         # lazy import so BlendRL doesn't load it for other envs
         import importlib
@@ -94,6 +112,36 @@ class NudgeEnv(NudgeBaseEnv):
             reward
         )
 
+        # After stepping the env
+        agent_pos = tuple(uenv.agent_pos)
+        obstacle_positions = [tuple(obj.cur_pos) for obj in uenv.obstacles]
+
+        enemy_collision = False
+
+        # Case 1: obstacle moved into agent
+        if agent_pos in self.last_obstacle_positions:
+            enemy_collision = True
+
+        # Case 2: agent moved into obstacle (rare)
+        if agent_pos in obstacle_positions:
+            enemy_collision = True
+
+        # Return info
+        if enemy_collision:
+            info["enemy_collision"] = True
+
+
+        # --- DEBUG: detect enemy collision at episode end ---
+        if done:
+            if info.get("dynamic_obstacle", False):
+                print("[DEBUG] Episode ended due to collision with dynamic obstacle.")
+            elif info.get("static_obstacle", False):
+                print("[DEBUG] Episode ended due to collision with static obstacle.")
+            elif reward > 0:
+                print("[DEBUG] Episode ended because goal was reached.")
+            else:
+                print(f"[DEBUG] {info}" )
+
         return (
             (logic_state, neural_state),
             [shaped],
@@ -108,6 +156,7 @@ class NudgeEnv(NudgeBaseEnv):
         row 1: [ax,ay,dir,1]     agent
         row 2: [gx,gy,0,1]       goal
         row 3: [wx,wy,0,1]       wall
+        row 4: [ex,ey,0,1]       nearest enemy (Ball / dynamic obstacle)
         """
         env = self.env
 
@@ -141,12 +190,43 @@ class NudgeEnv(NudgeBaseEnv):
             if found_wall:
                 break
 
+        # --- ENEMIES (Option B: summarize all via nearest enemy) ---
+        enemy_positions = []
+
+        # Primary source: dynamic obstacles from the env
+        if hasattr(uenv, "obstacles") and uenv.obstacles is not None:
+            enemy_positions.extend([tuple(obj.cur_pos) for obj in uenv.obstacles])
+
+        # Fallback: scan grid for Ball objects (in case obstacles list isn't present)
+        if not enemy_positions:
+            for x in range(uenv.width):
+                for y in range(uenv.height):
+                    obj = uenv.grid.get(x, y)
+                    if isinstance(obj, Ball):
+                        enemy_positions.append((x, y))
+
+        # Summarize enemies as the NEAREST one to the agent
+        if enemy_positions:
+            # Manhattan distance
+            dists = [
+                (abs(ax - ex) + abs(ay - ey), ex, ey)
+                for (ex, ey) in enemy_positions
+            ]
+            dists.sort()
+            nearest_dist, ex, ey = dists[0]
+            # we keep col2=0, col3=1 so NSFR encoding stays compatible
+            enemy_row = [ex, ey, 0, 1]
+        else:
+            # No enemies visible; use sentinel
+            enemy_row = [-1, -1, 0, 1]
+
         logic = th.tensor(
             [
                 [0, 0, 0, 0],
                 [ax, ay, ad, 1],
                 [gx, gy, 0, 1],
                 [wx, wy, 0, 1],
+                enemy_row,    # enemy
             ],
             dtype=th.int32,
         )
