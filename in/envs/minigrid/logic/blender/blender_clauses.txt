@@ -1,4 +1,0 @@
-neural_agent(X):-blocked_ahead(A,W).
-logic_agent(X):-front_clear(A).
-logic_agent(X):-adjacent_goal(A,G).
-logic_agent(X):-on_goal(A,G).

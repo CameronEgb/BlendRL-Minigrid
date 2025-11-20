@@ -1,4 +1,0 @@
-image:img
-agent:obj1
-goal:obj2
-wall:obj3

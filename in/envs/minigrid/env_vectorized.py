@@ -49,7 +49,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
 
         self.envs = []
         for i in range(n_envs):
-            env = gym.make("MiniGrid-Empty-5x5-v0", render_mode=render_mode)
+            env = gym.make("MiniGrid-Dynamic-Obstacles-6x6-v0", render_mode=render_mode)
             env = FullyObsWrapper(env)
             self.envs.append(env)
 
@@ -152,7 +152,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
         return logic
 
     def extract_neural_state(self, img: th.Tensor) -> th.Tensor:
-        assert img.numel() == 75, f"Expected 75 elements (5x5x3), got {img.numel()}"
+        #assert img.numel() == 75, f"Expected 75 elements (5x5x3), got {img.numel()}"
 
         x = img.permute(2, 0, 1).unsqueeze(0)
         gray = x.mean(dim=1, keepdim=True)

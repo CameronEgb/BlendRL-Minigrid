@@ -52,6 +52,7 @@ env/
 # BlendRL / NSFR / Nudge outputs
 # --------------------------
 #out/runs/
+out/
 
 # --------------------------
 # Training artifacts

@@ -1,4 +1,5 @@
 import torch as th
+from nsfr.utils.common import bool_to_probs
 
 # ============================================================
 # Minimal batch fix helpers
@@ -46,7 +47,7 @@ def front_clear(agent, wall):
     inbounds = (nx >= 0) & (nx < 5) & (ny >= 0) & (ny < 5)
     occupied = (nx == wx) & (ny == wy)
 
-    return (~occupied & inbounds).float()
+    return bool_to_probs((~occupied & inbounds))
 
 
 def left_clear(agent, wall):
@@ -74,7 +75,7 @@ def left_clear(agent, wall):
     inbounds = (nx >= 0) & (nx < 5) & (ny >= 0) & (ny < 5)
     occupied = (nx == wx) & (ny == wy)
 
-    return (~occupied & inbounds).float()
+    return bool_to_probs((~occupied & inbounds))
 
 
 def right_clear(agent, wall):
@@ -102,7 +103,7 @@ def right_clear(agent, wall):
     inbounds = (nx >= 0) & (nx < 5) & (ny >= 0) & (ny < 5)
     occupied = (nx == wx) & (ny == wy)
 
-    return (~occupied & inbounds).float()
+    return bool_to_probs((~occupied & inbounds))
 
 
 def blocked_ahead(agent, wall):
@@ -127,7 +128,7 @@ def blocked_ahead(agent, wall):
     nx = ax + dx
     ny = ay + dy
 
-    return ((nx == wx) & (ny == wy)).float()
+    return bool_to_probs(((nx == wx) & (ny == wy)))
 
 
 def on_goal(agent, goal):
@@ -140,7 +141,7 @@ def on_goal(agent, goal):
     gx = goal[:, 0]
     gy = goal[:, 1]
 
-    return ((ax == gx) & (ay == gy)).float()
+    return bool_to_probs(((ax == gx) & (ay == gy)))
 
 
 def adjacent_goal(agent, goal):
@@ -154,4 +155,4 @@ def adjacent_goal(agent, goal):
     gy = goal[:, 1]
 
     d = (th.abs(ax - gx) + th.abs(ay - gy))
-    return (d == 1).float()
+    return bool_to_probs((d == 1))
