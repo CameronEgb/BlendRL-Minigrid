@@ -22,7 +22,7 @@ logic_learning_rate: 0.00025
 max_grad_norm: 0.5
 minibatch_size: 64
 norm_adv: true
-num_balls: 4
+num_balls: 2
 num_envs: 4
 num_iterations: 7
 num_minibatches: 4
