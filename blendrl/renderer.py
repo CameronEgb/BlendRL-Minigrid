@@ -30,7 +30,7 @@ class Renderer:
     def __init__(
             self,
             agent_path: str = None,
-            env_name: str = "seaquest",
+            env_name: str = "minigrid",
             device: str = "cpu",
             fps: int = None,
             deterministic=True,
@@ -40,7 +40,7 @@ class Renderer:
             num_balls=None,
 
     ):
-        self.num_balls = num_balls
+        self.num_balls = num_balls #number of enemies in the env, can be set in the command line of the training run
         self.fps = fps
         self.deterministic = deterministic
         self.render_predicate_probs = render_predicate_probs
@@ -59,7 +59,7 @@ class Renderer:
             seed=seed,
             **env_kwargs
         )
-
+        #env_kwargs holds num_balls from training run, its passed through so you dont have to specify in play command
         # self.env = self.model.env
         self.env.reset()
         self.model.env_kwargs = env_kwargs

@@ -11,7 +11,6 @@ class NudgeEnv(NudgeBaseEnv):
     """
     MiniGrid NudgeEnv wrapper for BlendRL.
 
-    Env: MiniGrid-Empty-5x5-v0 with FullyObsWrapper
 
     Logic state (object-centric):
         row 0: dummy "image" placeholder      -> [0, 0, 0, 0]
@@ -20,9 +19,7 @@ class NudgeEnv(NudgeBaseEnv):
         row 3: wall (first wall found)        -> [wx, wy, 0, 1]
         row 4:enemy                           -> [ex, ey, dir, 1]
 
-    Shapes:
-        logic_state:  (4, 4)
-        neural_state: (4, 84, 84)
+
     """
     name = "minigrid"
 
@@ -44,10 +41,11 @@ class NudgeEnv(NudgeBaseEnv):
 
         env_kwargs = {}
 
-        # Only set n_obstacles if user explicitly passed a number
+        # Only set n_obstacles if user explicitly passed a number, otherwise default for env is 3
         if self.num_balls is not None:
             env_kwargs["n_obstacles"] = self.num_balls
 
+        #can change MiniGrid-Dynamic-Obstacles-6x6-v0 to another mingrid preset, have to change preds to match env
         self.env = gym.make(
             "MiniGrid-Dynamic-Obstacles-6x6-v0",
             render_mode=render_mode,
@@ -56,7 +54,7 @@ class NudgeEnv(NudgeBaseEnv):
 
         self.env = FullyObsWrapper(self.env)
 
-        # 4 objects x 4 features
+        # 5 objects x 4 features
         self.n_objects = 5
         self.n_features = 4
 
@@ -89,8 +87,6 @@ class NudgeEnv(NudgeBaseEnv):
 
         logic_state = self.extract_logic_state_objects()
         neural_state = self.extract_neural_state(img)
-
-
 
 
         # lazy import so BlendRL doesn't load it for other envs
@@ -132,6 +128,7 @@ class NudgeEnv(NudgeBaseEnv):
 
 
         # --- DEBUG: detect enemy collision at episode end ---
+        """
         if done:
             if info.get("dynamic_obstacle", False):
                 print("[DEBUG] Episode ended due to collision with dynamic obstacle.")
@@ -141,6 +138,7 @@ class NudgeEnv(NudgeBaseEnv):
                 print("[DEBUG] Episode ended because goal was reached.")
             else:
                 print(f"[DEBUG] {info}" )
+        """
 
         return (
             (logic_state, neural_state),
@@ -190,7 +188,7 @@ class NudgeEnv(NudgeBaseEnv):
             if found_wall:
                 break
 
-        # --- ENEMIES (Option B: summarize all via nearest enemy) ---
+        # --- ENEMIES: looks for nearest enemy and reacts to that---
         enemy_positions = []
 
         # Primary source: dynamic obstacles from the env

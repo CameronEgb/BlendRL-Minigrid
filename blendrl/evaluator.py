@@ -29,7 +29,7 @@ class Evaluator:
 
     def __init__(self,
                  agent_path: str = None,
-                 env_name: str = "seaquest",
+                 env_name: str = "minigrid",
                  device: str = "cpu",
                  fps: int = None,
                  deterministic=True,

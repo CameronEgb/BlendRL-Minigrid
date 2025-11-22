@@ -5,16 +5,12 @@ import torch.nn.functional as F
 
 class MLP(nn.Module):
     """
-    BlendRL-compatible MLP for MiniGrid (5x5 grid).
 
     Supports:
       - logic networks  (logic=True)
       - neural actor-critic networks
       - optional softmax/sigmoid
 
-    Input shapes:
-      Logic state:  (batch, 25, 1)
-      Neural state: (batch, 1, 5, 5, 3)
     """
 
     def __init__(

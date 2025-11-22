@@ -12,13 +12,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
     """
     Vectorized MiniGrid environment for BlendRL.
 
-    Each env:
-        logic_state: (4,4)
-        neural_state: (4,84,84)
-
-    Batch:
-        logic_states:  (n_envs, 4,4)
-        neural_states: (n_envs, 4,84,84)
+    look at documentation in env.py for info on matching methods
     """
 
     name = "minigrid"
