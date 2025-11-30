@@ -51,18 +51,18 @@ class NudgeEnv(NudgeBaseEnv):
 
         self.env = FullyObsWrapper(self.env)
 
-        # 5 objects x 4 features
-        self.n_objects = 5
+        self.max_obstacles = 5
+        # 1 (dummy) + 1 (agent) + 1 (goal) + max_obstacles
+        self.n_objects = 3 + self.max_obstacles
         self.n_features = 4
 
         self.n_actions = 3
         self.n_raw_actions = 3
 
-
     def reset(self):
         obs, info = self.env.reset(seed=self.seed)
 
-        img = th.tensor(obs["image"], dtype=th.float32)  # (5,5,3)
+        img = th.tensor(obs["image"], dtype=th.float32)
 
         logic_state = self.extract_logic_state_objects()
         neural_state = self.extract_neural_state(img)
@@ -168,69 +168,35 @@ class NudgeEnv(NudgeBaseEnv):
                     break
             if found_goal:
                 break
+        
+        logic_rows = [
+            [0, 0, 0, 0],       # dummy
+            [ax, ay, ad, 1],    # agent
+            [gx, gy, 0, 1],     # goal
+        ]
 
-        wx, wy = 0, 0
-        found_wall = False
-        for x in range(uenv.width):
-            for y in range(uenv.height):
-                obj = uenv.grid.get(x, y)
-                if isinstance(obj, Wall):
-                    wx, wy = x, y
-                    found_wall = True
-                    break
-            if found_wall:
-                break
-
-        # --- ENEMIES: looks for nearest enemy and reacts to that---
+        # --- ENEMIES ---
         enemy_positions = []
-
-        # Primary source: dynamic obstacles from the env
         if hasattr(uenv, "obstacles") and uenv.obstacles is not None:
             enemy_positions.extend([tuple(obj.cur_pos) for obj in uenv.obstacles])
 
-        # Fallback: scan grid for Ball objects (in case obstacles list isn't present)
-        if not enemy_positions:
-            for x in range(uenv.width):
-                for y in range(uenv.height):
-                    obj = uenv.grid.get(x, y)
-                    if isinstance(obj, Ball):
-                        enemy_positions.append((x, y))
+        # Add obstacles to logic state
+        for i in range(self.max_obstacles):
+            if i < len(enemy_positions):
+                ex, ey = enemy_positions[i]
+                logic_rows.append([ex, ey, 0, 1])
+            else:
+                # Pad with non-visible, out-of-bounds objects
+                logic_rows.append([-1, -1, 0, 0])
 
-        # Summarize enemies as the NEAREST one to the agent
-        if enemy_positions:
-            # Manhattan distance
-            dists = [
-                (abs(ax - ex) + abs(ay - ey), ex, ey)
-                for (ex, ey) in enemy_positions
-            ]
-            dists.sort()
-            nearest_dist, ex, ey = dists[0]
-            # we keep col2=0, col3=1 so NSFR encoding stays compatible
-            enemy_row = [ex, ey, 0, 1]
-        else:
-            # No enemies visible; use sentinel
-            enemy_row = [-1, -1, 0, 1]
-
-        logic = th.tensor(
-            [
-                [0, 0, 0, 0],
-                [ax, ay, ad, 1],
-                [gx, gy, 0, 1],
-                [wx, wy, 0, 1],
-                enemy_row,    # enemy
-            ],
-            dtype=th.int32,
-        )
+        logic = th.tensor(logic_rows, dtype=th.int32)
         return logic
 
     def extract_neural_state(self, img: th.Tensor) -> th.Tensor:
-        #assert img.numel() == 75, f"Expected 75 elements (5x5x3), got {img.numel()}"
-
-        x = img.permute(2, 0, 1).unsqueeze(0)  # (1,3,5,5)
-        gray = x.mean(dim=1, keepdim=True)     # (1,1,5,5)
-        gray_84 = F.interpolate(gray, size=(84, 84), mode="nearest")  # (1,1,84,84)
-        stacked = gray_84.repeat(1, 4, 1, 1)   # (1,4,84,84)
-        return stacked.squeeze(0)              # (4,84,84)
+        """
+        Takes the symbolic grid representation and flattens it.
+        """
+        return img.view(-1).float()
 
     def close(self):
         self.env.close()

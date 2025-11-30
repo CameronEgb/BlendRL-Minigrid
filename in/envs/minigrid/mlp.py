@@ -18,7 +18,7 @@ class MLP(nn.Module):
             device,
             has_softmax=False,
             has_sigmoid=False,
-            out_size=7,
+            out_size=3,
             as_dict=False,
             logic=False,
     ):
@@ -34,8 +34,8 @@ class MLP(nn.Module):
         # ----------------------------------------------
         # Input dimensions
         # ----------------------------------------------
-        self.logic_input_dim = 20       # 4*4
-        self.neural_input_dim = 4 * 84 * 84   #4 * 84 * 84
+        self.logic_input_dim = 32       # 8*4
+        self.neural_input_dim = 6 * 6 * 3   # 108
 
         input_dim = self.logic_input_dim if logic else self.neural_input_dim
 
@@ -60,8 +60,8 @@ class MLP(nn.Module):
     def forward(self, state):
         """
         state:
-            Logic:  (batch,25,1)
-            Neural: (batch,1,5,5,3)
+            Logic:  (batch,8,4)
+            Neural: (batch,6,6,3)
 
         Output:
             (batch, out_size)
@@ -70,7 +70,7 @@ class MLP(nn.Module):
         if self.logic:
             x = state.view(state.size(0), -1).float()
         else:
-            # (batch,1,5,5,3) → (batch,75)
+            # (batch,6,6,3) → (batch,108)
             x = state.view(state.size(0), -1).float()
 
         y = self.mlp(x)

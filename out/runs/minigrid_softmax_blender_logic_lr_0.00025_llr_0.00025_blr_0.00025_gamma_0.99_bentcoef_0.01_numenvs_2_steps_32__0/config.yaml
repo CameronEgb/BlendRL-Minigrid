@@ -24,7 +24,7 @@ minibatch_size: 16
 norm_adv: true
 num_balls: null
 num_envs: 2
-num_iterations: 937500
+num_iterations: 62
 num_minibatches: 4
 num_steps: 32
 pretrained: false
@@ -35,7 +35,7 @@ save_steps: 2000
 seed: 0
 target_kl: null
 torch_deterministic: true
-total_timesteps: 60000000
+total_timesteps: 4000
 track: false
 update_epochs: 10
 vf_coef: 0.5

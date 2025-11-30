@@ -18,12 +18,9 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
     name = "minigrid"
 
     pred2action = {
-        "move_left": 0,
-        "move_right": 1,
-        "move_forward": 2,
-        "turn_left": 3,
-        "turn_right": 4,
-        "done": 6,
+        "turn_left": 0,
+        "turn_right": 1,
+        "move_forward": 2
     }
     pred_names: Sequence
 
@@ -39,11 +36,13 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
         env_kwargs = {}
         if self.num_balls is not None:
             env_kwargs["n_obstacles"] = self.num_balls
-        self.n_objects = 5
+        
+        self.max_obstacles = 5
+        self.n_objects = 3 + self.max_obstacles
         self.n_features = 4
 
-        self.n_actions = 7
-        self.n_raw_actions = 7
+        self.n_actions = 3
+        self.n_raw_actions = 3
 
         self.envs = []
         for i in range(n_envs):
@@ -125,62 +124,35 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
                     break
             if found_goal:
                 break
+        
+        logic_rows = [
+            [0, 0, 0, 0],       # dummy
+            [ax, ay, ad, 1],    # agent
+            [gx, gy, 0, 1],     # goal
+        ]
 
-        wx, wy = 0, 0
-        found_wall = False
-        for x in range(uenv.width):
-            for y in range(uenv.height):
-                obj = uenv.grid.get(x, y)
-                if isinstance(obj, Wall):
-                    wx, wy = x, y
-                    found_wall = True
-                    break
-            if found_wall:
-                break
-
-        # --- ENEMIES: nearest enemy summary for this env ---
+        # --- ENEMIES ---
         enemy_positions = []
         if hasattr(uenv, "obstacles") and uenv.obstacles is not None:
             enemy_positions.extend([tuple(obj.cur_pos) for obj in uenv.obstacles])
 
-        if not enemy_positions:
-            for x in range(uenv.width):
-                for y in range(uenv.height):
-                    obj = uenv.grid.get(x, y)
-                    if isinstance(obj, Ball):
-                        enemy_positions.append((x, y))
+        # Add obstacles to logic state
+        for i in range(self.max_obstacles):
+            if i < len(enemy_positions):
+                ex, ey = enemy_positions[i]
+                logic_rows.append([ex, ey, 0, 1])
+            else:
+                # Pad with non-visible, out-of-bounds objects
+                logic_rows.append([-1, -1, 0, 0])
 
-        if enemy_positions:
-            dists = [
-                (abs(ax - ex) + abs(ay - ey), ex, ey)
-                for (ex, ey) in enemy_positions
-            ]
-            dists.sort()
-            _, ex, ey = dists[0]
-            enemy_row = [ex, ey, 0, 1]
-        else:
-            enemy_row = [-1, -1, 0, 1]
-
-        logic = th.tensor(
-            [
-                [0, 0, 0, 0],
-                [ax, ay, ad, 1],
-                [gx, gy, 0, 1],
-                [wx, wy, 0, 1],
-                enemy_row,
-            ],
-            dtype=th.int32,
-        )
+        logic = th.tensor(logic_rows, dtype=th.int32)
         return logic
 
     def extract_neural_state(self, img: th.Tensor) -> th.Tensor:
-        #assert img.numel() == 75, f"Expected 75 elements (5x5x3), got {img.numel()}"
-
-        x = img.permute(2, 0, 1).unsqueeze(0)
-        gray = x.mean(dim=1, keepdim=True)
-        gray_84 = F.interpolate(gray, size=(84, 84), mode="nearest")
-        stacked = gray_84.repeat(1, 4, 1, 1)
-        return stacked.squeeze(0)
+        """
+        Takes the symbolic grid representation and flattens it.
+        """
+        return img.view(-1).float()
 
     def close(self):
         for env in self.envs:

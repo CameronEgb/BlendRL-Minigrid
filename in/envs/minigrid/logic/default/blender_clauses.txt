@@ -1,2 +1,2 @@
-use_neural_agent(X):-closeby(Player,Obstacle). 
-use_logic_agent(X):-nothing_around(Player).
+neural_agent(X):-close_by(player,obstacle).
+logic_agent(X):-nothing_around(X).

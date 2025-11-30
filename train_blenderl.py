@@ -260,12 +260,15 @@ def main():
     )
 
     # ALGO Logic: Storage setup
-    observation_space = (4, 84, 84)
-    # logic_observation_space = (84, 51, 4)
-    logic_observation_space = (envs.n_objects, 4)
-    # logic_observation_space = (84, 43, 4)
+    if args.env_name == 'minigrid':
+        # The size is width * height * 3. For 6x6 grid with FullyObsWrapper, it's 7x7x3=147
+        neural_obs_shape = (108,)
+        logic_observation_space = (envs.n_objects, envs.n_features)
+    else:
+        neural_obs_shape = (4, 84, 84)
+        logic_observation_space = (envs.n_objects, 4)
     action_space = ()
-    obs = torch.zeros((args.num_steps, args.num_envs) + observation_space).to(device)
+    obs = torch.zeros((args.num_steps, args.num_envs) + neural_obs_shape).to(device)
     logic_obs = torch.zeros(
         (args.num_steps, args.num_envs) + logic_observation_space
     ).to(device)
@@ -406,7 +409,7 @@ def main():
             returns = advantages + values
 
         # flatten the batch
-        b_obs = obs.reshape((-1,) + observation_space)
+        b_obs = obs.reshape((-1,) + neural_obs_shape)
         b_logic_obs = logic_obs.reshape((-1,) + logic_observation_space)
         b_logprobs = logprobs.reshape(-1)
         b_actions = actions.reshape((-1,) + action_space)

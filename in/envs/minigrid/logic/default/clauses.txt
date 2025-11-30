@@ -1,4 +1,4 @@
-up_to_goal(X):-below(Player,Goal). 
-down_to_goal(X):-above(Player,Goal). 
-right_to_goal(X):-on_left(Player,Goal). 
-left_to_goal(X):-on_right(Player,Goal). 
+up_to_goal(X):-below(P,G).
+down_to_goal(X):-above(P,G).
+right_to_goal(X):-left_of(P,G).
+left_to_goal(X):-right_of(P,G).

@@ -1,215 +1,119 @@
 import torch as th
+
 from nsfr.utils.common import bool_to_probs
 
-# ============================================================
-# Minimal batch fix helpers
-# ============================================================
 
-def ensure_batch(x):
+def nothing_around(objs: th.Tensor) -> th.Tensor:
     """
-    Ensures tensor has shape (batch, ...).
-    GUI mode sends unbatched 1D tensors → add batch dim.
-    Vectorized envs send (batch, ...) → unchanged.
+    Checks if there are no "target" objects (obstacles) near the player.
+    This is the inverse of being close to any of those objects.
     """
-    if x.dim() == 1:
-        return x.unsqueeze(0)
-    return x
+    # In Minigrid's logic state:
+    # objs[:, 1] is the agent
+    # objs[:, 3:] are the obstacles
+    agent = objs[:, 1, :]
+    obstacles = objs[:, 3:, :]
+    
+    # Calculate close_by probability for each obstacle
+    close_probs = []
+    for i in range(obstacles.size(1)):
+        close_probs.append(_close_by(agent, obstacles[:, i, :]))
+
+    # If we're close to *any* obstacle, then something is "around"
+    something_is_around_prob = th.stack(close_probs).max(dim=0)[0]
+    
+    # "nothing_around" is the inverse of that probability
+    result = 1.0 - something_is_around_prob
+    return result.float()
 
 
-# ============================================================
-# Your original predicates (minimal modifications only)
-# ============================================================
-
-def front_clear(agent, wall):
-    agent = ensure_batch(agent)
-    wall = ensure_batch(wall)
-
-    ax = agent[:, 0]
-    ay = agent[:, 1]
-    ad = agent[:, 2]
-
-    wx = wall[:, 0]
-    wy = wall[:, 1]
-
-    # DIRECTIONS (your original style)
-    # 0: right, 1: down, 2: left, 3: up
-    dx = th.zeros_like(ax)
-    dy = th.zeros_like(ay)
-
-    dx = th.where(ad == 0, th.ones_like(dx), dx)
-    dy = th.where(ad == 1, th.ones_like(dy), dy)
-    dx = th.where(ad == 2, -th.ones_like(dx), dx)
-    dy = th.where(ad == 3, -th.ones_like(dy), dy)
-
-    nx = ax + dx
-    ny = ay + dy
-
-    inbounds = (nx >= 0) & (nx < 5) & (ny >= 0) & (ny < 5)
-    occupied = (nx == wx) & (ny == wy)
-
-    return bool_to_probs((~occupied & inbounds))
+def close_by(player: th.Tensor, obj: th.Tensor) -> th.Tensor:
+    """
+    Calculates the probability of the player being close to a given object.
+    """
+    return _close_by(player, obj)
 
 
-def left_clear(agent, wall):
-    agent = ensure_batch(agent)
-    wall = ensure_batch(wall)
+def _close_by(player: th.Tensor, obj: th.Tensor) -> th.Tensor:
+    """
+    Calculates the probability of the player being close to a given object.
+    A threshold of 2 is used for proximity on the grid.
+    """
+    proximity_threshold = 2.0
+    
+    player_x = player[:, 0]
+    player_y = player[:, 1]
+    
+    obj_x = obj[:, 0]
+    obj_y = obj[:, 1]
+    
+    # Visibility flag for the object (0 or 1)
+    obj_prob = obj[:, 3] 
 
-    ax = agent[:, 0]
-    ay = agent[:, 1]
-    ad = agent[:, 2]
-
-    wx = wall[:, 0]
-    wy = wall[:, 1]
-
-    dx = th.zeros_like(ax)
-    dy = th.zeros_like(ay)
-
-    dy = th.where(ad == 0, -1, dy)
-    dx = th.where(ad == 1,  1, dx)
-    dy = th.where(ad == 2,  1, dy)
-    dx = th.where(ad == 3, -1, dx)
-
-    nx = ax + dx
-    ny = ay + dy
-
-    inbounds = (nx >= 0) & (nx < 5) & (ny >= 0) & (ny < 5)
-    occupied = (nx == wx) & (ny == wy)
-
-    return bool_to_probs((~occupied & inbounds))
+    # Calculate Euclidean distance
+    dist_sq = (player_x - obj_x).pow(2) + (player_y - obj_y).pow(2)
+    dist = dist_sq.sqrt()
+    
+    # Probability is 1 if within threshold, 0 otherwise, multiplied by object visibility
+    is_close = bool_to_probs(dist < proximity_threshold)
+    
+    return is_close * obj_prob
 
 
-def right_clear(agent, wall):
-    agent = ensure_batch(agent)
-    wall = ensure_batch(wall)
-
-    ax = agent[:, 0]
-    ay = agent[:, 1]
-    ad = agent[:, 2]
-
-    wx = wall[:, 0]
-    wy = wall[:, 1]
-
-    dx = th.zeros_like(ax)
-    dy = th.zeros_like(ay)
-
-    dy = th.where(ad == 0,  1, dy)
-    dx = th.where(ad == 1, -1, dx)
-    dy = th.where(ad == 2, -1, dy)
-    dx = th.where(ad == 3,  1, dx)
-
-    nx = ax + dx
-    ny = ay + dy
-
-    inbounds = (nx >= 0) & (nx < 5) & (ny >= 0) & (ny < 5)
-    occupied = (nx == wx) & (ny == wy)
-
-    return bool_to_probs((~occupied & inbounds))
+def above(player: th.Tensor, obj: th.Tensor) -> th.Tensor:
+    """True if player is above obj (smaller y-coordinate)."""
+    player_y = player[:, 1]
+    obj_y = obj[:, 1]
+    obj_prob = obj[:, 3] # visibility
+    return bool_to_probs(player_y < obj_y) * obj_prob
 
 
-def blocked_ahead(agent, wall):
-    agent = ensure_batch(agent)
-    wall = ensure_batch(wall)
-
-    ax = agent[:, 0]
-    ay = agent[:, 1]
-    ad = agent[:, 2]
-
-    wx = wall[:, 0]
-    wy = wall[:, 1]
-
-    dx = th.zeros_like(ax)
-    dy = th.zeros_like(ay)
-
-    dx = th.where(ad == 0, 1, dx)
-    dy = th.where(ad == 1, 1, dy)
-    dx = th.where(ad == 2, -1, dx)
-    dy = th.where(ad == 3, -1, dy)
-
-    nx = ax + dx
-    ny = ay + dy
-
-    return bool_to_probs(((nx == wx) & (ny == wy)))
+def below(player: th.Tensor, obj: th.Tensor) -> th.Tensor:
+    """True if player is below obj (larger y-coordinate)."""
+    player_y = player[:, 1]
+    obj_y = obj[:, 1]
+    obj_prob = obj[:, 3] # visibility
+    return bool_to_probs(player_y > obj_y) * obj_prob
 
 
-def on_goal(agent, goal):
-    agent = ensure_batch(agent)
-    goal = ensure_batch(goal)
-
-    ax = agent[:, 0]
-    ay = agent[:, 1]
-
-    gx = goal[:, 0]
-    gy = goal[:, 1]
-
-    return bool_to_probs(((ax == gx) & (ay == gy)))
+def left_of(player: th.Tensor, obj: th.Tensor) -> th.Tensor:
+    """True if player is left of obj (smaller x-coordinate)."""
+    player_x = player[:, 0]
+    obj_x = obj[:, 0]
+    obj_prob = obj[:, 3] # visibility
+    return bool_to_probs(player_x < obj_x) * obj_prob
 
 
-def adjacent_goal(agent, goal):
-    agent = ensure_batch(agent)
-    goal = ensure_batch(goal)
+def right_of(player: th.Tensor, obj: th.Tensor) -> th.Tensor:
+    """True if player is right of obj (larger x-coordinate)."""
+    player_x = player[:, 0]
+    obj_x = obj[:, 0]
+    obj_prob = obj[:, 3] # visibility
+    return bool_to_probs(player_x > obj_x) * obj_prob
 
-    ax = agent[:, 0]
-    ay = agent[:, 1]
+def blocked(player: th.Tensor, obj: th.Tensor) -> th.Tensor:
+    """
+    Checks if the player is blocked by an object in front of it.
+    """
+    ax = player[:, 0]
+    ay = player[:, 1]
+    ad = player[:, 2] # direction
 
-    gx = goal[:, 0]
-    gy = goal[:, 1]
+    ox = obj[:, 0]
+    oy = obj[:, 1]
+    ob_prob = obj[:, 3]
 
-    d = (th.abs(ax - gx) + th.abs(ay - gy))
-    return bool_to_probs((d == 1))
+    # Calculate position in front of the agent
+    front_x = ax.clone()
+    front_y = ay.clone()
 
-def enemy_close(agent, enemy):
-    ax, ay = agent[:,0], agent[:,1]
-    ex, ey = enemy[:,0], enemy[:,1]
-    dist = (ax - ex).abs() + (ay - ey).abs()
-    return (dist <= 1).float()  # 1 tile away
+    # ad: 0:right, 1:down, 2:left, 3:up
+    front_x[ad == 0] += 1
+    front_y[ad == 1] += 1
+    front_x[ad == 2] -= 1
+    front_y[ad == 3] -= 1
 
-
-def enemy_ahead(agent, enemy):
-    ax, ay, ad = agent[:,0], agent[:,1], agent[:,2]
-    ex, ey = enemy[:,0], enemy[:,1]
-
-    dx = ex - ax
-    dy = ey - ay
-
-    # ad: 0=right,1=down,2=left,3=up (MiniGrid standard)
-    cond = (
-            ((ad==0) & (dx>0) & (dy==0)) |
-            ((ad==2) & (dx<0) & (dy==0)) |
-            ((ad==1) & (dy>0) & (dx==0)) |
-            ((ad==3) & (dy<0) & (dx==0))
-    )
-    return cond.float()
-
-
-def enemy_left(agent, enemy):
-    ax, ay, ad = agent[:,0], agent[:,1], agent[:,2]
-    ex, ey = enemy[:,0], enemy[:,1]
-
-    dx = ex - ax
-    dy = ey - ay
-
-    # ad: 0=right,1=down,2=left,3=up (MiniGrid standard)
-    cond = (
-            ((ad==0) & (dx>0) & (dy==0)) |
-            ((ad==2) & (dx<0) & (dy==0)) |
-            ((ad==1) & (dy>0) & (dx==0)) |
-            ((ad==3) & (dy<0) & (dx==0))
-    )
-    return cond.float()
-
-
-def enemy_right(agent, enemy):
-    ax, ay, ad = agent[:,0], agent[:,1], agent[:,2]
-    ex, ey = enemy[:,0], enemy[:,1]
-
-    dx = ex - ax
-    dy = ey - ay
-
-    # ad: 0=right,1=down,2=left,3=up (MiniGrid standard)
-    cond = (
-            ((ad==0) & (dx>0) & (dy==0)) |
-            ((ad==2) & (dx<0) & (dy==0)) |
-            ((ad==1) & (dy>0) & (dx==0)) |
-            ((ad==3) & (dy<0) & (dx==0))
-    )
-    return cond.float()
+    # Check if obstacle is in front of the agent
+    is_in_front = (front_x == ox) & (front_y == oy)
+    
+    return bool_to_probs(is_in_front) * ob_prob
