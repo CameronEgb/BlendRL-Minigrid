@@ -521,6 +521,12 @@ def main():
         # print current agent information
         agent._print()
 
+        w_neural, w_logic = agent.get_policy_weights()
+        writer.add_scalar("blend/neural_weight", w_neural, global_step)
+        writer.add_scalar("blend/logic_weight", w_logic, global_step)
+        winner = 0 if w_neural >= w_logic else 1
+        writer.add_scalar("blend/winner", winner, global_step)
+
     envs.close()
     writer.close()
 
