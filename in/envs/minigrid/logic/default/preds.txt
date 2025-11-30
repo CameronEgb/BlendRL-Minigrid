@@ -1,8 +1,8 @@
-move_left:1:image
-move_right:1:image
-move_forward:1:image
-turn_left:1:image
-turn_right:1:image
-done:1:image
+left_of:1:image
+right_of:1:image
+above:1:image
+below:1:image
+close_by:1:image
+blocked:1:image
 neural_agent:1:image
 logic_agent:1:image

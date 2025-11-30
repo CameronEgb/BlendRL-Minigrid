@@ -24,12 +24,9 @@ class NudgeEnv(NudgeBaseEnv):
     name = "minigrid"
 
     pred2action = {
-        "move_left": 0,
-        "move_right": 1,
-        "move_forward": 2,
-        "turn_left": 3,
-        "turn_right": 4,
-        "done": 6,
+        "turn_left": 0,
+        "turn_right": 1,
+        "move_forward": 2
     }
 
     def __init__(self, mode: str, render_mode="rgb_array", render_oc_overlay=False, seed=None, num_balls=None):
@@ -58,15 +55,12 @@ class NudgeEnv(NudgeBaseEnv):
         self.n_objects = 5
         self.n_features = 4
 
-        self.n_actions = 7
-        self.n_raw_actions = 7
+        self.n_actions = 3
+        self.n_raw_actions = 3
 
 
     def reset(self):
-        if self.seed is not None:
-            obs, info = self.env.reset(seed=self.seed)
-        else:
-            obs, info = self.env.reset()
+        obs, info = self.env.reset(seed=self.seed)
 
         img = th.tensor(obs["image"], dtype=th.float32)  # (5,5,3)
 
@@ -153,8 +147,7 @@ class NudgeEnv(NudgeBaseEnv):
         row 0: [0,0,0,0]         dummy "image"
         row 1: [ax,ay,dir,1]     agent
         row 2: [gx,gy,0,1]       goal
-        row 3: [wx,wy,0,1]       wall
-        row 4: [ex,ey,0,1]       nearest enemy (Ball / dynamic obstacle)
+        row 3+: [ex,ey,0,1]      enemies (Ball / dynamic obstacle)
         """
         env = self.env
 

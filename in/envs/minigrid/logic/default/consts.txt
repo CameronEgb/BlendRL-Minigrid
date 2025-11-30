@@ -1,5 +1,4 @@
 image:img
-agent:obj1
+player:obj1
 goal:obj2
-wall:obj3
-enemy:obj4
+obstacle:ob3,obj4,obj5,obj6

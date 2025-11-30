@@ -1,11 +1,4 @@
-move_forward(A):-front_clear(A,W).
-move_left(A):-left_clear(A,W).
-move_right(A):-right_clear(A,W).
-done(A):-on_goal(A,G).
-turn_left(A):-blocked_ahead(A,W).
-turn_right(A):-blocked_ahead(A,W).
-move_forward(A):-adjacent_goal(A,G).
-turn_left(A):-enemy_ahead(A,E).
-turn_right(A):-enemy_ahead(A,E).
-move_right(A):-enemy_left(A,E).
-move_left(A):-enemy_right(A,E).
+up_to_goal(X):-below(Player,Goal). 
+down_to_goal(X):-above(Player,Goal). 
+right_to_goal(X):-on_left(Player,Goal). 
+left_to_goal(X):-on_right(Player,Goal). 
