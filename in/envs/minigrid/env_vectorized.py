@@ -18,32 +18,32 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
     name = "minigrid"
 
     pred2action = {
-        "turn_left": 0,
-        "turn_right": 1,
-        "move_forward": 2
+        "move_up": 0,
+        "move_down": 1,
+        "move_left": 2,
+        "move_right": 3
     }
     pred_names: Sequence
-
+    
     def __init__(self, mode: str, n_envs: int,
                  render_mode="rgb_array", render_oc_overlay=False, seed=None,num_balls=None):
         super().__init__(mode)
-
+    
         self.n_envs = n_envs
         self.seed = seed
         self.render_mode = render_mode
         self.num_balls = num_balls
-
+    
         env_kwargs = {}
         if self.num_balls is not None:
             env_kwargs["n_obstacles"] = self.num_balls
-        
+    
         self.max_obstacles = 5
         self.n_objects = 3 + self.max_obstacles
         self.n_features = 4
-
-        self.n_actions = 3
-        self.n_raw_actions = 3
-
+    
+        self.n_actions = 4 # Updated to 4
+        self.n_raw_actions = 4 # Updated to 4
         self.envs = []
         for i in range(n_envs):
             env = gym.make("MiniGrid-Dynamic-Obstacles-6x6-v0", render_mode=render_mode,**env_kwargs)
@@ -84,9 +84,43 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
         for i, env in enumerate(self.envs):
             action = int(actions[i])
 
-            obs, reward, terminated, truncated, info = env.step(action)
-            done = terminated or truncated
+            current_dir = env.unwrapped.agent_dir # 0: East, 1: South, 2: West, 3: North
 
+            primitive_action_sequence = []
+
+            # Determine target direction based on the custom action
+            target_dir = -1
+            if action == self.pred2action["move_up"]: # Move North
+                target_dir = 3
+            elif action == self.pred2action["move_down"]: # Move South
+                target_dir = 1
+            elif action == self.pred2action["move_left"]: # Move West
+                target_dir = 2
+            elif action == self.pred2action["move_right"]: # Move East
+                target_dir = 0
+
+            if target_dir != -1: # If it's one of the cardinal move actions
+                # Calculate turns needed
+                num_turns = (target_dir - current_dir + 4) % 4
+                if num_turns == 3: # If 3 turns right, it's 1 turn left (optimization)
+                    primitive_action_sequence.append(0) # Turn left
+                else: # Otherwise, turn right num_turns times
+                    for _ in range(num_turns):
+                        primitive_action_sequence.append(1) # Turn right
+                primitive_action_sequence.append(2) # Move forward
+            else: # If the action is not a custom cardinal move (shouldn't happen with updated pred2action)
+                primitive_action_sequence.append(int(action)) # Execute the action as is
+            
+            # Execute primitive action sequence
+            obs, reward, terminated, truncated, info = None, None, False, False, None
+            done = False
+            for p_action in primitive_action_sequence:
+                obs, reward, terminated, truncated, info = env.step(p_action)
+                done = terminated or truncated
+                if done: # Stop if an episode ends during a sequence of primitive actions
+                    break
+
+            # Process the results of the last primitive step for this environment
             img = th.tensor(obs["image"], dtype=th.float32)
 
             logic_state = self.extract_logic_state_objects(env)

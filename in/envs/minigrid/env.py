@@ -24,9 +24,10 @@ class NudgeEnv(NudgeBaseEnv):
     name = "minigrid"
 
     pred2action = {
-        "turn_left": 0,
-        "turn_right": 1,
-        "move_forward": 2
+        "move_up": 0,
+        "move_down": 1,
+        "move_left": 2,
+        "move_right": 3
     }
 
     def __init__(self, mode: str, render_mode="rgb_array", render_oc_overlay=False, seed=None, num_balls=None):
@@ -56,8 +57,8 @@ class NudgeEnv(NudgeBaseEnv):
         self.n_objects = 3 + self.max_obstacles
         self.n_features = 4
 
-        self.n_actions = 3
-        self.n_raw_actions = 3
+        self.n_actions = 4 # Updated to 4
+        self.n_raw_actions = 4 # Updated to 4
 
     def reset(self):
         obs, info = self.env.reset(seed=self.seed)
@@ -74,8 +75,46 @@ class NudgeEnv(NudgeBaseEnv):
         self.last_agent_pos = tuple(uenv.agent_pos)
         self.last_obstacle_positions = [tuple(obj.cur_pos) for obj in uenv.obstacles]
 
-        obs, reward, terminated, truncated, info = self.env.step(int(action))
-        done = terminated or truncated
+        obs = None
+        reward = None
+        terminated = False
+        truncated = False
+        info = None
+
+        uenv = self.env.unwrapped
+        current_dir = uenv.agent_dir # 0: East, 1: South, 2: West, 3: North
+
+        primitive_action_sequence = []
+
+        # Determine target direction based on the custom action
+        target_dir = -1
+        if action == self.pred2action["move_up"]: # Move North
+            target_dir = 3
+        elif action == self.pred2action["move_down"]: # Move South
+            target_dir = 1
+        elif action == self.pred2action["move_left"]: # Move West
+            target_dir = 2
+        elif action == self.pred2action["move_right"]: # Move East
+            target_dir = 0
+
+        if target_dir != -1: # If it's one of the cardinal move actions
+            # Calculate turns needed
+            num_turns = (target_dir - current_dir + 4) % 4
+            if num_turns == 3: # If 3 turns right, it's 1 turn left
+                primitive_action_sequence.append(0) # Turn left
+            else: # Otherwise, turn right num_turns times
+                for _ in range(num_turns):
+                    primitive_action_sequence.append(1) # Turn right
+            primitive_action_sequence.append(2) # Move forward
+        else: # If the action is not a custom cardinal move (shouldn't happen with updated pred2action)
+            primitive_action_sequence.append(int(action)) # Execute the action as is
+
+        done = False
+        for p_action in primitive_action_sequence:
+            obs, reward, terminated, truncated, info = self.env.step(p_action)
+            done = terminated or truncated
+            if done: # Stop if an episode ends during a sequence of primitive actions
+                break
 
         img = th.tensor(obs["image"], dtype=th.float32)
 
