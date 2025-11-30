@@ -102,8 +102,18 @@ class Renderer:
         frame = self.env.env.render()
         self.env_render_shape = frame.shape[:2]
         window_shape = list(self.env_render_shape)
+        # Determine the maximum height needed for rendering predictions
+        max_pred_items = max(
+            len(self.env.pred2action.keys()),  # for _render_neural_probs
+            len(self.model.actor.logic_actor.prednames) # for _render_predicate_probs
+        )
+        required_height_for_preds = 25 + (max_pred_items + 2) * 35 # 25 offset, +2 for some padding, 35 item height
+
         if self.render_predicate_probs:
             window_shape[0] += PREDICATE_PROBS_COL_WIDTH
+
+        window_shape[1] = max(self.env_render_shape[1], required_height_for_preds)
+
         self.window = pygame.display.set_mode(window_shape, pygame.SCALED)
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("Calibri", 24)
@@ -363,26 +373,7 @@ class Renderer:
         anchor = (self.env_render_shape[0] + 10, 25)
         blender_actor = self.model.actor
         action_vals = blender_actor.neural_action_probs[0].detach().cpu().numpy()
-        action_names = [
-            "noop",
-            "fire",
-            "up",
-            "right",
-            "left",
-            "down",
-            "upright",
-            "upleft",
-            "downright",
-            "downleft",
-            "upfire",
-            "rightfire",
-            "leftfire",
-            "downfire",
-            "uprightfire",
-            "upleftfire",
-            "downrightfire",
-            "downleftfire",
-        ]
+        action_names = list(self.env.pred2action.keys())
         for i, (pred, val) in enumerate(zip(action_names, action_vals)):
             i += 2
             # Render cell background
