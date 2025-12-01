@@ -1,7 +1,7 @@
 import argparse
 import os
 import time
-import csv
+import warnings
 import heapq
 import gymnasium as gym
 import numpy as np
@@ -9,23 +9,23 @@ import torch
 import torch.nn as nn
 from gymnasium import spaces
 from minigrid.envs import DynamicObstaclesEnv
-from minigrid.core.constants import DIR_TO_VEC
 from minigrid.wrappers import ImgObsWrapper
 from stable_baselines3 import PPO, DQN, A2C
 from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecTransposeImage, is_vecenv_wrapped
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+
+# --- Silence Annoying Pygame/PkgResources Warnings ---
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=UserWarning, module="pygame")
 
 # --- Custom CNN for MiniGrid (Fixes 7x7 input size issue) ---
 class MinigridFeaturesExtractor(BaseFeaturesExtractor):
     def __init__(self, observation_space: gym.spaces.Box, features_dim: int = 128):
         super().__init__(observation_space, features_dim)
-        # We assume CxHxW input (SB3 handles the transpose)
         n_input_channels = observation_space.shape[0]
-        
-        # A small CNN architecture for 7x7 grids
         self.cnn = nn.Sequential(
             nn.Conv2d(n_input_channels, 16, kernel_size=2),
             nn.ReLU(),
@@ -35,11 +35,8 @@ class MinigridFeaturesExtractor(BaseFeaturesExtractor):
             nn.ReLU(),
             nn.Flatten(),
         )
-
-        # Compute shape by doing one forward pass
         with torch.no_grad():
             n_flatten = self.cnn(torch.as_tensor(observation_space.sample()[None]).float()).shape[1]
-
         self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
@@ -47,42 +44,17 @@ class MinigridFeaturesExtractor(BaseFeaturesExtractor):
 
 # --- Cardinal Action Wrapper ---
 class CardinalActionWrapper(gym.ActionWrapper):
-    """
-    Changes the action space to:
-    0: Move Up (North)
-    1: Move Right (East)
-    2: Move Down (South)
-    3: Move Left (West)
-    
-    It achieves this by instantly setting the agent's direction 
-    and then executing a 'forward' action.
-    """
     def __init__(self, env):
         super().__init__(env)
-        # 0=North, 1=East, 2=South, 3=West (Clockwise from Top)
         self.action_space = spaces.Discrete(4)
-        
-        # Map our actions (0-3) to MiniGrid direction constants
-        # MiniGrid: 0=East, 1=South, 2=West, 3=North
-        self.action_to_dir = {
-            0: 3, # Up -> North
-            1: 0, # Right -> East
-            2: 1, # Down -> South
-            3: 2  # Left -> West
-        }
+        self.action_to_dir = {0: 3, 1: 0, 2: 1, 3: 2} # Up, Right, Down, Left
 
     def action(self, action):
-        # This method is for transforming actions passed to step(), 
-        # but since we need to modify state (agent_dir) *before* the step,
-        # we override step() directly below instead.
         return action
 
     def step(self, action):
-        # 1. Force agent direction
         target_dir = self.action_to_dir[action]
         self.env.unwrapped.agent_dir = target_dir
-        
-        # 2. Execute 'Move Forward' (MiniGrid action 2)
         return self.env.step(2)
 
 # --- Custom Environment Factory ---
@@ -95,12 +67,8 @@ def make_custom_env(n_obstacles, size=8, render_mode=None, rank=0, seed=0):
             agent_start_dir=0,
             render_mode=render_mode
         )
-        # 1. Apply Cardinal Wrapper (Up/Down/Left/Right)
         env = CardinalActionWrapper(env)
-        
-        # 2. Apply Image Wrapper for CNNs
         env = ImgObsWrapper(env)
-        
         env.reset(seed=seed + rank)
         return Monitor(env)
     return _init
@@ -118,7 +86,6 @@ class CardinalAStar:
         start_pos = self.env.unwrapped.agent_pos
         goal_pos = None
 
-        # Find goal
         for x in range(grid.width):
             for y in range(grid.height):
                 obj = grid.get(x, y)
@@ -128,11 +95,7 @@ class CardinalAStar:
         
         if not goal_pos: return self.env.action_space.sample()
 
-        # State: (x, y) - No direction needed now!
         start_node = tuple(start_pos)
-        
-        # Priority Queue: (cost, current_node, first_action_to_take)
-        # We store 'first_action' to know which move started the path
         queue = [(0, start_node, None)]
         visited = set()
         
@@ -143,53 +106,37 @@ class CardinalAStar:
             if (cx, cy) == goal_pos:
                 return first_action if first_action is not None else 0
             
-            if current in visited:
-                continue
+            if current in visited: continue
             visited.add(current)
             
-            # Neighbors: Up(0), Right(1), Down(2), Left(3)
-            # Corresponding deltas (x, y):
-            # Up (North): (0, -1)
-            # Right (East): (1, 0)
-            # Down (South): (0, 1)
-            # Left (West): (-1, 0)
-            moves = [
-                (0, 0, -1),
-                (1, 1, 0),
-                (2, 0, 1),
-                (3, -1, 0)
-            ]
+            # Moves: 0=Up(N), 1=Right(E), 2=Down(S), 3=Left(W)
+            moves = [(0, 0, -1), (1, 1, 0), (2, 0, 1), (3, -1, 0)]
             
             for action_idx, dx, dy in moves:
                 nx, ny = cx + dx, cy + dy
-                
-                # Check bounds and obstacles
-                # Note: Treating dynamic obstacles as static for this planning step
                 if 0 <= nx < grid.width and 0 <= ny < grid.height:
                     cell = grid.get(nx, ny)
                     is_blocked = False
-                    if cell:
-                        if cell.type in ['wall', 'ball']: 
-                            is_blocked = True
+                    if cell and cell.type in ['wall', 'ball']: 
+                        is_blocked = True
                     
                     if not is_blocked and (nx, ny) not in visited:
                         h = self.heuristic((nx, ny), goal_pos)
-                        # If this is the start node, set the action, else keep existing
                         next_action = action_idx if first_action is None else first_action
                         heapq.heappush(queue, (cost + 1 + h, (nx, ny), next_action))
                 
-        # Fallback: No path found (surrounded), wait/random
         return self.env.action_space.sample()
 
 def run_heuristic_agent(agent_type, args):
-    log_dir = f"./baselines/logs/{agent_type}_obst{args.obstacles}_{int(time.time())}/"
+    # UPDATED PATH: baselines/logs/...
+    log_dir = f"baselines/logs/{agent_type}_obst{args.obstacles}_{int(time.time())}/"
     os.makedirs(log_dir, exist_ok=True)
     print(f"--> Running {agent_type} baseline (Cardinal Actions)...")
+    print(f"--> Logging to: {log_dir}")
     
     # Create single environment
     env = make_custom_env(n_obstacles=args.obstacles, size=8)()
     
-    # Create Monitor CSV
     monitor_path = os.path.join(log_dir, "0.monitor.csv")
     with open(monitor_path, "w") as f:
         f.write(f"# {{ 't_start': {time.time()}, 'env_id': 'MiniGrid-Dynamic-Cardinal' }}\n")
@@ -201,7 +148,6 @@ def run_heuristic_agent(agent_type, args):
     episode_len = 0
     
     astar = CardinalAStar(env) if agent_type == 'astar' else None
-
     start_time = time.time()
     
     while total_steps < args.steps:
@@ -211,7 +157,6 @@ def run_heuristic_agent(agent_type, args):
             action = astar.get_action()
 
         obs, reward, terminated, truncated, info = env.step(action)
-        
         episode_reward += reward
         episode_len += 1
         total_steps += 1
@@ -219,13 +164,10 @@ def run_heuristic_agent(agent_type, args):
         if terminated or truncated:
             with open(monitor_path, "a") as f:
                 f.write(f"{episode_reward},{episode_len},{time.time() - start_time}\n")
-            
             if total_steps % 10000 == 0:
                 print(f"Step {total_steps}/{args.steps} | Last Reward: {episode_reward:.2f}")
-
             obs, _ = env.reset()
-            episode_reward = 0
-            episode_len = 0
+            episode_reward = 0; episode_len = 0
 
     print(f"--> {agent_type} baseline finished.")
 
@@ -234,10 +176,16 @@ def train(args):
         run_heuristic_agent(args.algo, args)
         return
 
-    # 1. Setup Logging
-    log_dir = f"./baselines/logs/{args.algo}_obst{args.obstacles}_{int(time.time())}/"
+    # UPDATED PATHS: baselines/logs/... and baselines/tensorboard_logs/...
+    log_dir = f"baselines/logs/{args.algo}_obst{args.obstacles}_{int(time.time())}/"
+    tensorboard_log = "baselines/tensorboard_logs/"
+    
     os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(tensorboard_log, exist_ok=True)
+    
     print(f"--> Training {args.algo} (Cardinal) with {args.obstacles} obstacles.")
+    print(f"--> Logging to: {log_dir}")
+    print(f"--> TensorBoard: {tensorboard_log}")
     
     # 2. Setup Environment
     n_envs = 4 if args.algo.lower() in ['ppo', 'a2c'] else 1
@@ -249,9 +197,6 @@ def train(args):
     )
 
     # 3. Setup Model
-    tensorboard_log = "./tensorboard_logs/"
-    
-    # Define policy kwargs to use our custom CNN
     policy_kwargs = dict(
         features_extractor_class=MinigridFeaturesExtractor,
         features_extractor_kwargs=dict(features_dim=128),
@@ -274,14 +219,18 @@ def train(args):
     else:
         raise ValueError("Unknown algorithm")
 
-    # 4. Callbacks
-    # Ensure eval_env is a VecEnv (Wrapped with TransposeImage for CNNs)
+    # 4. Callbacks - FIX FOR EVAL ENV WRAPPING
     eval_env = make_vec_env(
         make_custom_env(n_obstacles=args.obstacles, size=8),
         n_envs=1,
         seed=args.seed + 1000, 
         vec_env_cls=DummyVecEnv
     )
+    
+    # Force VecTransposeImage on eval_env
+    if is_vecenv_wrapped(env, VecTransposeImage) and not is_vecenv_wrapped(eval_env, VecTransposeImage):
+        # print("--> Note: Wrapping Evaluation Env in VecTransposeImage to match Training Env.")
+        eval_env = VecTransposeImage(eval_env)
     
     eval_callback = EvalCallback(
         eval_env, best_model_save_path=log_dir, log_path=log_dir, 
@@ -296,6 +245,7 @@ def train(args):
     model.learn(total_timesteps=args.steps, callback=[eval_callback, checkpoint_callback], progress_bar=True)
     model.save(f"{log_dir}/final_model")
     print(f"--> Training finished.")
+    print(f"--> Best model saved to: {log_dir}/best_model.zip")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train baselines for MiniGrid Dynamic Obstacles (Cardinal)")
