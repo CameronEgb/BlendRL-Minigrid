@@ -78,3 +78,10 @@ build/
 *.dll
 
 project_tree.txt
+
+
+# --------------------------
+# Basline models and data
+# --------------------------
+baselines/logs/
+baselines/tensorboard_logs/

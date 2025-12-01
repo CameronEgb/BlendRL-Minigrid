@@ -1,0 +1,9 @@
+gymnasium
+minigrid
+stable-baselines3[extra]
+shimmy
+tensorboard
+pandas
+matplotlib
+numpy
+torch

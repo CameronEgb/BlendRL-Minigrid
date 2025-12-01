@@ -5,6 +5,8 @@ import csv
 import heapq
 import gymnasium as gym
 import numpy as np
+import torch
+import torch.nn as nn
 from gymnasium import spaces
 from minigrid.envs import DynamicObstaclesEnv
 from minigrid.core.constants import DIR_TO_VEC
@@ -14,6 +16,34 @@ from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+
+# --- Custom CNN for MiniGrid (Fixes 7x7 input size issue) ---
+class MinigridFeaturesExtractor(BaseFeaturesExtractor):
+    def __init__(self, observation_space: gym.spaces.Box, features_dim: int = 128):
+        super().__init__(observation_space, features_dim)
+        # We assume CxHxW input (SB3 handles the transpose)
+        n_input_channels = observation_space.shape[0]
+        
+        # A small CNN architecture for 7x7 grids
+        self.cnn = nn.Sequential(
+            nn.Conv2d(n_input_channels, 16, kernel_size=2),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=2),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=2),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+
+        # Compute shape by doing one forward pass
+        with torch.no_grad():
+            n_flatten = self.cnn(torch.as_tensor(observation_space.sample()[None]).float()).shape[1]
+
+        self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
+
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        return self.linear(self.cnn(observations))
 
 # --- Cardinal Action Wrapper ---
 class CardinalActionWrapper(gym.ActionWrapper):
@@ -152,7 +182,7 @@ class CardinalAStar:
         return self.env.action_space.sample()
 
 def run_heuristic_agent(agent_type, args):
-    log_dir = f"./logs/{agent_type}_obst{args.obstacles}_{int(time.time())}/"
+    log_dir = f"./baselines/logs/{agent_type}_obst{args.obstacles}_{int(time.time())}/"
     os.makedirs(log_dir, exist_ok=True)
     print(f"--> Running {agent_type} baseline (Cardinal Actions)...")
     
@@ -205,7 +235,7 @@ def train(args):
         return
 
     # 1. Setup Logging
-    log_dir = f"./logs/{args.algo}_obst{args.obstacles}_{int(time.time())}/"
+    log_dir = f"./baselines/logs/{args.algo}_obst{args.obstacles}_{int(time.time())}/"
     os.makedirs(log_dir, exist_ok=True)
     print(f"--> Training {args.algo} (Cardinal) with {args.obstacles} obstacles.")
     
@@ -221,22 +251,38 @@ def train(args):
     # 3. Setup Model
     tensorboard_log = "./tensorboard_logs/"
     
+    # Define policy kwargs to use our custom CNN
+    policy_kwargs = dict(
+        features_extractor_class=MinigridFeaturesExtractor,
+        features_extractor_kwargs=dict(features_dim=128),
+    )
+    
     if args.algo.lower() == 'ppo':
         model = PPO("CnnPolicy", env, verbose=1, tensorboard_log=tensorboard_log,
-                    learning_rate=0.0003, n_steps=2048, batch_size=64, ent_coef=0.01)
+                    learning_rate=0.0003, n_steps=2048, batch_size=64, ent_coef=0.01,
+                    policy_kwargs=policy_kwargs)
     elif args.algo.lower() == 'a2c':
         model = A2C("CnnPolicy", env, verbose=1, tensorboard_log=tensorboard_log,
-                    learning_rate=0.0007, n_steps=5, ent_coef=0.01)
+                    learning_rate=0.0007, n_steps=5, ent_coef=0.01,
+                    policy_kwargs=policy_kwargs)
     elif args.algo.lower() == 'dqn':
         model = DQN("CnnPolicy", env, verbose=1, tensorboard_log=tensorboard_log,
                     learning_rate=0.0001, buffer_size=100000, learning_starts=1000,
                     target_update_interval=1000, train_freq=4, gradient_steps=1,
-                    exploration_fraction=0.1, exploration_final_eps=0.05)
+                    exploration_fraction=0.1, exploration_final_eps=0.05,
+                    policy_kwargs=policy_kwargs)
     else:
         raise ValueError("Unknown algorithm")
 
     # 4. Callbacks
-    eval_env = make_custom_env(n_obstacles=args.obstacles, size=8)()
+    # Ensure eval_env is a VecEnv (Wrapped with TransposeImage for CNNs)
+    eval_env = make_vec_env(
+        make_custom_env(n_obstacles=args.obstacles, size=8),
+        n_envs=1,
+        seed=args.seed + 1000, 
+        vec_env_cls=DummyVecEnv
+    )
+    
     eval_callback = EvalCallback(
         eval_env, best_model_save_path=log_dir, log_path=log_dir, 
         eval_freq=max(10000 // n_envs, 1), deterministic=True, render=False
