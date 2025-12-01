@@ -158,7 +158,7 @@ class NudgeEnv(NudgeBaseEnv):
         # Return info
         if enemy_collision:
             info["enemy_collision"] = True
-            shaped[0] -= 2.0
+            shaped -= 2.0 #updates reward outside module
 
 
         # --- DEBUG: detect enemy collision at episode end ---

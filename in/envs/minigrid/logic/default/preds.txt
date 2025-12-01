@@ -1,6 +1,6 @@
 neural_agent:1:image
 logic_agent:1:image
-up_to_goal:1:image
-down_to_goal:1:image
-right_to_goal:1:image
-left_to_goal:1:image
+move_up:1:image
+move_down:1:image
+move_right:1:image
+move_left:1:image

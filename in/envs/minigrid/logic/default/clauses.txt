@@ -1,4 +1,4 @@
-up_to_goal(img):-below(obj1,obj2).
-down_to_goal(img):-above(obj1,obj2).
-right_to_goal(img):-left_of(obj1,obj2).
-left_to_goal(img):-right_of(obj1,obj2).
+move_up(img):-below(obj1,obj2).
+move_down(img):-above(obj1,obj2).
+move_right(img):-left_of(obj1,obj2).
+move_left(img):-right_of(obj1,obj2).
