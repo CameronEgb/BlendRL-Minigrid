@@ -18,7 +18,7 @@ class InferModule(nn.Module):
     A class of differentiable foward-chaining inference.
     """
 
-    def __init__(self, I, m, infer_step, gamma=0.01, device=None, train=False):
+    def __init__(self, I, m, infer_step, gamma=0.01, device=None, train=False, clauses=None, atoms=None): # Added atoms argument
         """
         In the constructor we instantiate two nn.Linear modules and assign them as
         member variables.
@@ -33,29 +33,24 @@ class InferModule(nn.Module):
         self.gamma = gamma
         self.device = device
         self.train_ = train
+        self.clauses = clauses
+        self.atoms = atoms # Store atoms
+
         if not train:
             self.W = self.init_identity_weights(device)
         else:
             # to learng the clause weights, initialize W as follows:
             self.W = nn.Parameter(torch.Tensor(
-                np.random.normal(size=(m, I.size(0)))).to(device))
+                np.random.normal(size=(m, I.size(0))))).to(device)
         # clause functions
         self.cs = [ClauseFunction(i, I, gamma=gamma)
                    for i in range(self.I.size(0))]
-
-        # assert m == self.C, "Invalid m and C: " + \
-        #     str(m) + ' and ' + str(self.C)
 
     def init_identity_weights(self, device):
         ones = torch.ones((self.C,), dtype=torch.float32) * 10
         return torch.diag(ones).to(device)
 
     def forward(self, x):
-        """
-        In the forward function we accept a Tensor of input data and we must return
-        a Tensor of output data. We can use Modules defined in the constructor as
-        well as arbitrary operators on Tensors.
-        """
         R = x
         for t in range(self.infer_step):
             R = softor([R, self.r(R)], dim=1, gamma=self.gamma)
@@ -63,24 +58,39 @@ class InferModule(nn.Module):
 
     def r(self, x):
         B = x.size(0)  # batch size
-        # apply each clause c_i and stack to a tensor C
-        # C * B * G
         C = torch.stack([self.cs[i](x)
                          for i in range(self.I.size(0))], 0)
-
-        # taking weighted sum using m weights and stack to a tensor H
-        # m * C
+        
         W_star = torch.softmax(self.W, 1)
-        # print(W_star)
-        # m * C * B * G
+        # --- NEW DEBUG PRINT FOR CLAUSE WEIGHTS ---
+        # print("DEBUG: InferModule.r - Softmaxed Clause Weights (W_star):")
+        # for i in range(self.C): # Iterate through clauses
+        #     clause_str = str(self.clauses[i]) if self.clauses else f"Clause {i}"
+        #     for m_idx in range(self.m): # For each 'm' clause from the training setup
+        #         weight_val = W_star[m_idx, i].item() # Access specific weight
+        #         print(f"  {clause_str} (head={self.clauses[i].head.pred.name if self.clauses else 'N/A'}) - W_star[{m_idx},{i}]: {weight_val:.3f}")
+        # --- END NEW DEBUG PRINT ---
+
         W_tild = W_star.unsqueeze(
             dim=-1).unsqueeze(dim=-1).expand(self.m, self.C, B, self.G)
-        # m * C * B * G
         C_tild = C.unsqueeze(dim=0).expand(self.m, self.C, B, self.G)
-        # m * B * G
         H = torch.sum(W_tild * C_tild, dim=1)
-        # taking soft or to compose a logic program with m clauses
-        # B * G
+
+        # --- NEW DEBUG PRINT FOR H TENSOR ---
+        # print(f"DEBUG: InferModule.r - H tensor (weighted sum) shape: {H.shape}")
+        # if self.atoms: # Check if atoms are available
+        #     from nsfr.fol.logic import Const # Import Const for debugging here
+        #     from nsfr.utils.logic import get_index_by_predname # Import helper
+        #     action_preds = ['up_to_goal', 'down_to_goal', 'right_to_goal', 'left_to_goal']
+        #     for pred_name in action_preds:
+        #         try:
+        #             atom_idx = get_index_by_predname(pred_str=pred_name, atoms=self.atoms, args=[Const('img', dtype='image')])
+        #             h_val = H[:, :, atom_idx].detach().cpu().numpy()
+        #             print(f"DEBUG: InferModule.r - H['{pred_name}(img)'] for each batch: {h_val}")
+        #         except ValueError as e:
+        #             print(f"DEBUG: Could not find {pred_name}(img) in atoms. Error: {e}")
+        # --- END NEW DEBUG PRINT ---
+
         R = softor(H, dim=0, gamma=self.gamma)
         return R
 
@@ -141,10 +151,6 @@ class ClauseBodyInferModule(nn.Module):
         # apply each clause c_i and stack to a tensor C
         # C * B * G
         # infer from i-th valuation tensor using i-th clause
-        # C = torch.stack([self.cs_bs[i](x[i])
-        #                  for i in range(self.I.size(0))], 0)
-        # print(self.cs_bs[0](x))
-        # print(self.cs_bs[0](x[0]))
         C = torch.stack([self.cs_bs[i](x)
                          for i in range(self.I.size(0))], 0)
         return C
@@ -174,7 +180,7 @@ class ClauseInferModule(nn.Module):
         else:
             # to learng the clause weights, initialize W as follows:
             self.W = nn.Parameter(torch.Tensor(
-                np.random.normal(size=(m, I.size(0)))).to(device))
+                np.random.normal(size=(m, I.size(0))))).to(device)
         # clause functions
         self.cs = [ClauseFunction(I[i], I, gamma=gamma)
                    for i in range(self.I.size(0))]
@@ -206,9 +212,12 @@ class ClauseInferModule(nn.Module):
         # apply each clause c_i and stack to a tensor C
         # C * B * G
         # infer from i-th valuation tensor using i-th clause
-        C = torch.stack([self.cs_bs[i](x[i])
+        C = torch.stack([self.cs_bs[i](x)
                          for i in range(self.I.size(0))], 0)
         return C
+
+    def get_params(self):
+        return self.W
 
 
 class ClauseFunction(nn.Module):
@@ -235,6 +244,21 @@ class ClauseFunction(nn.Module):
         V_tild = V.unsqueeze(-1).unsqueeze(-1).repeat(1, 1, self.S, self.L)
         # G * S * L -> B * G * S * L
         I_i_tild = I_i.repeat(batch_size, 1, 1, 1)
+        
+        # --- NEW DEBUG PRINT IN CLAUSEFUNCTION.FORWARD ---
+        # Only print for the first few clauses to avoid too much spam
+        # if self.i < 4: # Assuming your action clauses are the first 4
+        #     gathered_values = torch.gather(V_tild, 1, I_i_tild)
+        #     product_values = torch.prod(gathered_values, 3)
+        #     # Make sure this softor is not double-applied or removed
+        #     clause_output_C = softor(product_values, dim=2, gamma=self.gamma) 
+            
+        #     print(f"DEBUG: ClauseFunction {self.i} - V_tild shape: {V_tild.shape}")
+        #     print(f"DEBUG: ClauseFunction {self.i} - I_i_tild shape: {I_i_tild.shape}")
+        #     print(f"DEBUG: ClauseFunction {self.i} - gathered_values max: {gathered_values.max().item():.3f}, min: {gathered_values.min().item():.3f}")
+        #     print(f"DEBUG: ClauseFunction {self.i} - product_values max: {product_values.max().item():.3f}, min: {product_values.min().item():.3f}")
+        #     print(f"DEBUG: ClauseFunction {self.i} - clause_output_C max: {clause_output_C.max().item():.3f}, min: {clause_output_C.min().item():.3f}")
+        # --- END NEW DEBUG PRINT ---
 
         # B * G
         C = softor(torch.prod(torch.gather(V_tild, 1, I_i_tild), 3),

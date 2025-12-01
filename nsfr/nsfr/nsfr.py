@@ -2,6 +2,8 @@ import numpy as np
 import torch.nn as nn
 import torch
 from nsfr.utils.logic import get_index_by_predname
+from nsfr.fol.logic import Const
+from nsfr.fol.logic import Atom
 
 
 class NSFReasoner(nn.Module):
@@ -53,7 +55,116 @@ class NSFReasoner(nn.Module):
 
         # perform T-step forward-chaining reasoning
         self.V_T = self.im(self.V_0)
-        # self.print_valuations()
+        # self.print_valuations() # This call was what populated V_T for subsequent steps
+
+        # --- NEW DETAILED DEBUG PRINTS ---
+        # if self.atoms:
+        #     # --- below(obj1,obj2) ---
+        #     try:
+        #         idx_below_V0 = get_index_by_predname(
+        #             pred_str='below', atoms=self.atoms, args=[Const('obj1', dtype='object'), Const('obj2', dtype='object')]
+        #         )
+        #         val_below_V0 = self.V_0[:, idx_below_V0].detach().cpu().numpy()
+        #         # print(f"DEBUG: V_0['below(obj1,obj2)'] = {val_below_V0}")
+        #     except ValueError as e:
+        #         pass
+        #         # print(f"DEBUG: Could not find below(obj1,obj2) in V_0. Error: {e}")
+
+        #     # --- above(obj1,obj2) ---
+        #     try:
+        #         idx_above_V0 = get_index_by_predname(
+        #             pred_str='above', atoms=self.atoms, args=[Const('obj1', dtype='object'), Const('obj2', dtype='object')]
+        #         )
+        #         val_above_V0 = self.V_0[:, idx_above_V0].detach().cpu().numpy()
+        #         # print(f"DEBUG: V_0['above(obj1,obj2)'] = {val_above_V0}")
+        #     except ValueError as e:
+        #         pass
+        #         # print(f"DEBUG: Could not find above(obj1,obj2) in V_0. Error: {e}")
+
+        #     # --- left_of(obj1,obj2) ---
+        #     try:
+        #         idx_left_of_V0 = get_index_by_predname(
+        #             pred_str='left_of', atoms=self.atoms, args=[Const('obj1', dtype='object'), Const('obj2', dtype='object')]
+        #         )
+        #         val_left_of_V0 = self.V_0[:, idx_left_of_V0].detach().cpu().numpy()
+        #         # print(f"DEBUG: V_0['left_of(obj1,obj2)'] = {val_left_of_V0}")
+        #     except ValueError as e:
+        #         pass
+        #         # print(f"DEBUG: Could not find left_of(obj1,obj2) in V_0. Error: {e}")
+            
+        #     # --- right_of(obj1,obj2) ---
+        #     try:
+        #         idx_right_of_V0 = get_index_by_predname(
+        #             pred_str='right_of', atoms=self.atoms, args=[Const('obj1', dtype='object'), Const('obj2', dtype='object')]
+        #         )
+        #         val_right_of_V0 = self.V_0[:, idx_right_of_V0].detach().cpu().numpy()
+        #         # print(f"DEBUG: V_0['right_of(obj1,obj2)'] = {val_right_of_V0}")
+        #     except ValueError as e:
+        #         pass
+        #         # print(f"DEBUG: Could not find right_of(obj1,obj2) in V_0. Error: {e}")
+
+        #     # --- up_to_goal(img) from V_0 ---
+        #     try:
+        #         idx_up_to_goal_V0 = get_index_by_predname(
+        #             pred_str='up_to_goal', atoms=self.atoms, args=[Const('img', dtype='image')]
+        #         )
+        #         val_up_to_goal_V0 = self.V_0[:, idx_up_to_goal_V0].detach().cpu().numpy()
+        #         # print(f"DEBUG: V_0['up_to_goal(img)'] = {val_up_to_goal_V0}")
+        #     except ValueError as e:
+        #         pass
+        #         # print(f"DEBUG: Could not find up_to_goal(img) in V_0. Error: {e}")
+        # # --- END NEW DETAILED DEBUG PRINTS FOR V_0 ---
+
+
+        self.V_T = self.im(self.V_0) # Perform inference
+
+        # --- NEW DETAILED DEBUG PRINTS FOR V_T ---
+        # if self.atoms:
+        #     # --- up_to_goal(img) from V_T ---
+        #     try:
+        #         idx_up_to_goal_VT = get_index_by_predname(
+        #             pred_str='up_to_goal', atoms=self.atoms, args=[Const('img', dtype='image')]
+        #         )
+        #         val_up_to_goal_VT = self.V_T[:, idx_up_to_goal_VT].detach().cpu().numpy()
+        #         # print(f"DEBUG: V_T['up_to_goal(img)'] = {val_up_to_goal_VT}")
+        #     except ValueError as e:
+        #         pass
+        #         # print(f"DEBUG: Could not find up_to_goal(img) in V_T. Error: {e}")
+
+        #     # --- down_to_goal(img) from V_T ---
+        #     try:
+        #         idx_down_to_goal_VT = get_index_by_predname(
+        #             pred_str='down_to_goal', atoms=self.atoms, args=[Const('img', dtype='image')]
+        #         )
+        #         val_down_to_goal_VT = self.V_T[:, idx_down_to_goal_VT].detach().cpu().numpy()
+        #         # print(f"DEBUG: V_T['down_to_goal(img)'] = {val_down_to_goal_VT}")
+        #     except ValueError as e:
+        #         pass
+        #         # print(f"DEBUG: Could not find down_to_goal(img) in V_T. Error: {e}")
+            
+        #     # --- right_to_goal(img) from V_T ---
+        #     try:
+        #         idx_right_to_goal_VT = get_index_by_predname(
+        #             pred_str='right_to_goal', atoms=self.atoms, args=[Const('img', dtype='image')]
+        #         )
+        #         val_right_to_goal_VT = self.V_T[:, idx_right_to_goal_VT].detach().cpu().numpy()
+        #         # print(f"DEBUG: V_T['right_to_goal(img)'] = {val_right_to_goal_VT}")
+        #     except ValueError as e:
+        #         pass
+        #         # print(f"DEBUG: Could not find right_to_goal(img) in V_T. Error: {e}")
+
+        #     # --- left_to_goal(img) from V_T ---
+        #     try:
+        #         idx_left_to_goal_VT = get_index_by_predname(
+        #             pred_str='left_to_goal', atoms=self.atoms, args=[Const('img', dtype='image')]
+        #         )
+        #         val_left_to_goal_VT = self.V_T[:, idx_left_to_goal_VT].detach().cpu().numpy()
+        #         # print(f"DEBUG: V_T['left_to_goal(img)'] = {val_left_to_goal_VT}")
+        #     except ValueError as e:
+        #         pass
+        #         # print(f"DEBUG: Could not find left_to_goal(img) in V_T. Error: {e}")
+        # --- END NEW DETAILED DEBUG PRINTS FOR V_T ---
+
         # only return probs of actions
         actions = self.get_predictions(self.V_T, prednames=self.prednames)
         return actions
@@ -140,6 +251,7 @@ class NSFReasoner(nn.Module):
         valuation = self.V_0 if initial_valuation else self.V_T
         target_index = get_index_by_predname(pred_str=predname, atoms=self.atoms)
         value = valuation[:, target_index].item()
+        # print(f"GUI debug: get_predicate_valuation('{predname}', initial_valuation={initial_valuation}) returning: {value:.3f}")
         return value
     
     def get_fact_valuation(self, predname: str, initial_valuation: bool = True):

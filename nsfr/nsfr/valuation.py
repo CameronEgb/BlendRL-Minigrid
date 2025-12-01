@@ -53,15 +53,6 @@ class ValuationModule(nn.Module, ABC):
         self.pretrained = pretrained
 
     def forward(self, zs: torch.Tensor, atom: Atom):
-        """Convert the object-centric representation to a valuation tensor.
-
-            Args:
-                zs (tensor): The object-centric representation (the output of the YOLO model).
-                atom (atom): The target atom to compute its probability.
-
-            Returns:
-                A batch of the probabilities of the target atom.
-        """
         try:
             val_fn = self.val_fns[atom.pred.name]
         except KeyError as e:
@@ -69,7 +60,8 @@ class ValuationModule(nn.Module, ABC):
         # term: logical term
         # args: the vectorized input evaluated by the value function
         args = [self.ground_to_tensor(term, zs) for term in atom.terms]
-        return val_fn(*args)
+        result = val_fn(*args)
+        return result
 
     def ground_to_tensor(self, const: Const, zs: torch.Tensor):
         """Ground constant (term) into tensor representations.
@@ -83,12 +75,13 @@ class ValuationModule(nn.Module, ABC):
         if result is not None:
             # The constant is an object constant
             obj_id = result[1]
-            obj_index = int(obj_id) - 1
-            return zs[:, obj_index]
+            obj_index = int(obj_id) 
+            # Ensure output is (batch_size, n_features)
+            return zs[:, obj_index, :].squeeze(1)
 
         elif const.dtype.name == 'object':
             obj_index = self.lang.term_index(const)
-            return zs[:, obj_index]
+            return zs[:, obj_index, :].squeeze(1) # Also apply squeeze for generic object types
 
         elif const.dtype.name == 'image':
             return zs

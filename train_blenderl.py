@@ -148,7 +148,7 @@ def main():
         max_iterations=args.num_iterations,
     )
     model_description = "{}_blender_{}".format(args.blend_function, args.blender_mode)
-    learning_description = f"lr_{args.learning_rate}_llr_{args.logic_learning_rate}_blr_{args.blender_learning_rate}_gamma_{args.gamma}_bentcoef_{args.blend_ent_coef}_numenvs_{args.num_envs}_steps_{args.num_steps}_"
+    learning_description = f"lr_{args.learning_rate}_llr_{args.logic_learning_rate}_blr_{args.blender_learning_rate}_gamma_{args.gamma}_bentcoef_{args.blend_ent_coef}_numenvs_{args.num_envs}_steps_{args.num_steps}_num_balls_{args.num_balls}_"
     run_name = f"{args.env_name}_{model_description}_{learning_description}_{args.seed}"
     if args.track:
         wandb.init(

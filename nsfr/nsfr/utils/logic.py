@@ -39,7 +39,7 @@ def get_blender_lang(lark_path, lang_base_path, dataset):
 def build_infer_module(clauses, atoms, lang, device, m=3, infer_step=3, train=False):
     te = TensorEncoder(lang, atoms, clauses, device=device)
     I = te.encode()
-    im = InferModule(I, m=m, infer_step=infer_step, device=device, train=train)
+    im = InferModule(I, m=m, infer_step=infer_step, device=device, train=train, clauses=clauses, atoms=atoms)
     return im
 
 
@@ -54,14 +54,10 @@ def generate_atoms(lang):
         args_str_list = []
         # args_mem = []
         for args in args_list:
-            if len(args) == 1 or len(set(args)) == len(args):
-                # if len(args) == 1 or (args[0] != args[1] and args[0].mode == args[1].mode):
-                # if len(set(args)) == len(args):
-                # if not (str(sorted([str(arg) for arg in args])) in args_str_list):
-                atoms.append(Atom(pred, args))
+            # if len(args) == 1 or len(set(args)) == len(args): # Removed this filtering condition
+            atoms.append(Atom(pred, args))
                 # args_str_list.append(
                 #    str(sorted([str(arg) for arg in args])))
-                # print('add atom: ', Atom(pred, args))
     return spec_atoms + sorted(atoms)
 
 
@@ -108,11 +104,22 @@ def generate_bk(lang):
     return atoms
 
 
-def get_index_by_predname(pred_str, atoms):
+def get_index_by_predname(pred_str, atoms, args=None):
     for i, atom in enumerate(atoms):
         if atom.pred.name == pred_str:
-            return i
-    assert 1, pred_str + ' not found.'
+            if args is None:
+                return i
+            else:
+                # Compare arguments if provided
+                if len(atom.terms) == len(args):
+                    match = True
+                    for j in range(len(args)):
+                        if atom.terms[j].name != args[j].name:
+                            match = False
+                            break
+                    if match:
+                        return i
+    raise ValueError(f"Atom '{pred_str}({', '.join([arg.name for arg in args])})' not found.")
 
 
 def parse_clauses(lang, clause_strs):

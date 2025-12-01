@@ -57,7 +57,7 @@ class FactsConverter(nn.Module):
             torch.float32).to(self.device)
         for i, atom in enumerate(G):
             if type(atom.pred) == NeuralPredicate and i > 1:
-                V[:, i] = self.vm(Z, atom)
+                V[:, i] = self.vm(Z, atom) # <--- This is where valuation.py is called
             elif atom in B:
                 # V[:, i] += 1.0
                 V[:, i] += torch.ones((batch_size,)).to(

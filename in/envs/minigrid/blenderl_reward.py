@@ -27,9 +27,12 @@ class MiniGridReward:
         if raw_env_reward > 0:
             # Big success reward
             #larg reward when reaching goal since its the ultimate objective
-            reward += 10.0
+            reward += 20.0
 
         # --- Distance shaping ---
+        # Continuous negative reward proportional to current distance
+        reward -= 0.005 * curr_dist
+        
         if self.prev_dist is not None:
             if curr_dist < self.prev_dist:
                 reward += 0.20      # get rewarded if you move closer to the goal

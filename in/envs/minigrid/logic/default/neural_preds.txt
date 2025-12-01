@@ -2,12 +2,6 @@ left_of:2:player,goal
 right_of:2:player,goal
 above:2:player,goal
 below:2:player,goal
-close_by:2:player,goal
-blocked:2:player,goal
-left_of:2:player,obstacle
-right_of:2:player,obstacle
-above:2:player,obstacle
-below:2:player,obstacle
 close_by:2:player,obstacle
 blocked:2:player,obstacle
 nothing_around:1:image

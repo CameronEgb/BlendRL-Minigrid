@@ -150,7 +150,9 @@ class TensorEncoder(object):
 
         if len(var_list) == 0:
             # the case of the body atoms are already grounded
+            print(f"DEBUG: body_to_tensor - Grounded body: {body}")
             x_b = self.facts_to_index(body)
+            print(f"DEBUG: body_to_tensor - Indices (x_b) for grounded body: {x_b}")
             I_c_b[0] = self.pad_by_true(x_b)
 
             for i in range(1, self.S):
