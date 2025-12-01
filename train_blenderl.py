@@ -262,7 +262,7 @@ def main():
     # ALGO Logic: Storage setup
     if args.env_name == 'minigrid':
         # The size is width * height * 3. For 6x6 grid with FullyObsWrapper, it's 7x7x3=147
-        neural_obs_shape = (108,)
+        neural_obs_shape = (8, 8, 3)
         logic_observation_space = (envs.n_objects, envs.n_features)
     else:
         neural_obs_shape = (4, 84, 84)

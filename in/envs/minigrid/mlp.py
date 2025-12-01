@@ -8,7 +8,7 @@ class MLP(nn.Module):
 
     Supports:
       - logic networks  (logic=True)
-      - neural actor-critic networks
+      - neural actor-critic networks (now a CNN)
       - optional softmax/sigmoid
 
     """
@@ -31,28 +31,43 @@ class MLP(nn.Module):
         self.out_size = out_size
         self.as_dict = as_dict
 
-        # ----------------------------------------------
-        # Input dimensions
-        # ----------------------------------------------
-        self.logic_input_dim = 32       # 8*4
-        self.neural_input_dim = 6 * 6 * 3   # 108
+        if self.logic:
+            # ----------------------------------------------
+            # Input dimensions
+            # ----------------------------------------------
+            self.logic_input_dim = 32       # 8*4
+            input_dim = self.logic_input_dim
 
-        input_dim = self.logic_input_dim if logic else self.neural_input_dim
+            # ----------------------------------------------
+            # Network architecture
+            # ----------------------------------------------
+            hidden_dim = 128
 
-        # ----------------------------------------------
-        # Network architecture
-        # ----------------------------------------------
-        hidden_dim = 128
+            self.mlp = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                nn.ReLU(),
 
-        self.mlp = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
 
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
+                nn.Linear(hidden_dim, out_size)
+            ).to(device)
+        else:
+            self.cnn = nn.Sequential(
+                nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=2, stride=2),
+                nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=2, stride=2),
+            ).to(device)
+            
+            self.fc = nn.Sequential(
+                nn.Linear(32 * 2 * 2, 128),
+                nn.ReLU(),
+                nn.Linear(128, out_size)
+            ).to(device)
 
-            nn.Linear(hidden_dim, out_size)
-        ).to(device)
 
     # --------------------------------------------------
     # Forward
@@ -61,7 +76,7 @@ class MLP(nn.Module):
         """
         state:
             Logic:  (batch,8,4)
-            Neural: (batch,6,6,3)
+            Neural: (batch,8,8,3)
 
         Output:
             (batch, out_size)
@@ -69,11 +84,13 @@ class MLP(nn.Module):
 
         if self.logic:
             x = state.view(state.size(0), -1).float()
+            y = self.mlp(x)
         else:
-            # (batch,6,6,3) → (batch,108)
-            x = state.view(state.size(0), -1).float()
-
-        y = self.mlp(x)
+            # (batch,8,8,3) -> (batch,3,8,8)
+            x = state.permute(0, 3, 1, 2).float()
+            x = self.cnn(x)
+            x = x.reshape(x.size(0), -1) # flatten
+            y = self.fc(x)
 
         if self.has_softmax:
             y = F.softmax(y, dim=-1)

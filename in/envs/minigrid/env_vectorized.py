@@ -46,7 +46,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
         self.n_raw_actions = 4 # Updated to 4
         self.envs = []
         for i in range(n_envs):
-            env = gym.make("MiniGrid-Dynamic-Obstacles-6x6-v0", render_mode=render_mode,**env_kwargs)
+            env = gym.make("MiniGrid-Dynamic-Obstacles-8x8-v0", render_mode=render_mode,**env_kwargs)
             env = FullyObsWrapper(env)
             self.envs.append(env)
 
@@ -186,7 +186,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
         """
         Takes the symbolic grid representation and flattens it.
         """
-        return img.view(-1).float()
+        return img.float()
 
     def close(self):
         for env in self.envs:

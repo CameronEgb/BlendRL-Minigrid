@@ -45,7 +45,7 @@ class NudgeEnv(NudgeBaseEnv):
 
         #can change MiniGrid-Dynamic-Obstacles-6x6-v0 to another mingrid preset, have to change preds to match env
         self.env = gym.make(
-            "MiniGrid-Dynamic-Obstacles-6x6-v0",
+            "MiniGrid-Dynamic-Obstacles-8x8-v0",
             render_mode=render_mode,
             **env_kwargs
         )
@@ -158,6 +158,7 @@ class NudgeEnv(NudgeBaseEnv):
         # Return info
         if enemy_collision:
             info["enemy_collision"] = True
+            shaped[0] -= 2.0
 
 
         # --- DEBUG: detect enemy collision at episode end ---
@@ -235,7 +236,7 @@ class NudgeEnv(NudgeBaseEnv):
         """
         Takes the symbolic grid representation and flattens it.
         """
-        return img.view(-1).float()
+        return img.float()
 
     def close(self):
         self.env.close()
