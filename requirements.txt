@@ -1,7 +1,9 @@
 # Core dependencies
 torch
+torchvision
+torchaudio
 torch-geometric
-lightning
+pytorch-lightning
 hydra-core
 hydra-submitit-launcher
 omegaconf
