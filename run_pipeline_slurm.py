@@ -63,7 +63,7 @@ def submit_sbatch(script_content):
 def main():
     parser = argparse.ArgumentParser(description="NeSyRL Slurm Pipeline")
     parser.add_argument("experiment", type=str, help="Experiment name from conf/experiment/")
-    parser.add_argument("--partition", type=str, default="4060ti16gb", help="Slurm partition")
+    parser.add_argument("--partition", type=str, default="rtx4060ti16gb", help="Slurm partition")
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs per job")
     parser.add_argument("--cores", type=int, default=16, help="Number of CPU cores per job")
     parser.add_argument("--nodes", type=int, default=1, help="Number of nodes per job")
