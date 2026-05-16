@@ -120,7 +120,7 @@ def main():
     for agent_config in online_list:
         print(f"\n=== Preparing Slurm Job: Online Training ({agent_config}) ===")
         agent_name_internal = agent_config.replace("/", "_")
-        job_name = f"on_{agent_name_internal}_{args.experiment}"
+        job_name = agent_name_internal
         
         overrides = [
             "train.py",
@@ -158,7 +158,7 @@ def main():
         for agent_config in offline_list:
             print(f"\n=== Preparing Slurm Job: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
             agent_name_internal = agent_config.replace("/", "_")
-            job_name = f"off_{agent_name_internal}_{dataset_name_internal}_{args.experiment}"
+            job_name = f"{agent_name_internal}_{dataset_name_internal}"
             
             dataset_path_override = any("mode.dataset_path=" in arg for arg in sanitized_extra_args)
             overrides = [
@@ -195,8 +195,6 @@ def main():
         if args.plot_style:
             plot_cmd += f" --style {args.plot_style}"
             
-        sync_cmd = f"rsync -avz results/plots/{args.experiment}/ ${{MAC_USER}}@${{MAC_IP}}:${{MAC_PATH}}"
-        
         final_script = f"#!/bin/bash\n"
         final_script += f"#SBATCH --job-name={job_name}\n"
         final_script += f"#SBATCH --partition={args.partition}\n"
@@ -208,14 +206,8 @@ def main():
             final_script += f"#SBATCH --dependency=afterany:{all_dependencies}\n"
         final_script += f"\nexport PROJECT_ROOT={project_root}\n"
         final_script += f"export PYTHONPATH=$PROJECT_ROOT/src:$PYTHONPATH\n\n"
-        final_script += f"echo 'Generating final plots...'\n"
+        final_script += f"echo 'Generating final plots for {args.experiment}...'\n"
         final_script += f"{plot_cmd}\n"
-        final_script += f"echo 'Attempting to sync plots to Mac...'\n"
-        final_script += f"if [ -z \"$MAC_USER\" ] || [ -z \"$MAC_IP\" ] || [ -z \"$MAC_PATH\" ]; then\n"
-        final_script += f"  echo 'Error: MAC_USER, MAC_IP, or MAC_PATH not set. Skipping sync.'\n"
-        final_script += f"else\n"
-        final_script += f"  {sync_cmd}\n"
-        final_script += f"fi\n"
         
         submit_sbatch(final_script)
                 

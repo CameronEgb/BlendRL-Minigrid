@@ -9,6 +9,9 @@ from collections import defaultdict
 
 def get_style_info(label):
     l = label.lower()
+    # If it's a tuning run, let matplotlib pick the color
+    if "tune" in l: return None, "-", "o"
+    
     # Check for the main algorithm name in the label
     if "ppo" in l and "(on" not in l: return "black", "--", "o"
     if "blendrl-iql" in l: return "#d62728", "-", "s"
@@ -59,7 +62,11 @@ def load_run_data(run_folder, args):
     agent_name = "UNKNOWN"
     folder_str = str(run_folder).lower()
     
-    # Priority 1: Path-based detection (most reliable for our folder structure)
+    # Priority 1: Use folder name for specific label if it's not a generic 'version_X'
+    config_folder = run_folder.parent if run_folder.name.startswith("version_") else run_folder
+    folder_label = config_folder.name
+    
+    # Check for the main algorithm name in the label
     if "blendrl_iql" in folder_str: agent_name = "BLENDRL_IQL"
     elif "blendrl" in folder_str: agent_name = "BLENDRL"
     elif "iql" in folder_str: agent_name = "IQL"
@@ -80,7 +87,12 @@ def load_run_data(run_folder, args):
         "IQL": "IQL",
         "PPO": "PPO"
     }
-    agent_display_name = name_map.get(agent_name, agent_name)
+    
+    # Use the specific folder name if it's more descriptive than just the base algorithm
+    if folder_label.lower() != agent_name.lower() and folder_label.lower() != name_map.get(agent_name, "").lower():
+        agent_display_name = folder_label
+    else:
+        agent_display_name = name_map.get(agent_name, agent_name)
     
     source = "ONLINE"
     mode = config.get("mode", {}).get("type") if config else "unknown"
@@ -409,6 +421,52 @@ def main():
             create_plot(current_groups, metric, title, ylabel, save_dir / filename, 
                        window=window, use_simple_labels=use_simple_labels, 
                        x_axis_col=x_axis, xlabel=xlabel)
+
+    generate_time_table(all_runs, save_dir)
+
+def generate_time_table(all_runs, save_dir):
+    table_data = []
+    for run in all_runs:
+        label = run["label"]
+        source = run["source"]
+        data = run["data"]
+        
+        # Check if we have time metrics
+        if "time/train" in data and "time/total" in data:
+            # Final cumulative values
+            total_time = data["time/total"]["values"][-1]
+            train_time = data["time/train"]["values"][-1]
+            eval_time = total_time - train_time
+            
+            table_data.append({
+                "Method": label,
+                "Source": source,
+                "Total (m)": total_time / 60,
+                "Train (m)": train_time / 60,
+                "Eval (m)": eval_time / 60,
+                "Train %": (train_time / total_time * 100) if total_time > 0 else 0,
+                "Eval %": (eval_time / total_time * 100) if total_time > 0 else 0,
+                "Total (s)": total_time,
+                "Train (s)": train_time,
+                "Eval (s)": eval_time,
+            })
+    
+    if table_data:
+        df = pd.DataFrame(table_data)
+        # Round numerical columns for better display
+        num_cols = df.select_dtypes(include=[np.number]).columns
+        df[num_cols] = df[num_cols].round(2)
+        
+        df.to_csv(save_dir / "timing_report.csv", index=False)
+        
+        print("\nTiming Report:")
+        print(df.to_string(index=False))
+        
+        try:
+            with open(save_dir / "timing_report.md", "w") as f:
+                f.write(df.to_markdown(index=False))
+        except Exception as e:
+            print(f"Could not save markdown table: {e}")
 
 if __name__ == "__main__":
     main()

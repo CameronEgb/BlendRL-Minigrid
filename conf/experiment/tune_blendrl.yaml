@@ -6,7 +6,7 @@ defaults:
 experiment_id: tune_blendrl
 total_timesteps: 100000
 eval_episodes: 100
-online_methods: ppo/cp_tuned,blendrl/cp_tuned,blendrl/tune_ent,blendrl/tune_lr,blendrl/tune_gumbel
+online_methods: ppo/cp_tuned,blendrl/v1,blendrl/v2,blendrl/v3,blendrl/v4,blendrl/v5
 offline_methods: 
 intervals_count: 10
 

@@ -285,6 +285,7 @@ def load_logic_ppo(agent, path):
     return agent
 
 
+import time
 import lightning as L
 from blendrl.env_vectorized import VectorizedNudgeBaseEnv
 
@@ -294,8 +295,11 @@ class EnvironmentEvaluatorCallback(L.Callback):
         self.cfg = cfg
         self.eval_env = None
         self.logged_intervals = set()
+        self.train_start_time = None
+        self.cumulative_eval_time = 0
 
     def on_train_start(self, trainer, pl_module):
+        self.train_start_time = time.time()
         # Trigger evaluation for point 0
         if 0 not in self.logged_intervals:
             self.evaluate_and_log(trainer, pl_module, transitions=0)
@@ -329,7 +333,12 @@ class EnvironmentEvaluatorCallback(L.Callback):
         pass
 
     def evaluate_and_log(self, trainer, pl_module, transitions):
+        eval_start = time.time()
         avg_reward, std_reward = self.evaluate(trainer, pl_module)
+        eval_end = time.time()
+        
+        eval_duration = eval_end - eval_start
+        self.cumulative_eval_time += eval_duration
         
         # Force transitions to be a clean integer
         transitions = int(round(transitions))
@@ -340,6 +349,13 @@ class EnvironmentEvaluatorCallback(L.Callback):
             "transitions": float(transitions)
         }
         
+        if self.train_start_time is not None:
+            current_total_time = eval_end - self.train_start_time
+            pure_training_time = current_total_time - self.cumulative_eval_time
+            metrics["time/eval"] = eval_duration
+            metrics["time/train"] = pure_training_time
+            metrics["time/total"] = current_total_time
+
         if pl_module.cfg.mode.type == "offline":
             metrics["epoch"] = float(pl_module.current_epoch)
             
