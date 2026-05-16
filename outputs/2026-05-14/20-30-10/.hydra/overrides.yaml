@@ -1,6 +1,0 @@
-- env=cartpole
-- agent=ppo
-- mode=online
-- total_timesteps=10000
-- experiment_id=test_hydra
-- local=true

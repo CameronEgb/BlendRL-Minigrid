@@ -1,9 +1,0 @@
-- experiment_id=cp_ppo_tuning
-- env=cartpole
-- agent=ppo
-- agent.lr=0.005
-- agent.ent_coef=0.01
-- total_timesteps=25000
-- intervals_count=5
-- eval_episodes=50
-- seed=2

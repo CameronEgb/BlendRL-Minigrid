@@ -1,9 +1,0 @@
-- +experiment=cp_final
-- group=test_full_hydra
-- local=True
-- mode=offline
-- agent=iql_cp_tuned
-- mode.dataset_path=results/datasets/test_full_hydra/cp_final/ppo
-- total_timesteps=3000
-- intervals_count=2
-- eval_episodes=5

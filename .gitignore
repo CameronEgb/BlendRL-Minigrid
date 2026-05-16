@@ -21,3 +21,4 @@ offline_dataset/
 # OS Specific
 .DS_Store
 assets/
+outputs/

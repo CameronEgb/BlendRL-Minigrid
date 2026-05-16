@@ -1,7 +1,0 @@
-- experiment_id=cp_ppo_lr5e-3_ent0.0
-- agent=ppo
-- env=cartpole
-- agent.lr=0.005
-- agent.ent_coef=0.0
-- total_timesteps=50000
-- seed=1

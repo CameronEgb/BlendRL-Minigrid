@@ -1,7 +1,0 @@
-- experiment_id=blendrl
-- agent=blendrl
-- mode=online
-- total_timesteps=200000
-- intervals_count=20
-- group=cp_final_results
-- save_dataset=True

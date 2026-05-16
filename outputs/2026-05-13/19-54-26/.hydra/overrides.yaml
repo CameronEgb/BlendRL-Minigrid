@@ -1,7 +1,0 @@
-- experiment_id=cp_ppo_16_16_lr3e-4
-- agent=ppo
-- env=cartpole
-- agent.hidden_sizes=[16,16]
-- agent.lr=0.0003
-- total_timesteps=100000
-- seed=1

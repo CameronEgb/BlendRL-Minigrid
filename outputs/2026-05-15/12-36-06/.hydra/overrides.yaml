@@ -1,6 +1,0 @@
-- +experiment=cp_final
-- local=True
-- mode=online
-- agent=ppo_cp_tuned
-- total_timesteps=1000
-- intervals_count=2

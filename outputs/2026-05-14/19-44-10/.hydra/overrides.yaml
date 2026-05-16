@@ -1,8 +1,0 @@
-- experiment_id=cp_final_offline_blendrl_iql
-- agent=blendrl_iql
-- agent.tau=0.7
-- agent.beta=3.0
-- agent.lr=3e-4
-- mode=offline
-- mode.dataset_path=results/datasets/cp_final_ppo/ppo
-- intervals_count=20

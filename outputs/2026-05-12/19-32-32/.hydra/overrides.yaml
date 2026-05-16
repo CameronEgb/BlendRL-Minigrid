@@ -1,8 +1,0 @@
-- experiment_id=cartpole
-- env=cartpole
-- agent=blendrl_iql
-- mode=offline
-- mode.dataset_path=results/datasets/cartpole/blendrl
-- total_timesteps=1000
-- intervals_count=5
-- eval_episodes=100

@@ -1,7 +1,0 @@
-- experiment_id=cp_iql_test
-- agent=iql
-- agent.tau=0.7
-- agent.beta=3.0
-- mode=offline
-- mode.dataset_path=results/datasets/cp_final_ppo/ppo
-- intervals_count=20

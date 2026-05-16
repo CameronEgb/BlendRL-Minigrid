@@ -1,8 +1,0 @@
-- experiment_id=cp_brief
-- env=cartpole
-- agent=blendrl_iql
-- mode=offline
-- mode.dataset_path=results/datasets/cp_brief/blendrl
-- total_timesteps=1000
-- intervals_count=4
-- eval_episodes=5
