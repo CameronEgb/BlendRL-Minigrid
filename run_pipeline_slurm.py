@@ -22,10 +22,11 @@ def generate_sbatch_script(job_name, cmd_args, log_dir, partition="rtx4060ti16g"
         script += f"#SBATCH --dependency=afterok:{dependency}\n"
         
     script += f"\n"
-    script += f"export PYTHONPATH=$(pwd)/src:$PYTHONPATH\n"
+    script += f"export PROJECT_ROOT={os.getcwd()}\n"
+    script += f"export PYTHONPATH=$PROJECT_ROOT/src:$PYTHONPATH\n"
     
-    # Construct the python command with explicit venv path
-    cmd_str = "./venv/bin/python3 " + " ".join(cmd_args)
+    # Construct the python command with absolute venv path
+    cmd_str = "$PROJECT_ROOT/venv/bin/python3 " + " ".join(cmd_args)
     script += f"echo 'Running: {cmd_str}'\n"
     script += f"{cmd_str}\n"
     
@@ -189,7 +190,8 @@ def main():
         
         all_dependencies = ":".join(jid for jid in job_ids if jid != "99999")
         
-        plot_cmd = f"./venv/bin/python3 plot_results.py {args.experiment}"
+        project_root = os.getcwd()
+        plot_cmd = f"{project_root}/venv/bin/python3 plot_results.py {args.experiment}"
         if args.plot_style:
             plot_cmd += f" --style {args.plot_style}"
             
@@ -204,7 +206,8 @@ def main():
         final_script += f"#SBATCH --error={log_dir}/%x_%j.err\n"
         if all_dependencies:
             final_script += f"#SBATCH --dependency=afterany:{all_dependencies}\n"
-        final_script += f"\nexport PYTHONPATH=$(pwd)/src:$PYTHONPATH\n\n"
+        final_script += f"\nexport PROJECT_ROOT={project_root}\n"
+        final_script += f"export PYTHONPATH=$PROJECT_ROOT/src:$PYTHONPATH\n\n"
         final_script += f"echo 'Generating final plots...'\n"
         final_script += f"{plot_cmd}\n"
         final_script += f"echo 'Attempting to sync plots to Mac...'\n"
