@@ -26,26 +26,25 @@ def generate_sbatch_script(job_name, cmd_args, log_dir, partition="4060ti16gb", 
     script += f"source venv/bin/activate\n\n"
     
     script += f"export PYTHONPATH=$(pwd)/src:$PYTHONPATH\n"
-#    script += f"export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python\n\n"
     
-    # Construct the python command
-    cmd_str = "python " + " ".join(cmd_args)
+    # Construct the python command with explicit venv path
+    cmd_str = "./venv/bin/python3 " + " ".join(cmd_args)
     script += f"echo 'Running: {cmd_str}'\n"
     script += f"{cmd_str}\n"
     
     return script
 
-def submit_sbatch(script_content, script_filename):
-    with open(script_filename, "w") as f:
-        f.write(script_content)
-        
-    print(f"Submitting {script_filename}...")
-    
-    # Run sbatch
-    # Using subprocess.run and returning the captured output
+def submit_sbatch(script_content):
+    print(f"Submitting Slurm job via stdin...")
     try:
-        result = subprocess.run(["sbatch", str(script_filename)], capture_output=True, text=True, check=True)
-        # Parse job id, usually output is "Submitted batch job 12345"
+        # Pipe script_content directly to sbatch stdin
+        result = subprocess.run(
+            ["sbatch"], 
+            input=script_content, 
+            capture_output=True, 
+            text=True, 
+            check=True
+        )
         match = re.search(r"Submitted batch job (\d+)", result.stdout)
         if match:
             job_id = match.group(1)
@@ -59,14 +58,12 @@ def submit_sbatch(script_content, script_filename):
         return None
     except FileNotFoundError:
         print("Error: 'sbatch' command not found. Are you on the Slurm cluster?")
-        # Return a dummy job ID for local testing if needed, or just exit.
-        print("Returning mock JOB ID 99999 for testing purposes.")
         return "99999"
 
 def main():
     parser = argparse.ArgumentParser(description="NeSyRL Slurm Pipeline")
     parser.add_argument("experiment", type=str, help="Experiment name from conf/experiment/")
-    parser.add_argument("--partition", type=str, default="rtx4060ti16g", help="Slurm partition")
+    parser.add_argument("--partition", type=str, default="4060ti16gb", help="Slurm partition")
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs per job")
     parser.add_argument("--cores", type=int, default=16, help="Number of CPU cores per job")
     parser.add_argument("--nodes", type=int, default=1, help="Number of nodes per job")
@@ -109,18 +106,10 @@ def main():
     
     print(f"Using Datasets for Offline Training: {dataset_list}")
         
-    # Ensure slurm directories exist
-    slurm_dir = Path("results/slurm")
-    slurm_dir.mkdir(parents=True, exist_ok=True)
-    scripts_dir = slurm_dir / "scripts"
-    scripts_dir.mkdir(parents=True, exist_ok=True)
-    
-    # New experiment-specific log directory
+    # Ensure slurm log directories exist
     log_dir = Path("results/logs/slurm") / args.experiment
     log_dir.mkdir(parents=True, exist_ok=True)
     
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    cancel_script_path = f"cancel_experiment_{args.experiment}_{timestamp}.sh"
     job_ids = []
     online_job_ids = {} # dataset_id -> job_id
     
@@ -144,8 +133,7 @@ def main():
             job_name, overrides, log_dir=str(log_dir),
             partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes
         )
-        script_file = scripts_dir / f"{job_name}_{timestamp}.sh"
-        job_id = submit_sbatch(script_content, script_file)
+        job_id = submit_sbatch(script_content)
         
         if job_id:
             job_ids.append(job_id)
@@ -162,7 +150,6 @@ def main():
         
         if not is_online and not dataset_path.exists():
             print(f"Error: Dataset '{dataset_id}' not found.")
-            print(f"It is not in the current online_methods list and no folder exists at {dataset_path}")
             sys.exit(1)
             
         for agent_config in offline_list:
@@ -188,8 +175,7 @@ def main():
                 partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes,
                 dependency=dependency_job_id
             )
-            script_file = scripts_dir / f"{job_name}_{timestamp}.sh"
-            job_id = submit_sbatch(script_content, script_file)
+            job_id = submit_sbatch(script_content)
             
             if job_id:
                 job_ids.append(job_id)
@@ -199,33 +185,13 @@ def main():
         print(f"\n=== Preparing Final Job: Plotting and Syncing ({args.experiment}) ===")
         job_name = f"final_{args.experiment}"
         
-        # This job depends on all previous jobs (even if some fail)
         all_dependencies = ":".join(jid for jid in job_ids if jid != "99999")
         
-        # Construct the plotting and sync command
-        # Note: sync command uses placeholders for user-specific settings
-        plot_cmd = f"python plot_results.py {args.experiment}"
+        plot_cmd = f"./venv/bin/python3 plot_results.py {args.experiment}"
         if args.plot_style:
             plot_cmd += f" --style {args.plot_style}"
             
         sync_cmd = f"rsync -avz results/plots/{args.experiment}/ ${{MAC_USER}}@${{MAC_IP}}:${{MAC_PATH}}"
-        
-        final_cmd = [
-            f"echo 'Generating final plots...'",
-            plot_cmd,
-            f"echo 'Attempting to sync plots to Mac...'",
-            f"if [ -z \"$MAC_USER\" ] || [ -z \"$MAC_IP\" ] || [ -z \"$MAC_PATH\" ]; then",
-            f"  echo 'Error: MAC_USER, MAC_IP, or MAC_PATH not set. Skipping sync.'",
-            f"else",
-            f"  {sync_cmd}",
-            f"fi"
-        ]
-        
-        # We wrap the commands in a single string for generate_sbatch_script
-        # We need to modify generate_sbatch_script to handle multiple commands or just pass it as is
-        # Looking at generate_sbatch_script, it joins cmd_args with spaces.
-        # Let's use a simpler approach: pass a list of strings that will be joined.
-        # Or better, just modify how the script is constructed for the final job.
         
         final_script = f"#!/bin/bash\n"
         final_script += f"#SBATCH --job-name={job_name}\n"
@@ -238,29 +204,18 @@ def main():
             final_script += f"#SBATCH --dependency=afterany:{all_dependencies}\n"
         final_script += f"\nsource venv/bin/activate\n"
         final_script += f"export PYTHONPATH=$(pwd)/src:$PYTHONPATH\n\n"
-        for cmd in final_cmd:
-            final_script += f"{cmd}\n"
-            
-        script_file = scripts_dir / f"{job_name}_{timestamp}.sh"
-        job_id = submit_sbatch(final_script, script_file)
-        if job_id:
-            job_ids.append(job_id)
-                
-    # Create cancellation script
-    if job_ids:
-        with open(cancel_script_path, "w") as f:
-            f.write("#!/bin/bash\n")
-            f.write(f"# Cancel all jobs for experiment {args.experiment} started at {timestamp}\n\n")
-            for jid in job_ids:
-                if jid != "99999":  # Don't try to cancel the mock job ID
-                    f.write(f"scancel {jid}\n")
+        final_script += f"echo 'Generating final plots...'\n"
+        final_script += f"{plot_cmd}\n"
+        final_script += f"echo 'Attempting to sync plots to Mac...'\n"
+        final_script += f"if [ -z \"$MAC_USER\" ] || [ -z \"$MAC_IP\" ] || [ -z \"$MAC_PATH\" ]; then\n"
+        final_script += f"  echo 'Error: MAC_USER, MAC_IP, or MAC_PATH not set. Skipping sync.'\n"
+        final_script += f"else\n"
+        final_script += f"  {sync_cmd}\n"
+        final_script += f"fi\n"
         
-        os.chmod(cancel_script_path, 0o755)
-        print(f"\n=== Submission Complete ===")
-        print(f"Created cancellation script: {cancel_script_path}")
-        print(f"To cancel all jobs, run: ./{cancel_script_path}")
-    else:
-        print("\nNo jobs were submitted.")
+        submit_sbatch(final_script)
+                
+    print(f"\n=== Submission Complete ===")
 
 if __name__ == "__main__":
     main()
