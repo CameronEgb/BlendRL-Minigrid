@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 import datetime
 
-def generate_sbatch_script(job_name, cmd_args, log_dir, partition="4060ti16gb", gpus=1, cores=16, nodes=1, dependency=None):
+def generate_sbatch_script(job_name, cmd_args, log_dir, partition="rtx4060ti16gb", gpus=1, cores=16, nodes=1, dependency=None):
     script = f"#!/bin/bash\n"
     script += f"#SBATCH --job-name={job_name}\n"
     script += f"#SBATCH --partition={partition}\n"
