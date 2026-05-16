@@ -4,6 +4,7 @@ torchvision
 torchaudio
 torch-geometric
 pytorch-lightning
+lightning
 hydra-core
 hydra-submitit-launcher
 omegaconf
