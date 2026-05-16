@@ -1,20 +1,41 @@
-tyro
-pygame
-vidmaker
-opencv-python==4.5.5.64
-stable-baselines3
-captum
-ocatari
-hackatari @ git+https://github.com/k4ntz/HackAtari.git
-pyyaml
-tensorboard
-rtpt
-wandb
-gymnasium[atari, accept-rom-license]
-torch==2.4.0
-lz4
-tabulate
+# Core dependencies
+torch
+torch-geometric
+lightning
 hydra-core
 hydra-submitit-launcher
-lightning
 omegaconf
+
+# RL & Environments
+gymnasium[atari, accept-rom-license]
+stable-baselines3
+ocatari
+hackatari @ git+https://github.com/k4ntz/HackAtari.git
+
+# Logic & Symbolic
+captum
+rtpt
+
+# Utilities & Data
+numpy
+pandas
+matplotlib
+seaborn
+scipy
+scikit-learn
+scikit-image
+networkx
+tqdm
+joblib
+pillow
+tabulate
+lz4
+tyro
+pyyaml
+tensorboard
+wandb
+
+# Video & Visualization
+pygame
+vidmaker
+opencv-python
