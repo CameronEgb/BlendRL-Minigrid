@@ -212,6 +212,8 @@ def main():
         submit_sbatch(final_script)
                 
     print(f"\n=== Submission Complete ===")
+    sys.stdout.flush()
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()
