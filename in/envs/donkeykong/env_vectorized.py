@@ -133,7 +133,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
             dones.append(done)
             infos.append(info)
             
-        return (torch.stack(logic_states), torch.stack(neural_states)), rewards, truncations, dones, infos
+        return (torch.stack(logic_states), torch.stack(neural_states)), rewards, dones, truncations, infos
             
 
     def extract_logic_state(self, input_state):

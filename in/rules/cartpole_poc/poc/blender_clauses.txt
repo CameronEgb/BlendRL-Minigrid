@@ -1,0 +1,5 @@
+logic_agent(img):-leaning_left(A).
+logic_agent(img):-leaning_right(A).
+logic_agent(img):-fast_falling_left(A).
+logic_agent(img):-fast_falling_right(A).
+neural_agent(img):-stable(A).

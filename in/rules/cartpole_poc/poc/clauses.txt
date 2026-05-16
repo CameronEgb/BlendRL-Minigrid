@@ -1,0 +1,4 @@
+left(img):-leaning_left(A).
+left(img):-fast_falling_left(A).
+right(img):-leaning_right(A).
+right(img):-fast_falling_right(A).

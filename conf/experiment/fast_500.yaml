@@ -1,0 +1,34 @@
+# @package _global_
+defaults:
+  - override /env: cartpole
+  - override /agent: blendrl
+  - override /mode: online
+
+experiment_id: "cp_blendrl_fast_500"
+group: ""
+seed: 1
+total_timesteps: 40000
+intervals_count: 10
+eval_episodes: 100
+save_dataset: true
+local: true
+recover: false
+
+agent:
+  lr: 0.005
+  logic_lr: 0.005
+  blender_lr: 0.01
+  ent_coef: 0.005
+  blend_ent_coef: 0.005
+  num_minibatches: 4
+  update_epochs: 10
+  clip_coef: 0.2
+
+env:
+  num_envs: 4
+  num_steps: 128
+
+trainer:
+  accelerator: cpu
+  max_epochs: 78
+  check_val_every_n_epoch: 8

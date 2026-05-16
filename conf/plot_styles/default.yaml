@@ -1,0 +1,41 @@
+plots:
+  - metric: "eval/reward"
+    title: "Evaluation Reward: {experiment}"
+    filename: "eval_reward.png"
+    ylabel: "Avg Reward"
+
+  - metric: "train/reward"
+    title: "Training Reward: {experiment}"
+    filename: "train_reward.png"
+    ylabel: "Reward"
+    window: 20
+
+  - metric: "train/length"
+    title: "Episode Length: {experiment}"
+    filename: "train_length.png"
+    ylabel: "Steps"
+    window: 20
+
+  - metric: "losses/actor_loss"
+    title: "Actor Loss: {experiment}"
+    filename: "offline_actor_loss.png"
+    ylabel: "Loss"
+    window: 20
+    x_axis: "step"
+    xlabel: "Training Steps"
+
+  - metric: "losses/q_loss"
+    title: "Q Loss: {experiment}"
+    filename: "offline_q_loss.png"
+    ylabel: "Loss"
+    window: 20
+    x_axis: "step"
+    xlabel: "Training Steps"
+
+  - metric: "losses/value_loss"
+    title: "Value Loss: {experiment}"
+    filename: "offline_value_loss.png"
+    ylabel: "Loss"
+    window: 20
+    x_axis: "step"
+    xlabel: "Training Steps"

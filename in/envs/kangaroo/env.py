@@ -12,7 +12,7 @@ import gymnasium as gym
 from stable_baselines3.common.env_util import make_atari_env
 from stable_baselines3.common.vec_env import VecFrameStack
 
-from utils import load_cleanrl_envs
+from src.utils import load_cleanrl_envs
 
 from blendrl.env_utils import kangaroo_modifs
 

@@ -1,0 +1,13 @@
+name: blendrl_iql
+algorithm: blendrl_iql
+lr: 3e-4
+logic_lr: 3e-4
+blender_lr: 3e-4
+tau: 0.7
+beta: 3.0
+batch_size: 256
+epochs_per_interval: 10
+blend_ent_coef: 0.01
+blender_mode: logic
+blend_function: softmax
+actor_mode: hybrid

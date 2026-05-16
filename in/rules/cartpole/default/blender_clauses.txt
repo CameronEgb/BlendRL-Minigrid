@@ -1,1 +1,2 @@
 logic_agent(X):-true(E).
+neural_agent(X):-true(E).

@@ -14,3 +14,7 @@ gymnasium[atari, accept-rom-license]
 torch==2.4.0
 lz4
 tabulate
+hydra-core
+hydra-submitit-launcher
+lightning
+omegaconf

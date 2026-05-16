@@ -93,7 +93,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
             truncations.append(truncation)
             dones.append(done)
             infos.append(info)
-        return (th.stack(logic_states), th.stack(neural_states)), rewards, truncations, dones, infos
+        return (th.stack(logic_states), th.stack(neural_states)), rewards, dones, truncations, infos
 
     def extract_logic_state(self, obs):
         state = th.zeros((self.n_objects, self.n_features), dtype=th.float32)

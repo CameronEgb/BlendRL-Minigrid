@@ -1,5 +1,5 @@
-right:1:image
-left:1:image
-noop:1:image
-logic_agent:1:image
-neural_agent:1:image
+left:1:oagent
+right:1:oagent
+noop:1:oagent
+logic_agent:1:oenv
+neural_agent:1:oenv

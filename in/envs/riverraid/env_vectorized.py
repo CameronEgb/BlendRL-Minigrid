@@ -203,8 +203,8 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
         return (
             (torch.stack(logic_states), torch.stack(neural_states)),
             rewards,
-            truncations,
             dones,
+            truncations,
             infos,
         )
 

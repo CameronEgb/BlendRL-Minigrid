@@ -1,0 +1,7 @@
+name: iql
+algorithm: iql
+lr: 3e-4
+tau: 0.7
+beta: 3.0
+batch_size: 256
+epochs_per_interval: 10

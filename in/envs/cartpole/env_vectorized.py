@@ -68,7 +68,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
             truncations.append(truncation)
             dones.append(done)
             infos.append(info)
-        return (th.stack(logic_states), th.stack(neural_states)), rewards, truncations, dones, infos
+        return (th.stack(logic_states), th.stack(neural_states)), rewards, dones, truncations, infos
 
     def extract_logic_state(self, obs):
         state = th.zeros((self.n_objects, self.n_features), dtype=th.float32)
@@ -77,8 +77,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
         return state
 
     def extract_neural_state(self, obs):
-        logic_state = self.extract_logic_state(obs)
-        return logic_state.view(-1)
+        return th.tensor(obs, dtype=th.float32)
 
     def get_action_meanings(self):
         return ["left", "right"]

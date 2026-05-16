@@ -1,431 +1,414 @@
 import argparse
 import os
-import pickle
-import json
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
 import yaml
+import pandas as pd
+from collections import defaultdict
 
 def get_style_info(label):
     l = label.lower()
-    # PPO Baseline
-    if l == "ppo":
-        return "black", "--", "o"
-    
-    # Offline BlendIQL (BlendRL-IQL)
-    if "blendiql" in l:
-        if "on ppo" in l:
-            return "#d62728", "-", "s" # Red square
-        if "on blendrl" in l:
-            return "#ff7f0e", "-", "D" # Orange diamond
-            
-    # Online BlendRL
-    if "blendrl" in l and "on" not in l:
-        return "#2ca02c", "-", "^" # Green triangle
-        
-    # Offline IQL
-    if "iql" in l and "blendiql" not in l:
-        if "on ppo" in l:
-            return "#1f77b4", "-", "v" # Blue down-triangle
-        if "on blendrl" in l:
-            return "#9467bd", "-", "p" # Purple pentagon
-            
+    # Check for the main algorithm name in the label
+    if "ppo" in l and "(on" not in l: return "black", "--", "o"
+    if "blendrl-iql" in l: return "#d62728", "-", "s"
+    if "blendrl" in l and "iql" not in l and "(on" not in l: return "#2ca02c", "-", "^"
+    if "iql" in l and "blendrl" not in l: return "#1f77b4", "-", "d"
     return None, "-", "o"
 
-def moving_average(a, n=10):
-    if len(a) == 0:
-        return np.array([])
-    if len(a) < n:
-        n = max(1, len(a))
-    # Pad with the first value to avoid skipping the beginning
+def moving_average(a, n=5):
+    if len(a) == 0: return np.array([])
+    n = min(len(a), n) if len(a) > 0 else 1
     a_padded = np.pad(a, (n-1, 0), mode='edge')
     ret = np.cumsum(a_padded, dtype=float)
     ret[n:] = ret[n:] - ret[:-n]
     return ret[n - 1:] / n
 
-def load_run_data(run_folder, experiment_id, num_envs_default, ruleset_default="none"):
-    folder_name = run_folder.name
-    is_offline = "offline" in str(run_folder) or folder_name.startswith("off_")
+def get_base_name(name):
+    import re
+    return re.sub(r'(_s\d+|_seed\d+|_v\d+)', '', name)
+
+def load_run_data(run_folder, args):
+    config = None
+    # Try multiple places for config
+    search_paths = [
+        run_folder / "config.yaml",
+        run_folder / ".hydra" / "config.yaml",
+        run_folder / "hparams.yaml",
+        run_folder.parent / "config.yaml",
+        run_folder.parent / "hparams.yaml",
+        run_folder.parent.parent / "config.yaml", # Up one more for Hydra
+    ]
     
-    # Defaults
-    run_num_envs = num_envs_default
-    ruleset = ruleset_default
-    method_name = "unknown"
+    for cp in search_paths:
+        if cp.exists():
+            with open(cp, "r") as f:
+                if cp.suffix == ".yaml":
+                    import yaml
+                    try:
+                        config = yaml.safe_load(f)
+                        # Lightning's hparams.yaml often nests under 'cfg'
+                        if config and "cfg" in config:
+                            config = config["cfg"]
+                        if config:
+                            break
+                    except:
+                        continue
     
-    # Try to detect ruleset from new hierarchical structure first
-    # Structure: .../online/[ruleset]/[method] or .../offline/[ruleset]/[method]
-    parts = list(run_folder.parts)
-    if "online" in parts:
-        idx = parts.index("online")
-        if idx + 1 < len(parts):
-            ruleset = parts[idx + 1]
-    elif "offline" in parts:
-        idx = parts.index("offline")
-        if idx + 1 < len(parts):
-            ruleset = parts[idx + 1]
-            
-    # Try to load from config.yaml as backup
-    config_path = run_folder / "config.yaml"
-    if config_path.exists():
-        try:
-            with open(config_path, "r") as f:
-                config = yaml.safe_load(f)
-                if config:
-                    if "num_envs" in config:
-                        run_num_envs = int(config["num_envs"])
-                    if "rules" in config:
-                        ruleset = config["rules"]
-                    if "exp_name" in config:
-                        method_name = "blendrl_ppo" if "blenderl" in config["exp_name"] else "ppo"
-        except: pass
-
-    # If method or ruleset still unknown/default, parse folder name
-    # NEW FORMAT: {method}_{rs} or {off_method}_{source}_{rs}
-    if method_name == "unknown":
-        if is_offline:
-            if folder_name.startswith("blendrl_iql"): method_name = "blendrl_iql"
-            else: method_name = "iql"
-        else:
-            if folder_name.startswith("blendrl_ppo"): method_name = "blendrl_ppo"
-            else: method_name = "ppo"
-
-    if ruleset == "none" or "," in ruleset: 
-        # Attempt to strip the method and source to find the ruleset
-        core_name = folder_name
-        
-        # Strip offline prefix
-        if is_offline:
-            if core_name.startswith("blendrl_iql_blendrl_ppo_"): core_name = core_name[len("blendrl_iql_blendrl_ppo_"):]
-            elif core_name.startswith("blendrl_iql_ppo_"): core_name = core_name[len("blendrl_iql_ppo_"):]
-            elif core_name.startswith("iql_blendrl_ppo_"): core_name = core_name[len("iql_blendrl_ppo_"):]
-            elif core_name.startswith("iql_ppo_"): core_name = core_name[len("iql_ppo_"):]
-        else:
-            if core_name.startswith("blendrl_ppo_"): core_name = core_name[len("blendrl_ppo_"):]
-            elif core_name.startswith("ppo_"): core_name = core_name[len("ppo_"):]
-        
-        # If the stripping didn't happen (maybe old format), use the previous logic
-        if core_name == folder_name:
-            # Step 1: Strip the experiment_id suffix
-            suffix = f"_{experiment_id}"
-            if folder_name.endswith(suffix):
-                core_name = folder_name[:-len(suffix)]
-            else:
-                core_name = folder_name
-                
-            # Step 2: Strip environment prefix
-            for env in ["seaquest_", "Seaquest-v4_", "mountaincar_", "cartpole_", "reverseMC_", "alien_"]:
-                if core_name.startswith(env):
-                    core_name = core_name[len(env):]
-                    break
-            
-            # Step 3: Strip method prefix
-            if is_offline:
-                if core_name.startswith("blendrl_iql_blendrl_ppo_"): core_name = core_name[len("blendrl_iql_blendrl_ppo_"):]
-                elif core_name.startswith("blendrl_iql_ppo_"): core_name = core_name[len("blendrl_iql_ppo_"):]
-                elif core_name.startswith("iql_blendrl_ppo_"): core_name = core_name[len("iql_blendrl_ppo_"):]
-                elif core_name.startswith("iql_ppo_"): core_name = core_name[len("iql_ppo_"):]
-            else:
-                if core_name.startswith("blendrl_ppo_"): core_name = core_name[len("blendrl_ppo_"):]
-                elif core_name.startswith("ppo_"): core_name = core_name[len("ppo_"):]
-            
-        ruleset = core_name
-
-
-    # Special case for PPO: it might be in a folder with "default" in the name but it uses no rules
-    if "ppo" in method_name and "blendrl" not in method_name:
-        ruleset = "default"
-
-    # Ruleset Renaming Mapping
-    ruleset_mapping = {
-        "default": "full",
-        "no_left_blender_right": "nolefteasy",
-        "no_left": "nolefthard",
-        "no_right_blender_left": "nolefteasy",
-        "no_right": "nolefthard",
-        "variant1": "v1",
-        "variant2": "v2",
-        "none": "none"
+    # Better label detection - extract base algorithm name
+    agent_name = "UNKNOWN"
+    folder_str = str(run_folder).lower()
+    
+    # Priority 1: Path-based detection (most reliable for our folder structure)
+    if "blendrl_iql" in folder_str: agent_name = "BLENDRL_IQL"
+    elif "blendrl" in folder_str: agent_name = "BLENDRL"
+    elif "iql" in folder_str: agent_name = "IQL"
+    elif "ppo" in folder_str: agent_name = "PPO"
+    # Priority 2: Config-based detection if path fails
+    elif config and "agent" in config:
+        raw_name = config["agent"].get("name", "UNKNOWN").upper()
+        if "BLENDRL_IQL" in raw_name: agent_name = "BLENDRL_IQL"
+        elif "BLENDRL" in raw_name: agent_name = "BLENDRL"
+        elif "IQL" in raw_name: agent_name = "IQL"
+        elif "PPO" in raw_name: agent_name = "PPO"
+        else: agent_name = raw_name
+    
+    # Mapping for cleaner names
+    name_map = {
+        "BLENDRL_IQL": "BlendRL-IQL",
+        "BLENDRL": "BlendRL",
+        "IQL": "IQL",
+        "PPO": "PPO"
     }
-    display_ruleset = ruleset_mapping.get(ruleset, ruleset)
-
-    # Legend Label
-    if is_offline:
-        # Determine source method (ppo or blendrl_ppo)
-        # Check for blendrl_ppo first because ppo is a substring
-        if "blendrl_ppo" in folder_name:
-            source = "blendrl"
-        elif "ppo" in folder_name:
-            source = "ppo"
-        else:
-            source = "unknown"
-            
-        off_m_label = "blendIQL" if "blendrl" in method_name else "iql"
-        
-        # Format: [ruleset] [iql|blendIQL] on [ppo|blendrl]
-        if off_m_label == "blendIQL":
-            legend_label = f"[{display_ruleset}] {off_m_label} on {source}"
-        else:
-            legend_label = f"{off_m_label} on {source}"
-    else:
-        if method_name == "ppo":
-            legend_label = "ppo"
-        else:
-            # For online BlendRL: [ruleset] blendrl
-            legend_label = f"[{display_ruleset}] blendrl"
-
-    online_data = None
-    # 1. Load Continuous Training Data (training_log.pkl)
-    pkl_path = run_folder / "checkpoints" / "training_log.pkl"
-    if pkl_path.exists():
-        try:
-            with open(pkl_path, "rb") as f:
-                data = pickle.load(f)
-                if data and len(data) >= 2:
-                    returns = data[0]
-                    lengths = data[1]
-                    if returns:
-                        online_data = (returns, lengths)
-        except Exception as e:
-            print(f"  Error loading pkl from {run_folder.name}: {e}")
-
-    eval_data = None
-    # 2. Load Interval Eval Data (results.json)
-    json_path = run_folder / "results.json"
-    if not json_path.exists():
-        json_path = run_folder / "checkpoints" / "results.json"
-        
-    if json_path.exists():
-        try:
-            with open(json_path, "r") as f:
-                data = json.load(f)
-                if data:
-                    eval_data = {
-                        "limits": [d["data_limit"] for d in data],
-                        "rewards": [d["avg_reward"] for d in data]
-                    }
-        except Exception as e:
-            print(f"  Error loading json from {json_path}: {e}")
-            
-    return display_ruleset, legend_label, online_data, eval_data, folder_name
-
-def plot_results(experiment_id=None, group=None, runs_dir="results/experiments", output_dir="results/plots", num_envs_override=None, smooth_window=None):
-    if group:
-        base_path = Path(runs_dir) / group
-        output_path = Path(output_dir) / group
-        print(f"Plotting group: {group} from {base_path}")
-        if experiment_id:
-            exp_folders = [base_path / experiment_id]
-        else:
-            exp_folders = [d for d in base_path.iterdir() if d.is_dir()]
-    else:
-        base_path = Path(runs_dir)
-        output_path = Path(output_dir) / experiment_id
-        exp_folders = [base_path / experiment_id]
-
-    # Create output directory if it doesn't exist
-    output_path.mkdir(parents=True, exist_ok=True)
+    agent_display_name = name_map.get(agent_name, agent_name)
     
-    # all_online_shaped[display_ruleset][legend_label] = data
-    all_online_shaped = {}
-    all_online_lengths = {}
-    all_eval_shaped = {}
-    all_eval_limits = {}
-
-    for exp_path in exp_folders:
-        if not exp_path.exists():
-            continue
-            
-        curr_exp_id = exp_path.name
-        
-        # 1. Try to find the common ruleset for this experiment from hyperparameters.txt
-        exp_ruleset = "none"
-        num_envs = 1
-        hp_path = exp_path / "hyperparameters.txt"
-        if hp_path.exists():
-            try:
-                with open(hp_path, "r") as f:
-                    for line in f:
-                        if "Rules:" in line:
-                            exp_ruleset = line.split(":")[1].strip()
-                        if "Num Envs:" in line:
-                            num_envs = int(line.split(":")[1].strip())
-            except: pass
-        if num_envs_override is not None:
-            num_envs = num_envs_override
-
-        # 2. Scan for sub-runs recursively (New hierarchical structure)
-        # Search for both interval evaluation data (results.json) AND continuous training data (training_log.pkl)
-        run_folders = [f.parent for f in exp_path.rglob("results.json")]
-        # Also check checkpoints/results.json just in case
-        run_folders += [f.parent.parent for f in exp_path.rglob("checkpoints/results.json")]
-        # Also include online training folders that only have training_log.pkl
-        run_folders += [f.parent.parent for f in exp_path.rglob("training_log.pkl")]
-        # Unique folders
-        run_folders = list(set(run_folders))
-        
-        # WORKAROUND: Only process folders that are inside an 'online' or 'offline' subdirectory
-        # to avoid legacy files causing duplicate plots (like eval_comparison_mc_default.png)
-        run_folders = [f for f in run_folders if "online" in f.parts or "offline" in f.parts]
-
-        for run_folder in run_folders:
-            display_ruleset, legend_label, online, evaluation, folder_name = load_run_data(run_folder, curr_exp_id, num_envs, ruleset_default=exp_ruleset)
-            
-            # IMPROVED DETECTION: Try to extract the actual tuning ID from the folder_name
-            # folder_name is like "blendrl_ppo_mc_easy_tune_1"
-            # curr_exp_id is the top level directory name
-            
-            # If folder_name contains curr_exp_id, it's likely a sub-run and folder_name is more specific
-            # But folder_name might also contain method prefixes.
-            # Let's use a combination or the most specific part.
-            
-            specific_id = folder_name
-            # If folder_name is just "online" or something generic, fallback to curr_exp_id
-            if folder_name in ["online", "offline", "checkpoints"]:
-                specific_id = curr_exp_id
-            
-            if display_ruleset not in all_online_shaped:
-                all_online_shaped[display_ruleset] = {}
-                all_online_lengths[display_ruleset] = {}
-                all_eval_shaped[display_ruleset] = {}
-                all_eval_limits[display_ruleset] = {}
-
-            # Use the most specific ID we found
-            plot_label = f"{legend_label} ({specific_id})"
-
-            if online:
-                print(f"  Detected Online run: {plot_label} (Ruleset: {display_ruleset})")
-                all_online_shaped[display_ruleset][plot_label] = online[0]
-                all_online_lengths[display_ruleset][plot_label] = online[1]
-            if evaluation:
-                print(f"  Detected Eval run: {plot_label} (Ruleset: {display_ruleset})")
-                all_eval_shaped[display_ruleset][plot_label] = evaluation["rewards"]
-                all_eval_limits[display_ruleset][plot_label] = evaluation["limits"]
-
-    # --- PLOTTING ---
+    source = "ONLINE"
+    mode = config.get("mode", {}).get("type") if config else "unknown"
     
-    # 1. Online Performance (Combined by group or separate)
-    if all_online_shaped:
-        for x_axis in ["steps", "episodes"]:
-            fig, ax1 = plt.subplots(1, 1, figsize=(12, 7))
-            found_any = False
-            for ruleset in all_online_shaped:
-                for label, returns in all_online_shaped[ruleset].items():
-                    found_any = True
-                    if x_axis == "steps":
-                        x = np.cumsum(all_online_lengths[ruleset][label])
-                        label_x = "Total Agent Steps"
-                    else:
-                        x = np.arange(len(returns))
-                        label_x = "Completed Episodes"
-                    
-                    n_smooth = smooth_window if smooth_window else min(50, max(1, len(returns)//20))
-                    y = moving_average(returns, n=n_smooth)
-                    ax1.plot(x, y, label=label)
+    if mode == "offline":
+        # In run_pipeline.py, dataset_path is results/datasets/[EXP_ID]/ppo
+        dataset_path = config.get("mode", {}).get("dataset_path") or config.get("dataset_path", "")
+        if dataset_path:
+            raw_source = Path(dataset_path).name.upper()
+            # Clean source name too
+            if "BLENDRL_IQL" in raw_source: source_key = "BLENDRL_IQL"
+            elif "BLENDRL" in raw_source: source_key = "BLENDRL"
+            elif "IQL" in raw_source: source_key = "IQL"
+            elif "PPO" in raw_source: source_key = "PPO"
+            else: source_key = raw_source
             
-            if found_any:
-                ax1.set_xlabel(label_x); ax1.set_ylabel("Return"); ax1.set_title(f"Continuous Training Performance ({group if group else experiment_id})")
-                ax1.grid(True)
-                ax1.legend(loc='upper left', bbox_to_anchor=(1, 1))
-                plt.tight_layout()
-                plt.savefig(output_path / f"online_performance_{x_axis}.png", bbox_inches='tight')
-                print(f"Saved online plot to {output_path / f'online_performance_{x_axis}.png'}")
-            plt.close()
-
-    # 2. Evaluation Comparison (ONE GRAPH PER RULESET)
-    if all_eval_shaped:
-        # First, find PPO results if they exist (ruleset='none')
-        ppo_evals = all_eval_shaped.get("none", {})
-        ppo_limits = all_eval_limits.get("none", {})
+            source = name_map.get(source_key, source_key)
+            label = f"{agent_display_name} (on {source})"
+        else:
+            label = agent_display_name
+    else:
+        label = agent_display_name
+        # Clean source name for online agents too
+        raw_source = agent_display_name.upper()
+        if "BLENDRL_IQL" in raw_source: source_key = "BLENDRL_IQL"
+        elif "BLENDRL" in raw_source: source_key = "BLENDRL"
+        elif "IQL" in raw_source: source_key = "IQL"
+        elif "PPO" in raw_source: source_key = "PPO"
+        else: source_key = raw_source
         
-        # Sort rulesets for consistent plot order
-        sorted_rulesets = sorted([r for r in all_eval_shaped.keys() if r != "none"])
+        source = name_map.get(source_key, source_key)
+    
+    exp_id = "UNKNOWN"
+    if config and "experiment_id" in config:
+        exp_id = config["experiment_id"]
+    else:
+        # Try to extract from path results/logs/[EXP_ID]/[AGENT]
+        parts = run_folder.parts
+        if "logs" in parts:
+            idx = parts.index("logs")
+            if len(parts) > idx + 1:
+                exp_id = parts[idx+1]
 
-        for ruleset in sorted_rulesets:
-            results = all_eval_shaped[ruleset]
-            if not results: continue
+    data = defaultdict(list)
+    metrics_path = run_folder / "metrics.csv"
+    if not metrics_path.exists(): 
+        # Check subdirectories for metrics.csv if not found
+        for p in run_folder.glob("**/metrics.csv"):
+            metrics_path = p
+            break
+        
+    if metrics_path.exists():
+        df = pd.read_csv(metrics_path)
+        
+        # If 'transitions' exists, we use it for alignment but keep steps for convergence
+        if "transitions" in df.columns:
+            df['transitions'] = df['transitions'].ffill().bfill()
+            df['transitions'] = df['transitions'].round().astype(int)
+
+        for col in df.columns:
+            if col in ["step", "transitions", "epoch"]: continue
+            subset = df[df[col].notna()].copy()
             
-            fig, ax1 = plt.subplots(1, 1, figsize=(12, 7))
+            # Filter by total_timesteps if available for transition-based plots
+            total_timesteps = config.get("total_timesteps") if config else None
             
-            # Plot PPO baseline first
-            for ppo_label, rewards in ppo_evals.items():
-                x = np.array(ppo_limits[ppo_label])
-                color, ls, marker = get_style_info(ppo_label)
-                ax1.plot(x, rewards, marker=marker, label=ppo_label, linestyle=ls, color=color, linewidth=2)
+            if not subset.empty:
+                # Store the raw values and multiple potential x-axes
+                data[col] = {
+                    "values": subset[col].tolist(),
+                    "step": subset["step"].tolist() if "step" in subset.columns else [],
+                    "epoch": subset["epoch"].tolist() if "epoch" in subset.columns else [],
+                    "transitions": subset["transitions"].tolist() if "transitions" in subset.columns else []
+                }
+    
+    return {"folder": run_folder, "label": label, "exp_id": exp_id, "data": data, "base_name": get_base_name(exp_id), "source": source, "mode": mode}
+
+def aggregate_runs(runs, metric_name, x_axis_col="transitions"):
+    # Find all unique x-axis points
+    all_x = sorted(list(set(s for r in runs for s in r["data"].get(metric_name, {}).get(x_axis_col, []))))
+    if not all_x: return [], [], [], []
+    
+    means, stds, valid_x, logged_stds = [], [], [], []
+    std_metric = f"{metric_name}_std"
+    
+    # Pre-index runs for speed
+    run_data = []
+    for r in runs:
+        if metric_name in r["data"]:
+            m_data = r["data"][metric_name]
+            x_vals = m_data.get(x_axis_col, [])
+            y_vals = m_data.get("values", [])
+            
+            # Standard deviation for within-run variance
+            s_data = r["data"].get(std_metric, {})
+            sx_vals = s_data.get(x_axis_col, [])
+            sy_vals = s_data.get("values", [])
+            
+            # Map x to y and x to std
+            mapping = dict(zip(x_vals, y_vals))
+            s_mapping = dict(zip(sx_vals, sy_vals))
+            run_data.append((mapping, s_mapping))
+    
+    for x in all_x:
+        vals = []
+        l_stds = []
+        for mapping, s_mapping in run_data:
+            if x in mapping:
+                vals.append(mapping[x])
+                if x in s_mapping:
+                    l_stds.append(s_mapping[x])
+        
+        if vals:
+            means.append(np.mean(vals))
+            stds.append(np.std(vals))
+            valid_x.append(x)
+            logged_stds.append(np.mean(l_stds) if l_stds else 0.0)
+            
+    return valid_x, means, stds, logged_stds
+
+def create_plot(exp_groups, metric, title, ylabel, save_path, window=1, use_simple_labels=False, x_axis_col="transitions", xlabel="Transitions (Dataset Size)"):
+    plt.figure(figsize=(12, 7))
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    
+    for (exp_id, label), runs in sorted(exp_groups.items()):
+        steps, means, stds, logged_stds = aggregate_runs(runs, metric, x_axis_col=x_axis_col)
+        if not steps: continue
+        print(f"  Plotting {label} in {exp_id} ({metric}) with {len(steps)} points")
+        
+        # Determine the shading values
+        shading = np.array(stds) if len(runs) > 1 else np.array(logged_stds)
+        
+        if window > 1:
+            means = moving_average(means, n=window)
+            shading = moving_average(shading, n=window)
+            steps = steps[:len(means)]
+        
+        style = get_style_info(label)
+        color, ls, marker = style if style else (None, "-", "o")
+        
+        # Don't use markers for high-density training plots
+        actual_marker = marker if x_axis_col == "transitions" else None
+        
+        legend_label = label if use_simple_labels else f"{label} ({exp_id})"
+        
+        if color:
+            plt.plot(steps, means, label=legend_label, color=color, linestyle=ls, marker=actual_marker, markersize=4)
+            if np.any(shading > 0):
+                plt.fill_between(steps, np.array(means)-shading, np.array(means)+shading, color=color, alpha=0.1)
+        else:
+            plt.plot(steps, means, label=legend_label, linestyle=ls, marker=actual_marker, markersize=4)
+            if np.any(shading > 0):
+                plt.fill_between(steps, np.array(means)-shading, np.array(means)+shading, alpha=0.1)
+            
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.grid(True, alpha=0.2); plt.tight_layout()
+    plt.savefig(save_path, dpi=300)
+    print(f"  Saved: {save_path}")
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("experiment", type=str, help="Experiment ID or substring to filter")
+    parser.add_argument("--version", type=str, default=None, help="Specific version (e.g., 0), 'all' to aggregate, or latest by default.")
+    parser.add_argument("--style", type=str, default=None, help="Path to a YAML config file defining plot styles and groupings.")
+    args = parser.parse_args()
+
+    search_dirs = [Path("results/logs"), Path("results/experiments")]
+    
+    # Structure: {(exp_id, agent_path): {version_num: run_folder}}
+    agent_runs = defaultdict(dict)
+    
+    experiment_filters = args.experiment.split(',')
+    
+    for base in search_dirs:
+        if not base.exists(): continue
+        for p in base.rglob("metrics.csv"):
+            run_folder = p.parent
+            config_folder = run_folder.parent if run_folder.name.startswith("version_") else run_folder
+            exp_id_from_path = config_folder.parent.name
+            
+            if any(ef == exp_id_from_path for ef in experiment_filters):
+                version = -1
+                if run_folder.name.startswith("version_"):
+                    try:
+                        version = int(run_folder.name.split("_")[1])
+                    except (ValueError, IndexError):
+                        pass
                 
-            # Plot actual ruleset results
-            # Sort labels to ensure consistent legend order
-            sorted_labels = sorted(results.keys())
-            for label in sorted_labels:
-                rewards = results[label]
-                x = np.array(all_eval_limits[ruleset][label])
-                color, ls, marker = get_style_info(label)
-                ax1.plot(x, rewards, marker=marker, label=label, linestyle=ls, color=color, linewidth=2)
+                # Extract dataset from hparams.yaml to differentiate offline runs
+                dataset_key = ""
+                hparams_path = run_folder / "hparams.yaml"
+                if not hparams_path.exists():
+                    hparams_path = config_folder / "hparams.yaml"
+                    
+                if hparams_path.exists():
+                    try:
+                        with open(hparams_path, "r") as f:
+                            # Simple parsing to avoid full yaml load overhead
+                            for line in f:
+                                if "dataset_path:" in line and "results/datasets/" in line:
+                                    dataset_key = line.strip().split()[-1]
+                                    break
+                    except Exception:
+                        pass
+                
+                agent_key = (exp_id_from_path, str(config_folder), dataset_key)
+                agent_runs[agent_key][version] = run_folder
+
+    all_runs = []
+    for agent_key, versions in agent_runs.items():
+        if not versions: continue
+        
+        if args.version == "all":
+            # Add ALL versions for this agent for aggregation
+            for v_num in versions:
+                all_runs.append(load_run_data(versions[v_num], args))
+        elif args.version is not None:
+            # Add only the SPECIFIC version
+            try:
+                v_requested = int(args.version)
+                if v_requested in versions:
+                    all_runs.append(load_run_data(versions[v_requested], args))
+                elif v_requested == 0 and -1 in versions:
+                    all_runs.append(load_run_data(versions[-1], args))
+            except ValueError:
+                print(f"Warning: Invalid version '{args.version}' requested for {agent_key[1]}")
+        else:
+            # Default: Add only the LATEST version
+            latest_v = max(versions.keys())
+            all_runs.append(load_run_data(versions[latest_v], args))
+
+    if not all_runs:
+        if args.version is not None:
+            print(f"No data found for experiment '{args.experiment}' with version {args.version}")
+        else:
+            print(f"No data found for experiment: {args.experiment}")
+        return
+    
+    found_exp_ids = set(r["exp_id"] for r in all_runs)
+    use_simple_labels = len(found_exp_ids) <= 1
+
+    save_dir = Path("results/plots") / args.experiment
+    if save_dir.exists():
+        import shutil
+        print(f"Clearing existing plots in {save_dir}")
+        shutil.rmtree(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load style config if provided, else use defaults
+    plot_config = None
+    style_to_load = args.style or "default"
+    
+    style_path = Path(style_to_load)
+    # Check standard locations
+    potential_paths = [
+        style_path,
+        Path("conf/plot_styles") / style_path,
+        Path("conf/plot_styles") / f"{style_to_load}.yaml"
+    ]
+    
+    actual_path = None
+    for p in potential_paths:
+        if p.exists() and p.is_file():
+            actual_path = p
+            break
+    
+    if actual_path:
+        with open(actual_path, "r") as f:
+            plot_config = yaml.safe_load(f)
+    elif args.style:
+        print(f"Warning: Style config {args.style} not found. Using hardcoded defaults.")
+    
+    if not plot_config:
+        plot_config = {
+            "plots": [
+                {"metric": "eval/reward", "title": f"Evaluation Reward: {args.experiment}", "ylabel": "Avg Reward", "filename": "eval_reward.png"},
+                {"metric": "train/reward", "title": f"Training Reward: {args.experiment}", "ylabel": "Reward", "filename": "train_reward.png", "window": 20},
+                {"metric": "train/length", "title": f"Episode Length: {args.experiment}", "ylabel": "Steps", "filename": "train_length.png", "window": 20},
+                {"metric": "losses/actor_loss", "title": f"Actor Loss: {args.experiment}", "ylabel": "Loss", "filename": "offline_actor_loss.png", "window": 20, "x_axis": "step", "xlabel": "Training Steps"},
+                {"metric": "losses/q_loss", "title": f"Q Loss: {args.experiment}", "ylabel": "Loss", "filename": "offline_q_loss.png", "window": 20, "x_axis": "step", "xlabel": "Training Steps"},
+                {"metric": "losses/value_loss", "title": f"Value Loss: {args.experiment}", "ylabel": "Loss", "filename": "offline_value_loss.png", "window": 20, "x_axis": "step", "xlabel": "Training Steps"},
+            ]
+        }
+
+    for p_def in plot_config.get("plots", []):
+        metric = p_def.get("metric")
+        title_tmpl = p_def.get("title", f"{metric}: {args.experiment}")
+        ylabel = p_def.get("ylabel", metric)
+        filename_tmpl = p_def.get("filename", f"{metric.replace('/', '_')}.png")
+        window = p_def.get("window", 1)
+        x_axis = p_def.get("x_axis", "transitions")
+        xlabel = p_def.get("xlabel", "Transitions (Dataset Size)" if x_axis == "transitions" else "Steps")
+        split_by = p_def.get("split_by")
+
+        if split_by:
+            # Group all_runs by the split_by attribute
+            split_groups = defaultdict(list)
+            for r in all_runs:
+                val = r.get(split_by, "unknown")
+                split_groups[val].append(r)
             
-            ax1.set_xlabel("Total Training Steps / Dataset Size"); ax1.set_ylabel("Avg Eval Return")
-            ax1.set_title(f"Evaluation Comparison: Ruleset = {ruleset}")
-            ax1.grid(True, alpha=0.3)
-            ax1.legend(loc='upper left', bbox_to_anchor=(1, 1), frameon=True)
-            plt.tight_layout()
+            for split_val, runs_in_split in split_groups.items():
+                # For each split, create the (exp_id, label) groups create_plot expects
+                current_groups = defaultdict(list)
+                for r in runs_in_split:
+                    current_groups[(r["exp_id"], r["label"])].append(r)
+                
+                # Format title and filename
+                title = title_tmpl.replace("{split_value}", str(split_val)).replace("{experiment}", args.experiment)
+                filename = filename_tmpl.replace("{split_value}", str(split_val)).replace("{experiment}", args.experiment)
+                
+                create_plot(current_groups, metric, title, ylabel, save_dir / filename, 
+                           window=window, use_simple_labels=use_simple_labels, 
+                           x_axis_col=x_axis, xlabel=xlabel)
+        else:
+            # Standard combined plot
+            current_groups = defaultdict(list)
+            for r in all_runs:
+                current_groups[(r["exp_id"], r["label"])].append(r)
             
-            filename = f"eval_comparison_{ruleset}.png"
-            plt.savefig(output_path / filename, bbox_inches='tight')
-            print(f"Saved evaluation plot to {output_path / filename}")
-            plt.close()
+            title = title_tmpl.replace("{experiment}", args.experiment)
+            filename = filename_tmpl.replace("{experiment}", args.experiment)
+            
+            create_plot(current_groups, metric, title, ylabel, save_dir / filename, 
+                       window=window, use_simple_labels=use_simple_labels, 
+                       x_axis_col=x_axis, xlabel=xlabel)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("experimentid", type=str, nargs='?', default=None)
-    parser.add_argument("--group", type=str, default=None)
-    parser.add_argument("--runs_dir", type=str, default="results/experiments")
-    parser.add_argument("--output_dir", type=str, default="results/plots")
-    parser.add_argument("--num_envs", type=int, default=None)
-    parser.add_argument("--smooth", type=int, default=None)
-    args = parser.parse_args()
-    
-    experiment_id = args.experimentid
-    group = args.group
-
-    # 1. Check if the input is a configList or config name
-    if experiment_id and not group:
-        list_path = f"in/config/configLists/{experiment_id}"
-        if os.path.isfile(list_path):
-            # If it's a configList, the list name is the group
-            group = experiment_id
-            experiment_id = None
-            print(f"Resolved group '{group}' from configList '{list_path}'")
-        else:
-            config_path = None
-            if os.path.isfile(f"in/config/{experiment_id}"):
-                config_path = f"in/config/{experiment_id}"
-            elif os.path.isfile(f"in/config/{experiment_id}.yaml"):
-                config_path = f"in/config/{experiment_id}.yaml"
-            
-            if config_path:
-                try:
-                    with open(config_path, "r") as f:
-                        cfg = yaml.safe_load(f)
-                        if cfg and "experimentid" in cfg:
-                            # If it's a config, we use its experimentid, and the config name as the group
-                            group = experiment_id
-                            experiment_id = cfg["experimentid"]
-                            print(f"Resolved experiment_id '{experiment_id}' and group '{group}' from config '{config_path}'")
-                except Exception as e:
-                    print(f"Error reading config {config_path}: {e}")
-
-    # 2. WORKAROUND: If the user provides a first argument that exists as a group folder, 
-    # treat it as a group automatically.
-    if experiment_id and not group:
-        potential_group_path = os.path.join(args.runs_dir, experiment_id)
-        if os.path.isdir(potential_group_path):
-            # Check if it has sub-directories (likely a group) or just results (likely a single exp)
-            subdirs = [d for d in os.listdir(potential_group_path) if os.path.isdir(os.path.join(potential_group_path, d))]
-            if "online" in subdirs or "offline" in subdirs or len(subdirs) > 2:
-                group = experiment_id
-                experiment_id = None
-                print(f"Auto-detected '{group}' as a group folder.")
-
-    if not experiment_id and not group:
-        parser.error("At least one of experimentid or --group must be provided.")
-        
-    plot_results(experiment_id, group, args.runs_dir, args.output_dir, args.num_envs, smooth_window=args.smooth)
+    main()

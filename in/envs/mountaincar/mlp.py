@@ -13,7 +13,7 @@ class MLP(nn.Module):
         super().__init__()
         self.device = device
         self.logic = logic
-        self.num_in_features = 4
+        self.num_in_features = 2 if not logic else 4
 
         # Backbone: Feature extraction
         self.network = nn.Sequential(
@@ -34,7 +34,7 @@ class MLP(nn.Module):
         self.to(device)
 
     def forward(self, x):
-        x = x.float().reshape(-1, self.num_in_features)
+        x = x.float().reshape(x.shape[0], -1)
         hidden = self.network(x)
         logits = self.actor(hidden)
         y = self.softmax(logits)
@@ -42,11 +42,11 @@ class MLP(nn.Module):
         return y
 
     def get_value(self, x, logic_state=None):
-        x = x.float().reshape(-1, self.num_in_features)
+        x = x.float().reshape(x.shape[0], -1)
         return self.critic(self.network(x))
 
     def get_action_and_value(self, x, action=None):
-        x = x.float().reshape(-1, self.num_in_features)
+        x = x.float().reshape(x.shape[0], -1)
         hidden = self.network(x)
         logits = self.actor(hidden)
         probs = Categorical(logits=logits)
@@ -56,7 +56,7 @@ class MLP(nn.Module):
 
     def act(self, x, logic_state=None, epsilon=0.0):
         # Compatibility with Renderer and wrappers
-        x = x.float().reshape(-1, self.num_in_features)
+        x = x.float().reshape(x.shape[0], -1)
         action_probs = self.forward(x)
         dist = Categorical(probs=action_probs)
         action = dist.sample()
