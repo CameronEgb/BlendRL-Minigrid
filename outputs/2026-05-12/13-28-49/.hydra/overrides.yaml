@@ -1,0 +1,10 @@
+- experiment_id=test_ppo
+- agent=ppo
+- total_timesteps=100
+- intervals_count=1
+- eval_episodes=1
+- save_dataset=false
+- +trainer.limit_train_batches=1
+- +trainer.max_epochs=1
+- +trainer.devices=0
+- env.num_envs=1

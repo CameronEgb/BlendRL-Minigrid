@@ -1,0 +1,16 @@
+- experiment_id=cp_blendrl_high_llr
+- agent=blendrl
+- env=cartpole
+- total_timesteps=200000
+- local=True
+- +trainer.accelerator=cpu
+- agent.lr=0.003
+- agent.ent_coef=0.01
+- agent.logic_lr=0.01
+- agent.blender_lr=0.003
+- agent.blend_ent_coef=0.01
+- env.num_envs=10
+- env.num_steps=256
+- agent.num_minibatches=4
+- agent.update_epochs=10
+- agent.clip_coef=0.2

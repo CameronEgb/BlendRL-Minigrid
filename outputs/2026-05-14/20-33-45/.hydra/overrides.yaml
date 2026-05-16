@@ -1,0 +1,7 @@
+- +experiment=cp_final
+- group=test_full_hydra
+- local=True
+- mode=online
+- total_timesteps=1000
+- intervals_count=2
+- eval_episodes=5

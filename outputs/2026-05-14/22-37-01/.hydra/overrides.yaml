@@ -1,0 +1,5 @@
+- +experiment=cp_final
+- local=True
+- mode=offline
+- agent=blendrl_iql
+- mode.dataset_path=results/datasets/cp_final/ppo

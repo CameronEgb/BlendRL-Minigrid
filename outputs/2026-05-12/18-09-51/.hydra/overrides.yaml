@@ -1,0 +1,10 @@
+- experiment_id=cp_journal_blend_lr3e-4_ent0.01
+- env=cartpole
+- agent=blendrl
+- agent.lr=3e-4
+- agent.ent_coef=0.01
+- agent.batch_size=64
+- total_timesteps=50000
+- intervals_count=10
+- eval_episodes=100
+0

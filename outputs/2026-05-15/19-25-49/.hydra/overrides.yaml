@@ -1,0 +1,10 @@
+- +experiment=cp_final
+- ++local=true
+- mode=online
+- agent=blendrl/cp_tuned
+- ++agent.name=blendrl_cp_tuned
+- ++dataset_path=results/datasets/cp_final/blendrl_cp_tuned
+- ++total_timesteps=10000
+- ++intervals_count=3
+- ++eval_episodes=5
+- ++agent.epochs_per_interval=2

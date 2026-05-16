@@ -1,0 +1,41 @@
+env:
+  name: cartpole
+  env_id: CartPole-v1
+  num_envs: 8
+  num_steps: 128
+  gamma: 0.99
+  gae_lambda: 0.95
+  rules: default
+  reasoner: nsfr
+  architecture: mlp
+agent:
+  name: iql
+  algorithm: iql
+  lr: 0.0003
+  tau: 0.7
+  beta: 3.0
+  batch_size: 256
+  epochs_per_interval: 10
+mode:
+  name: offline
+  type: offline
+  dataset_path: results/datasets/test_exp/ppo
+  offline_datasets: []
+experiment_id: test_iql_exp
+group: ''
+seed: 1
+total_timesteps: 100
+intervals_count: 1
+eval_episodes: 1
+save_dataset: false
+use_large_dataset_path: false
+large_dataset_path: ''
+local: true
+recover: false
+offline_datasets:
+- test_ppo
+trainer:
+  limit_train_batches: 1
+  max_epochs: 1
+  accelerator: cpu
+  devices: 1

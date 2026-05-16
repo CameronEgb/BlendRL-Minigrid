@@ -1,0 +1,7 @@
+- experiment_id=cp_brief
+- env=cartpole
+- agent=ppo
+- total_timesteps=10000
+- intervals_count=1
+- eval_episodes=5
+- save_dataset=True

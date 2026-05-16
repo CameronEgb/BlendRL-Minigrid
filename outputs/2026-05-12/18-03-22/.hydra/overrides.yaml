@@ -1,0 +1,9 @@
+- experiment_id=cp_journal_ppo_lr3e-4_ent0.001
+- env=cartpole
+- agent=ppo
+- agent.lr=3e-4
+- agent.ent_coef=0.001
+- agent.batch_size=64
+- total_timesteps=50000
+- intervals_count=10
+- eval_episodes=100

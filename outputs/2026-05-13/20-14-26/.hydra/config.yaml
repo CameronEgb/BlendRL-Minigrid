@@ -1,0 +1,42 @@
+env:
+  name: cartpole
+  env_id: CartPole-v1
+  num_envs: 4
+  num_steps: 500
+  gamma: 0.99
+  gae_lambda: 0.95
+  rules: default
+  reasoner: nsfr
+  architecture: mlp
+agent:
+  name: ppo
+  algorithm: ppo
+  lr: 0.003
+  ent_coef: 0.01
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  clip_coef: 0.2
+  update_epochs: 10
+  num_minibatches: 4
+  batch_size: 64
+  anneal_lr: true
+  norm_adv: true
+  clip_vloss: true
+  hidden_sizes:
+  - 32
+  - 32
+mode:
+  name: online
+  type: online
+  save_dataset: true
+experiment_id: cp_ppo_32_32_lr3e-3_s2
+group: ''
+seed: 2
+total_timesteps: 50000
+intervals_count: 7
+eval_episodes: 100
+save_dataset: true
+use_large_dataset_path: true
+large_dataset_path: ''
+local: false
+recover: false

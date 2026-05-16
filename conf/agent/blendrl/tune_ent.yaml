@@ -1,0 +1,18 @@
+defaults:
+  - /agent: blendrl_base
+  - _self_
+
+lr: 0.001
+logic_lr: 0.001
+blender_lr: 0.001
+ent_coef: 0.05
+blend_ent_coef: 0.05
+update_epochs: 10
+num_minibatches: 4
+anneal_lr: true
+batch_size: 64
+norm_adv: true
+clip_vloss: true
+blender_mode: logic
+blend_function: softmax
+actor_mode: hybrid

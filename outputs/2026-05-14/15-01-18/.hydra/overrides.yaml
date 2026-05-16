@@ -1,0 +1,7 @@
+- experiment_id=cp_blendrl_iql_tune_tau0.7_beta3.0
+- agent=blendrl_iql
+- agent.tau=0.7
+- agent.beta=3.0
+- mode=offline
+- mode.dataset_path=results/datasets/cp_final_ppo/ppo
+- intervals_count=20

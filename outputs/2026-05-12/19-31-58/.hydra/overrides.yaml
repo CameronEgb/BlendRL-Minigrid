@@ -1,0 +1,8 @@
+- experiment_id=cartpole
+- env=cartpole
+- agent=iql
+- mode=offline
+- mode.dataset_path=results/datasets/cartpole/ppo
+- total_timesteps=1000
+- intervals_count=5
+- eval_episodes=100

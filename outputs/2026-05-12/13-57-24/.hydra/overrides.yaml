@@ -1,0 +1,12 @@
+- experiment_id=demo_mc_blendrl_iql
+- env=mountaincar
+- agent=blendrl_iql
+- mode=offline
+- mode.dataset_path=results/datasets/demo_mc_blendrl/blendrl
+- total_timesteps=10000
+- intervals_count=1
+- eval_episodes=5
+- +trainer.limit_train_batches=1
+- +trainer.max_epochs=1
+- +trainer.accelerator=cpu
+- +trainer.devices=1

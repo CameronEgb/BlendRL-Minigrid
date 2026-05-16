@@ -1,0 +1,6 @@
+- +experiment=cp_final
+- local=True
+- mode=online
+- total_timesteps=100
+- intervals_count=1
+- eval_episodes=1

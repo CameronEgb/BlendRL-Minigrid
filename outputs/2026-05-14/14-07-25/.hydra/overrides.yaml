@@ -1,0 +1,7 @@
+- experiment_id=cp_iql_t0.9_b3
+- agent=iql
+- mode=offline
+- mode.dataset_path=results/datasets/cp_final_ppo
+- agent.tau=0.9
+- agent.beta=3.0
+- intervals_count=10

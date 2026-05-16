@@ -1,0 +1,16 @@
+# @package _global_
+defaults:
+  - override /env: cartpole
+
+# Tuning Experiment for BlendRL on CartPole
+experiment_id: tune_blendrl
+total_timesteps: 100000
+eval_episodes: 100
+online_methods: ppo/cp_tuned,blendrl/cp_tuned,blendrl/tune_ent,blendrl/tune_lr,blendrl/tune_gumbel
+offline_methods: 
+intervals_count: 10
+
+save_dataset: true
+seed: 1
+local: true
+recover: false

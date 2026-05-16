@@ -1,0 +1,12 @@
+- experiment_id=demo_mc_ppo
+- env=mountaincar
+- agent=ppo
+- total_timesteps=10000
+- intervals_count=1
+- eval_episodes=5
+- save_dataset=true
+- +trainer.limit_train_batches=1
+- +trainer.max_epochs=1
+- +trainer.accelerator=cpu
+- +trainer.devices=1
+- env.num_envs=1

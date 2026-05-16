@@ -1,0 +1,10 @@
+- experiment_id=cp_blendrl_low_bent
+- agent=blendrl
+- env=cartpole
+- total_timesteps=200000
+- local=True
+- agent.lr=0.003
+- agent.ent_coef=0.01
+- agent.logic_lr=0.003
+- agent.blender_lr=0.003
+- agent.blend_ent_coef=0.001

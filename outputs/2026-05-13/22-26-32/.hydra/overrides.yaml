@@ -1,0 +1,10 @@
+- experiment_id=ppo_tune_lr0.001_ent0.001
+- env=cartpole
+- agent=ppo
+- total_timesteps=100000
+- agent.lr=0.001
+- agent.ent_coef=0.001
+- env.num_envs=8
+- env.num_steps=128
+- agent.num_minibatches=4
+- agent.update_epochs=4

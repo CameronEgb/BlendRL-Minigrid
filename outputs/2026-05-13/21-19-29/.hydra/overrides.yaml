@@ -1,0 +1,8 @@
+- experiment_id=cp_ppo_stable_lr3e-4_bs256
+- agent=ppo
+- env=cartpole
+- agent.lr=3e-4
+- agent.batch_size=256
+- total_timesteps=100000
+- seed=1
+

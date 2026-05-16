@@ -1,0 +1,6 @@
+- agent=blendrl
+- +trainer.limit_train_batches=1
+- +trainer.max_epochs=1
+- +trainer.accelerator=cpu
+- +trainer.devices=1
+- env.num_envs=1

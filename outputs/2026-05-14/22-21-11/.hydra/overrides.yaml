@@ -1,0 +1,7 @@
+- +experiment=cp_final
+- local=True
+- mode=online
+- total_timesteps=2000
+- intervals_count=2
+- eval_episodes=5
+- experiment_id=test_fix2
