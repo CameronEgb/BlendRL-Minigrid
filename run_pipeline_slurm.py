@@ -105,6 +105,11 @@ def main():
         
     # Ensure slurm log directories exist
     log_dir = Path("results/logs/slurm") / args.experiment
+    if log_dir.exists():
+        print(f"Clearing old logs in {log_dir}...")
+        for log_file in log_dir.glob("*"):
+            if log_file.is_file():
+                log_file.unlink()
     log_dir.mkdir(parents=True, exist_ok=True)
     
     job_ids = []
