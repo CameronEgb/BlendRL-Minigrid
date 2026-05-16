@@ -22,9 +22,6 @@ def generate_sbatch_script(job_name, cmd_args, log_dir, partition="rtx4060ti16g"
         script += f"#SBATCH --dependency=afterok:{dependency}\n"
         
     script += f"\n"
-    script += f"# Activate virtual environment\n"
-    script += f"source venv/bin/activate\n\n"
-    
     script += f"export PYTHONPATH=$(pwd)/src:$PYTHONPATH\n"
     
     # Construct the python command with explicit venv path
@@ -202,8 +199,7 @@ def main():
         final_script += f"#SBATCH --error={log_dir}/%x_%j.err\n"
         if all_dependencies:
             final_script += f"#SBATCH --dependency=afterany:{all_dependencies}\n"
-        final_script += f"\nsource venv/bin/activate\n"
-        final_script += f"export PYTHONPATH=$(pwd)/src:$PYTHONPATH\n\n"
+        final_script += f"\nexport PYTHONPATH=$(pwd)/src:$PYTHONPATH\n\n"
         final_script += f"echo 'Generating final plots...'\n"
         final_script += f"{plot_cmd}\n"
         final_script += f"echo 'Attempting to sync plots to Mac...'\n"
