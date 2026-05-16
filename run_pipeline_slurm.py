@@ -9,15 +9,15 @@ from pathlib import Path
 import re
 import datetime
 
-def generate_sbatch_script(job_name, cmd_args, partition="rtx4060ti16g", gpus=1, cores=16, nodes=1, dependency=None):
+def generate_sbatch_script(job_name, cmd_args, log_dir, partition="rtx4060ti16g", gpus=1, cores=16, nodes=1, dependency=None):
     script = f"#!/bin/bash\n"
     script += f"#SBATCH --job-name={job_name}\n"
     script += f"#SBATCH --partition={partition}\n"
     script += f"#SBATCH --gres=gpu:{gpus}\n"
     script += f"#SBATCH --ntasks={cores}\n"
     script += f"#SBATCH --nodes={nodes}\n"
-    script += f"#SBATCH --output=results/slurm/%x_%j.out\n"
-    script += f"#SBATCH --error=results/slurm/%x_%j.err\n"
+    script += f"#SBATCH --output={log_dir}/%x_%j.out\n"
+    script += f"#SBATCH --error={log_dir}/%x_%j.err\n"
     
     if dependency:
         script += f"#SBATCH --dependency=afterok:{dependency}\n"
@@ -27,7 +27,7 @@ def generate_sbatch_script(job_name, cmd_args, partition="rtx4060ti16g", gpus=1,
     script += f"source venv/bin/activate\n\n"
     
     script += f"export PYTHONPATH=$(pwd)/src:$PYTHONPATH\n"
-    script += f"export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python\n\n"
+#    script += f"export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python\n\n"
     
     # Construct the python command
     cmd_str = "python " + " ".join(cmd_args)
@@ -71,6 +71,7 @@ def main():
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs per job")
     parser.add_argument("--cores", type=int, default=16, help="Number of CPU cores per job")
     parser.add_argument("--nodes", type=int, default=1, help="Number of nodes per job")
+    parser.add_argument("--plot-style", type=str, default=None, help="Style config for plotter")
     args, extra_args = parser.parse_known_args()
     
     sanitized_extra_args = []
@@ -115,6 +116,10 @@ def main():
     scripts_dir = slurm_dir / "scripts"
     scripts_dir.mkdir(parents=True, exist_ok=True)
     
+    # New experiment-specific log directory
+    log_dir = Path("results/logs/slurm") / args.experiment
+    log_dir.mkdir(parents=True, exist_ok=True)
+    
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     cancel_script_path = f"cancel_experiment_{args.experiment}_{timestamp}.sh"
     job_ids = []
@@ -137,7 +142,7 @@ def main():
         ] + sanitized_extra_args
         
         script_content = generate_sbatch_script(
-            job_name, overrides, 
+            job_name, overrides, log_dir=str(log_dir),
             partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes
         )
         script_file = scripts_dir / f"{job_name}_{timestamp}.sh"
@@ -180,7 +185,7 @@ def main():
             overrides += sanitized_extra_args
             
             script_content = generate_sbatch_script(
-                job_name, overrides, 
+                job_name, overrides, log_dir=str(log_dir),
                 partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes,
                 dependency=dependency_job_id
             )
@@ -189,6 +194,58 @@ def main():
             
             if job_id:
                 job_ids.append(job_id)
+
+    # 3. Final Dependent Job: Plotting and Syncing
+    if job_ids:
+        print(f"\n=== Preparing Final Job: Plotting and Syncing ({args.experiment}) ===")
+        job_name = f"final_{args.experiment}"
+        
+        # This job depends on all previous jobs (even if some fail)
+        all_dependencies = ":".join(jid for jid in job_ids if jid != "99999")
+        
+        # Construct the plotting and sync command
+        # Note: sync command uses placeholders for user-specific settings
+        plot_cmd = f"python plot_results.py {args.experiment}"
+        if args.plot_style:
+            plot_cmd += f" --style {args.plot_style}"
+            
+        sync_cmd = f"rsync -avz results/plots/{args.experiment}/ ${{MAC_USER}}@${{MAC_IP}}:${{MAC_PATH}}"
+        
+        final_cmd = [
+            f"echo 'Generating final plots...'",
+            plot_cmd,
+            f"echo 'Attempting to sync plots to Mac...'",
+            f"if [ -z \"$MAC_USER\" ] || [ -z \"$MAC_IP\" ] || [ -z \"$MAC_PATH\" ]; then",
+            f"  echo 'Error: MAC_USER, MAC_IP, or MAC_PATH not set. Skipping sync.'",
+            f"else",
+            f"  {sync_cmd}",
+            f"fi"
+        ]
+        
+        # We wrap the commands in a single string for generate_sbatch_script
+        # We need to modify generate_sbatch_script to handle multiple commands or just pass it as is
+        # Looking at generate_sbatch_script, it joins cmd_args with spaces.
+        # Let's use a simpler approach: pass a list of strings that will be joined.
+        # Or better, just modify how the script is constructed for the final job.
+        
+        final_script = f"#!/bin/bash\n"
+        final_script += f"#SBATCH --job-name={job_name}\n"
+        final_script += f"#SBATCH --partition={args.partition}\n"
+        final_script += f"#SBATCH --ntasks=1\n"
+        final_script += f"#SBATCH --nodes=1\n"
+        final_script += f"#SBATCH --output={log_dir}/%x_%j.out\n"
+        final_script += f"#SBATCH --error={log_dir}/%x_%j.err\n"
+        if all_dependencies:
+            final_script += f"#SBATCH --dependency=afterany:{all_dependencies}\n"
+        final_script += f"\nsource venv/bin/activate\n"
+        final_script += f"export PYTHONPATH=$(pwd)/src:$PYTHONPATH\n\n"
+        for cmd in final_cmd:
+            final_script += f"{cmd}\n"
+            
+        script_file = scripts_dir / f"{job_name}_{timestamp}.sh"
+        job_id = submit_sbatch(final_script, script_file)
+        if job_id:
+            job_ids.append(job_id)
                 
     # Create cancellation script
     if job_ids:
