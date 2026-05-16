@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 import datetime
 
-def generate_sbatch_script(job_name, cmd_args, log_dir, partition="rtx4060ti16gb", gpus=1, cores=16, nodes=1, dependency=None):
+def generate_sbatch_script(job_name, cmd_args, log_dir, partition="rtx4060ti16g", gpus=1, cores=16, nodes=1, dependency=None):
     script = f"#!/bin/bash\n"
     script += f"#SBATCH --job-name={job_name}\n"
     script += f"#SBATCH --partition={partition}\n"
@@ -63,7 +63,7 @@ def submit_sbatch(script_content):
 def main():
     parser = argparse.ArgumentParser(description="NeSyRL Slurm Pipeline")
     parser.add_argument("experiment", type=str, help="Experiment name from conf/experiment/")
-    parser.add_argument("--partition", type=str, default="rtx4060ti16gb", help="Slurm partition")
+    parser.add_argument("--partition", type=str, default="rtx4060ti16g", help="Slurm partition")
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs per job")
     parser.add_argument("--cores", type=int, default=16, help="Number of CPU cores per job")
     parser.add_argument("--nodes", type=int, default=1, help="Number of nodes per job")
