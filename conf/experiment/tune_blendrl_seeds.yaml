@@ -1,0 +1,16 @@
+# @package _global_
+defaults:
+  - override /env: cartpole
+
+# Seed Robustness Test for BlendRL v10
+experiment_id: tune_blendrl_seeds
+total_timesteps: 200000
+eval_episodes: 100
+online_methods: ppo/cp_tuned,blendrl/v10_s1,blendrl/v10_s2,blendrl/v10_s3,blendrl/v10_s4,blendrl/v10_s5
+offline_methods: 
+intervals_count: 20
+
+save_dataset: true
+seed: 1
+local: true
+recover: false

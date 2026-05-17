@@ -1,0 +1,5 @@
+defaults:
+  - /agent: blendrl/v10
+  - _self_
+
+seed: 1

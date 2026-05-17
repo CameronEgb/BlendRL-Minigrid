@@ -38,7 +38,7 @@ class PPOAgent(L.LightningModule):
             cfg.env.name, 
             n_envs=self.num_envs, 
             mode=self.get_cfg("algorithm", "ppo"), 
-            seed=cfg.seed
+            seed=self.get_cfg("seed", cfg.seed)
         )
         
         # Get action space and observation space

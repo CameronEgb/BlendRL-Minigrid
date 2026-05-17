@@ -270,19 +270,50 @@ def main():
 
     search_dirs = [Path("results/logs"), Path("results/experiments")]
     
-    # Structure: {(exp_id, agent_path): {version_num: run_folder}}
-    agent_runs = defaultdict(dict)
-    
     experiment_filters = args.experiment.split(',')
     
+    # Structure: {(exp_id, agent_path): {version_num: run_folder}}
+    # Load configuration to get method lists for filtering
+    try:
+        from hydra import compose, initialize
+        from hydra.core.global_hydra import GlobalHydra
+        GlobalHydra.instance().clear()
+        # Filter out experiment names from commas for multi-exp plotting
+        primary_exp = experiment_filters[0]
+        initialize(version_base=None, config_path="conf")
+        exp_cfg = compose(config_name="config", overrides=[f"+experiment={primary_exp}"])
+        
+        allowed_methods = set()
+        for key in ["online_methods", "offline_methods"]:
+            val = exp_cfg.get(key, "")
+            if val:
+                if isinstance(val, (list, tuple)): 
+                    methods = val
+                else:
+                    methods = [item.strip() for item in str(val).split(",") if item.strip()]
+                for m in methods:
+                    allowed_methods.add(m)
+                    allowed_methods.add(m.replace("/", "_"))
+        
+        print(f"Filtering plots to methods defined in {primary_exp}: {allowed_methods}")
+    except Exception as e:
+        print(f"Warning: Could not load experiment config for filtering ({e}). Plotting all found data.")
+        allowed_methods = None
+
+    agent_runs = defaultdict(dict)
     for base in search_dirs:
         if not base.exists(): continue
         for p in base.rglob("metrics.csv"):
             run_folder = p.parent
             config_folder = run_folder.parent if run_folder.name.startswith("version_") else run_folder
             exp_id_from_path = config_folder.parent.name
+            agent_folder_name = config_folder.name
             
+            # Apply filters
             if any(ef == exp_id_from_path for ef in experiment_filters):
+                if allowed_methods is not None and agent_folder_name not in allowed_methods:
+                    continue
+                
                 version = -1
                 if run_folder.name.startswith("version_"):
                     try:

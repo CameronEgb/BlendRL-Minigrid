@@ -15,6 +15,7 @@ This document is the foundational source of truth for Gemini CLI in this workspa
 - [10. Logic-Neural Bridge (The "Blender")](#10-logic-neural-bridge-the-blender)
 - [11. Maintenance & Evolution](#11-maintenance--evolution)
 - [12. Common Commands](#12-common-commands)
+- [13. Split Workflow: Local Dev & Remote Execution](#13-split-workflow-local-dev--remote-execution)
 
 ---
 
@@ -147,4 +148,19 @@ The plotter supports YAML configurations to define which metrics to plot and how
 - `x_axis`: X-axis column (`transitions` or `step`).
 
 ---
-*Last Updated: 2026-05-15*
+
+## 13. Split Workflow: Local Dev & Remote Execution
+To accommodate cluster-based execution (Slurm), the development process follows a split model:
+- **Gemini's Role (Local):** 
+    - Code implementation, bug fixing, and refactoring.
+    - Preparing experiment configurations (`conf/`) and submission scripts.
+    - Analyzing local logs and metrics synced from the cluster.
+    - Performing lightweight local validation (linting, unit tests).
+- **User's Role (Remote):** 
+    - Running heavy training jobs or pipelines on the cluster.
+    - Synchronizing results/logs back to the local environment for analysis.
+    - Managing cluster-specific resources (Slurm partitions, GPUs).
+- **Collaboration:** Gemini will provide the exact commands or scripts required for the cluster. The user will execute them and provide feedback or log data for further refinement.
+
+---
+*Last Updated: 2026-05-16*

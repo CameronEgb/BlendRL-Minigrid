@@ -43,7 +43,7 @@ class BlendRLAgent(PPOAgent):
             cfg.env.name, 
             n_envs=self.num_envs, 
             mode=self.get_cfg("algorithm", cfg.env.name), 
-            seed=cfg.seed
+            seed=self.get_cfg("seed", cfg.seed)
         )
         
         dummy_logic, dummy_neural = self.env.reset()
