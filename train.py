@@ -19,29 +19,35 @@ def main(cfg: DictConfig):
     agent_cfg = cfg.agent
     # Handle nesting from Hydra inheritance (e.g., agent.agent.name)
     def get_algo_name(acfg):
-        # Prioritize 'algorithm' if present, then 'name'
-        if "algorithm" in acfg:
-            return acfg.algorithm
-        if "name" in acfg:
-            return acfg.name
-        if "agent" in acfg:
-            return get_algo_name(acfg.agent)
+        # Recursively look for 'algorithm' then 'name'
+        if isinstance(acfg, (dict, DictConfig)):
+            if "algorithm" in acfg:
+                return acfg.algorithm
+            if "agent" in acfg:
+                res = get_algo_name(acfg.agent)
+                if res: return res
+            if "name" in acfg:
+                return acfg.name
         return None
     
     base_algo_name = get_algo_name(agent_cfg)
+    print(f"Extracted algorithm name: {base_algo_name}")
 
-    if base_algo_name == "ppo":
+    if not base_algo_name:
+        raise ValueError("Could not extract algorithm name from config.")
+
+    if base_algo_name.startswith("ppo"):
         from src.methods.ppo_agent import PPOAgent
         model = PPOAgent(cfg)
-    elif base_algo_name == "blendrl":
-        from src.methods.blendrl_agent import BlendRLAgent
-        model = BlendRLAgent(cfg)
-    elif base_algo_name == "iql":
-        from src.methods.iql_agent import IQLAgent
-        model = IQLAgent(cfg)
-    elif base_algo_name == "blendrl_iql":
+    elif base_algo_name.startswith("blendrl_iql"):
         from src.methods.blendrl_iql_agent import BlendRLIQLAgent
         model = BlendRLIQLAgent(cfg)
+    elif base_algo_name.startswith("blendrl"):
+        from src.methods.blendrl_agent import BlendRLAgent
+        model = BlendRLAgent(cfg)
+    elif base_algo_name.startswith("iql"):
+        from src.methods.iql_agent import IQLAgent
+        model = IQLAgent(cfg)
     else:
         raise ValueError(f"Unknown agent algorithm: {base_algo_name}")
     
