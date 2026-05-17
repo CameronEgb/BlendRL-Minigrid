@@ -4,6 +4,7 @@ import torch.optim as optim
 import lightning as L
 import numpy as np
 import os
+from omegaconf import DictConfig
 from typing import Any, Dict, Optional
 from blendrl.env_vectorized import VectorizedNudgeBaseEnv
 
