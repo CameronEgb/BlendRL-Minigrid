@@ -9,10 +9,19 @@ import os
 def main(cfg: DictConfig):
     print(OmegaConf.to_yaml(cfg))
     
+    # Set seed
+    agent_seed = cfg.agent.get("seed", cfg.seed)
+    if isinstance(agent_seed, DictConfig): # Handle potential nesting
+        agent_seed = agent_seed.get("seed", cfg.seed)
+    L.seed_everything(agent_seed)
+    
     # Initialize Agent
     agent_cfg = cfg.agent
     # Handle nesting from Hydra inheritance (e.g., agent.agent.name)
     def get_algo_name(acfg):
+        # Prioritize 'algorithm' if present, then 'name'
+        if "algorithm" in acfg:
+            return acfg.algorithm
         if "name" in acfg:
             return acfg.name
         if "agent" in acfg:
