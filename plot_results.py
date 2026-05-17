@@ -9,10 +9,12 @@ from collections import defaultdict
 
 def get_style_info(label):
     l = label.lower()
-    # If it's a tuning run, let matplotlib pick the color
-    if "tune" in l: return None, "-", "o"
+    # If it's a specific tuning variant (v1, v2, etc.), return None to use cycle
+    import re
+    if re.search(r'_v\d+', l) or "tune" in l: 
+        return None, "-", "o"
     
-    # Check for the main algorithm name in the label
+    # Check for the main algorithm name in the label for standard baselines
     if "ppo" in l and "(on" not in l: return "black", "--", "o"
     if "blendrl-iql" in l: return "#d62728", "-", "s"
     if "blendrl" in l and "iql" not in l and "(on" not in l: return "#2ca02c", "-", "^"
@@ -219,7 +221,11 @@ def create_plot(exp_groups, metric, title, ylabel, save_path, window=1, use_simp
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     
-    for (exp_id, label), runs in sorted(exp_groups.items()):
+    # Use a cycling palette if we have many runs or it's a tuning run
+    colors = plt.cm.tab10(np.linspace(0, 1, len(exp_groups)))
+    markers = ['o', 's', '^', 'v', '<', '>', 'd', 'p', '*', 'h']
+    
+    for i, ((exp_id, label), runs) in enumerate(sorted(exp_groups.items())):
         steps, means, stds, logged_stds = aggregate_runs(runs, metric, x_axis_col=x_axis_col)
         if not steps: continue
         print(f"  Plotting {label} in {exp_id} ({metric}) with {len(steps)} points")
@@ -232,22 +238,23 @@ def create_plot(exp_groups, metric, title, ylabel, save_path, window=1, use_simp
             shading = moving_average(shading, n=window)
             steps = steps[:len(means)]
         
+        # Priority 1: Hardcoded styles for standard comparison plots
         style = get_style_info(label)
         color, ls, marker = style if style else (None, "-", "o")
+        
+        # Priority 2: If color is None (tuning or unknown), use cycle
+        if color is None:
+            color = colors[i % len(colors)]
+            marker = markers[i % len(markers)]
         
         # Don't use markers for high-density training plots
         actual_marker = marker if x_axis_col == "transitions" else None
         
         legend_label = label if use_simple_labels else f"{label} ({exp_id})"
         
-        if color:
-            plt.plot(steps, means, label=legend_label, color=color, linestyle=ls, marker=actual_marker, markersize=4)
-            if np.any(shading > 0):
-                plt.fill_between(steps, np.array(means)-shading, np.array(means)+shading, color=color, alpha=0.1)
-        else:
-            plt.plot(steps, means, label=legend_label, linestyle=ls, marker=actual_marker, markersize=4)
-            if np.any(shading > 0):
-                plt.fill_between(steps, np.array(means)-shading, np.array(means)+shading, alpha=0.1)
+        plt.plot(steps, means, label=legend_label, color=color, linestyle=ls, marker=actual_marker, markersize=4)
+        if np.any(shading > 0):
+            plt.fill_between(steps, np.array(means)-shading, np.array(means)+shading, color=color, alpha=0.1)
             
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.grid(True, alpha=0.2); plt.tight_layout()

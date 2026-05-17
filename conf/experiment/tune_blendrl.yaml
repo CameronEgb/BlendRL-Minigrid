@@ -4,11 +4,11 @@ defaults:
 
 # Tuning Experiment for BlendRL on CartPole
 experiment_id: tune_blendrl
-total_timesteps: 100000
+total_timesteps: 200000
 eval_episodes: 100
-online_methods: ppo/cp_tuned,blendrl/v1,blendrl/v2,blendrl/v3,blendrl/v4,blendrl/v5
+online_methods: ppo/cp_tuned,blendrl/v6,blendrl/v7,blendrl/v8,blendrl/v9,blendrl/v10
 offline_methods: 
-intervals_count: 10
+intervals_count: 20
 
 save_dataset: true
 seed: 1
