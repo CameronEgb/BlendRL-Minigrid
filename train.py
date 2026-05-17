@@ -12,10 +12,14 @@ def main(cfg: DictConfig):
     # Initialize Agent
     agent_cfg = cfg.agent
     # Handle nesting from Hydra inheritance (e.g., agent.agent.name)
-    if "agent" in agent_cfg:
-        base_algo_name = agent_cfg.agent.name
-    else:
-        base_algo_name = agent_cfg.name
+    def get_algo_name(acfg):
+        if "name" in acfg:
+            return acfg.name
+        if "agent" in acfg:
+            return get_algo_name(acfg.agent)
+        return None
+    
+    base_algo_name = get_algo_name(agent_cfg)
 
     if base_algo_name == "ppo":
         from src.methods.ppo_agent import PPOAgent
