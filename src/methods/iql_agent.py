@@ -14,11 +14,7 @@ class IQLAgent(PPOAgent):
         self.cfg = cfg
         
         # Handle nested agent config for algorithm
-        agent_cfg = cfg.agent
-        if "agent" in agent_cfg:
-            algorithm = agent_cfg.agent.algorithm
-        else:
-            algorithm = agent_cfg.algorithm
+        algorithm = self.get_cfg("algorithm", self.get_cfg("name", cfg.env.name))
 
         # In offline mode, env is only for evaluation
         from blendrl.env_vectorized import VectorizedNudgeBaseEnv

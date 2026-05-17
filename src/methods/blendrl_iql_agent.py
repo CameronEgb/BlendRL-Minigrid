@@ -15,11 +15,7 @@ class BlendRLIQLAgent(IQLAgent):
         self.cfg = cfg
         
         # Handle nested agent config for algorithm
-        agent_cfg = cfg.agent
-        if "agent" in agent_cfg:
-            algorithm = agent_cfg.agent.algorithm
-        else:
-            algorithm = agent_cfg.algorithm
+        algorithm = self.get_cfg("algorithm", self.get_cfg("name", cfg.env.name))
 
         from blendrl.env_vectorized import VectorizedNudgeBaseEnv
         self.env = VectorizedNudgeBaseEnv.from_name(

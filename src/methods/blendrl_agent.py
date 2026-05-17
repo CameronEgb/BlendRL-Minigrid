@@ -53,13 +53,13 @@ class BlendRLAgent(PPOAgent):
         
         self.model = BlenderActorCritic(
             self.env,
-            cfg.env.rules,
+            self.get_cfg("rules", cfg.env.rules),
             self.get_cfg("actor_mode", "hybrid"),
             self.get_cfg("blender_mode", "logic"),
             self.get_cfg("blend_function", "softmax"),
-            cfg.env.reasoner,
+            self.get_cfg("reasoner", cfg.env.reasoner),
             self.device,
-            architecture=cfg.env.architecture,
+            architecture=self.get_cfg("architecture", cfg.env.architecture),
         )
         
         self.automatic_optimization = False

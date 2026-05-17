@@ -77,12 +77,22 @@ class PPOAgent(L.LightningModule):
 
     def get_cfg(self, key, default=None):
         cfg = self.cfg
-        # Check agent sub-config (including nested), then env sub-config, then top level
+        
+        # Recursive search in agent config
+        def find_in_acfg(acfg, k):
+            if not isinstance(acfg, (dict, DictConfig)):
+                return None
+            if k in acfg:
+                return acfg[k]
+            if "agent" in acfg:
+                return find_in_acfg(acfg.agent, k)
+            return None
+
         if hasattr(cfg, "agent"):
-            if key in cfg.agent:
-                return cfg.agent[key]
-            if "agent" in cfg.agent and key in cfg.agent.agent:
-                return cfg.agent.agent[key]
+            val = find_in_acfg(cfg.agent, key)
+            if val is not None:
+                return val
+
         if hasattr(cfg, "env") and key in cfg.env:
             return cfg.env[key]
         if key in cfg:

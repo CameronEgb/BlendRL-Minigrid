@@ -370,18 +370,26 @@ class EnvironmentEvaluatorCallback(L.Callback):
         cfg = self.cfg
         pl_module.eval()
         
-        if self.eval_env is None:
-            # Handle nested agent config
-            agent_cfg = cfg.agent
-            if "agent" in agent_cfg:
-                algorithm = agent_cfg.agent.algorithm
-            else:
-                algorithm = agent_cfg.algorithm
+        # Helper to extract algorithm name robustly
+        def get_algo_name_robust(acfg):
+            from omegaconf import DictConfig
+            if isinstance(acfg, (dict, DictConfig)):
+                if "algorithm" in acfg:
+                    return acfg.algorithm
+                if "agent" in acfg:
+                    res = get_algo_name_robust(acfg.agent)
+                    if res: return res
+                if "name" in acfg:
+                    return acfg.name
+            return None
 
+        base_algo_name = get_algo_name_robust(cfg.agent)
+
+        if self.eval_env is None:
             self.eval_env = VectorizedNudgeBaseEnv.from_name(
                 cfg.env.name, 
                 n_envs=min(10, cfg.env.num_envs if cfg.mode.type == "online" else 10), 
-                mode=algorithm, 
+                mode=base_algo_name if base_algo_name else cfg.env.name, 
                 seed=cfg.seed + 100
             )
         
@@ -394,7 +402,7 @@ class EnvironmentEvaluatorCallback(L.Callback):
         logic_obs = torch.Tensor(logic_obs).to(pl_module.device)
         
         # Determine if the agent needs logic_obs
-        is_hybrid = "blendrl" in cfg.agent.name
+        is_hybrid = base_algo_name and "blendrl" in base_algo_name
         
         while len(eval_total_rewards) < cfg.eval_episodes:
             with torch.no_grad():
