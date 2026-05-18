@@ -19,5 +19,5 @@ clip_vloss: true
 blender_mode: logic
 blend_function: softmax
 actor_mode: hybrid
-joint_training: false
+joint_training: true
 pretrained: false

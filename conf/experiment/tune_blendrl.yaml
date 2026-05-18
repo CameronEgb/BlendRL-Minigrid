@@ -1,15 +1,19 @@
 # @package _global_
 defaults:
   - override /env: cartpole
+  - override /mode: online
 
-# Tuning Experiment for BlendRL on CartPole
-experiment_id: tune_blendrl
-total_timesteps: 200000
+# Tuning Experiment for BlendRL on CartPole (10 variants)
+experiment_id: tune_blendrl_v2
+total_timesteps: 50000
+intervals_count: 10
 eval_episodes: 100
-online_methods: ppo/cp_tuned,blendrl/v6,blendrl/v7,blendrl/v8,blendrl/v9,blendrl/v10
-offline_methods: 
-intervals_count: 20
 
+online_methods: >-
+  blendrl/tuning/v1,blendrl/tuning/v2,blendrl/tuning/v3,blendrl/tuning/v4,blendrl/tuning/v5,
+  blendrl/tuning/v6,blendrl/tuning/v7,blendrl/tuning/v8,blendrl/tuning/v9,blendrl/tuning/v10
+
+offline_methods: 
 save_dataset: true
 seed: 1
 local: true

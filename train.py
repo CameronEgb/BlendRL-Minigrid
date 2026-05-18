@@ -51,6 +51,19 @@ def main(cfg: DictConfig):
     else:
         raise ValueError(f"Unknown agent algorithm: {base_algo_name}")
     
+    # Print Architecture Information
+    print("\n" + "="*30)
+    print("      AGENT ARCHITECTURE")
+    print("="*30)
+    print(model)
+    
+    if hasattr(model, "model") and hasattr(model.model, "_print"):
+        print("\n" + "="*30)
+        print("      LOGIC RULES & BLENDER")
+        print("="*30)
+        model.model._print()
+    print("="*30 + "\n")
+    
     # Data Module
     from src.data.rl_data_module import RLDataModule
     datamodule = RLDataModule(cfg)

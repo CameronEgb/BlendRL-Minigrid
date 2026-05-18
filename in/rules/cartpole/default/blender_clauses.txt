@@ -1,2 +1,5 @@
+logic_agent(X):-is_stable(E).
+neural_agent(X):-not_stable(E).
+# Fallback just in case
 logic_agent(X):-true(E).
 neural_agent(X):-true(E).
