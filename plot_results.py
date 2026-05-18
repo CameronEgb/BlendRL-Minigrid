@@ -128,14 +128,20 @@ def load_run_data(run_folder, args):
         source = name_map.get(source_key, source_key)
     
     exp_id = "UNKNOWN"
-    if config and "experiment_id" in config:
-        exp_id = config["experiment_id"]
-    else:
-        # Try to extract from path results/logs/[EXP_ID]/[AGENT]
+    group = "ungrouped"
+    if config:
+        if "experiment_id" in config: exp_id = config["experiment_id"]
+        if "group" in config: group = config["group"]
+    
+    if exp_id == "UNKNOWN":
+        # Try to extract from path results/logs/[GROUP]/[EXP_ID]/[AGENT]
         parts = run_folder.parts
         if "logs" in parts:
             idx = parts.index("logs")
-            if len(parts) > idx + 1:
+            if len(parts) > idx + 2:
+                group = parts[idx+1]
+                exp_id = parts[idx+2]
+            elif len(parts) > idx + 1:
                 exp_id = parts[idx+1]
 
     data = defaultdict(list)
@@ -170,7 +176,7 @@ def load_run_data(run_folder, args):
                     "transitions": subset["transitions"].tolist() if "transitions" in subset.columns else []
                 }
     
-    return {"folder": run_folder, "label": label, "exp_id": exp_id, "data": data, "base_name": get_base_name(exp_id), "source": source, "mode": mode}
+    return {"folder": run_folder, "label": label, "exp_id": exp_id, "group": group, "data": data, "base_name": get_base_name(exp_id), "source": source, "mode": mode, "config": config}
 
 def aggregate_runs(runs, metric_name, x_axis_col="transitions"):
     # Find all unique x-axis points
@@ -283,6 +289,12 @@ def main():
         initialize(version_base=None, config_path="conf")
         exp_cfg = compose(config_name="config", overrides=[f"+experiment={primary_exp}"])
         
+        # Add the actual experiment_id from config to the filters
+        if "experiment_id" in exp_cfg:
+            actual_id = exp_cfg.experiment_id
+            if actual_id not in experiment_filters:
+                experiment_filters.append(actual_id)
+        
         allowed_methods = set()
         for key in ["online_methods", "offline_methods"]:
             val = exp_cfg.get(key, "")
@@ -372,9 +384,11 @@ def main():
         return
     
     found_exp_ids = set(r["exp_id"] for r in all_runs)
+    found_groups = set(r["group"] for r in all_runs)
+    group = list(found_groups)[0] if len(found_groups) == 1 else "combined"
     use_simple_labels = len(found_exp_ids) <= 1
 
-    save_dir = Path("results/plots") / args.experiment
+    save_dir = Path("results/plots") / group / args.experiment
     if save_dir.exists():
         import shutil
         print(f"Clearing existing plots in {save_dir}")
@@ -461,6 +475,52 @@ def main():
                        x_axis_col=x_axis, xlabel=xlabel)
 
     generate_time_table(all_runs, save_dir)
+    generate_hyperparam_report(all_runs, save_dir)
+
+def generate_hyperparam_report(all_runs, save_dir):
+    report_path = save_dir / "hyperparameters_report.md"
+    print(f"\n=== Generating Hyperparameter Report: {report_path} ===")
+    
+    with open(report_path, "w") as f:
+        f.write(f"# Hyperparameter & Architecture Report\n\n")
+        f.write(f"This report summarizes the configurations for all runs in the `{save_dir.name}` experiment.\n\n")
+        
+        for run in all_runs:
+            f.write(f"## {run['label']} ({run['exp_id']})\n")
+            f.write(f"- **Mode:** {run['mode'].upper()}\n")
+            f.write(f"- **Source Dataset:** {run['source']}\n")
+            f.write(f"- **Log Path:** `{run['folder']}`\n\n")
+            
+            if run['config']:
+                cfg = run['config']
+                agent_cfg = cfg.get("agent", {})
+                env_cfg = cfg.get("env", {})
+                
+                f.write("### Architecture Details\n")
+                f.write(f"- **Base Algorithm:** {agent_cfg.get('algorithm', 'Unknown')}\n")
+                f.write(f"- **Neural Architecture:** {env_cfg.get('architecture', 'Unknown')}\n")
+                
+                if "blendrl" in str(agent_cfg.get('algorithm', '')).lower():
+                    f.write(f"- **Symbolic Reasoner:** {env_cfg.get('reasoner', 'Unknown')}\n")
+                    f.write(f"- **Logic Rules:** `{env_cfg.get('rules', 'default')}`\n")
+                    f.write(f"- **Blender Mode:** {agent_cfg.get('blender_mode', 'logic')}\n")
+                    f.write(f"- **Actor Mode:** {agent_cfg.get('actor_mode', 'hybrid')}\n")
+                    f.write(f"- **Joint Training:** {agent_cfg.get('joint_training', False)}\n")
+                
+                f.write("\n### Key Hyperparameters\n")
+                hp_keys = ["lr", "logic_lr", "blender_lr", "ent_coef", "blend_ent_coef", "gamma", "gae_lambda", "batch_size", "update_epochs"]
+                for k in hp_keys:
+                    if k in agent_cfg:
+                        f.write(f"- **{k}:** {agent_cfg[k]}\n")
+                
+                f.write("\n### Full Configuration\n")
+                f.write("<details>\n<summary>Click to expand</summary>\n\n")
+                f.write("```yaml\n")
+                yaml.dump(cfg, f, default_flow_style=False)
+                f.write("```\n</details>\n\n")
+            else:
+                f.write("*No configuration file found for this run.*\n\n")
+            f.write("---\n\n")
 
 def generate_time_table(all_runs, save_dir):
     table_data = []

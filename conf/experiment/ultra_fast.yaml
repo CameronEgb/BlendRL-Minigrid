@@ -1,15 +1,17 @@
 # @package _global_
 defaults:
   - override /env: cartpole
-  - override /agent: blendrl
+  - override /agent: blendrl_base
   - override /mode: online
 
 experiment_id: "cp_blendrl_ultra_fast"
-group: ""
+group: "quick_tests"
 seed: 1
 total_timesteps: 40000
 intervals_count: 20
 eval_episodes: 100
+online_methods: blendrl_base
+offline_methods: 
 save_dataset: true
 local: true
 recover: false

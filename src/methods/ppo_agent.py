@@ -174,7 +174,7 @@ class PPOAgent(L.LightningModule):
                     if not hasattr(self, "dataset_writer"):
                         from src.dataset_utils import DatasetWriter
                         chunk_size = cfg.total_timesteps // cfg.intervals_count
-                        save_dir = os.path.join("results/datasets", cfg.experiment_id, cfg.agent.name)
+                        save_dir = os.path.join("results/datasets", cfg.group, cfg.experiment_id, cfg.agent.name)
                         self.dataset_writer = DatasetWriter(
                             save_dir=save_dir,
                             env_name=cfg.env.name,

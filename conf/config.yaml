@@ -5,6 +5,7 @@ defaults:
   - _self_
 
 experiment_id: "default_exp"
+group: "ungrouped"
 seed: 1
 total_timesteps: 10000
 intervals_count: 4

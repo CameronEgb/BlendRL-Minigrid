@@ -6,7 +6,7 @@ defaults:
   - override /hydra/sweeper: optuna
 
 experiment_id: "cp_tune_ppo"
-group: "tuning"
+group: "blendrl_tuning"
 seed: 1
 total_timesteps: 100000
 intervals_count: 5

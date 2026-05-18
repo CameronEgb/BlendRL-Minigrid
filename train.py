@@ -69,8 +69,8 @@ def main(cfg: DictConfig):
     datamodule = RLDataModule(cfg)
     
     # Loggers
-    log_dir = os.path.join("results/logs", cfg.experiment_id)
-    tb_dir = os.path.join("results/tensorboard", cfg.experiment_id)
+    log_dir = os.path.join("results/logs", cfg.group, cfg.experiment_id)
+    tb_dir = os.path.join("results/tensorboard", cfg.group, cfg.experiment_id)
     loggers = [
         CSVLogger(log_dir, name=cfg.agent.name),
         TensorBoardLogger(tb_dir, name=cfg.agent.name, default_hp_metric=False)
@@ -78,7 +78,7 @@ def main(cfg: DictConfig):
     
     # Callbacks
     from src.utils import EnvironmentEvaluatorCallback
-    ckpt_dir = os.path.join("results/checkpoints", cfg.experiment_id, cfg.agent.name)
+    ckpt_dir = os.path.join("results/checkpoints", cfg.group, cfg.experiment_id, cfg.agent.name)
     callbacks = [
         ModelCheckpoint(
             dirpath=ckpt_dir,

@@ -105,7 +105,7 @@ def main():
     print(f"Using Datasets for Offline Training: {dataset_list}")
         
     # Ensure slurm log directories exist
-    log_dir = Path("results/logs/slurm") / args.experiment
+    log_dir = Path("results/logs/slurm") / cfg.group / args.experiment
     if log_dir.exists():
         print(f"Clearing old logs in {log_dir}...")
         for log_file in log_dir.glob("*"):
@@ -129,7 +129,7 @@ def main():
             f"mode=online",
             f"agent={agent_config}",
             f"++agent.name={agent_name_internal}",
-            f"++dataset_path=results/datasets/{args.experiment}/{agent_name_internal}"
+            f"++dataset_path=results/datasets/{cfg.group}/{args.experiment}/{agent_name_internal}"
         ] + sanitized_extra_args
         
         script_content = generate_sbatch_script(
@@ -146,7 +146,7 @@ def main():
     for dataset_id in dataset_list:
         dataset_name_internal = dataset_id.replace("/", "_")
         is_online = dataset_id in online_list
-        dataset_path = Path("results/datasets") / args.experiment / dataset_name_internal
+        dataset_path = Path("results/datasets") / cfg.group / args.experiment / dataset_name_internal
         
         # Dependency logic
         dependency_job_id = online_job_ids.get(dataset_id)
@@ -170,7 +170,7 @@ def main():
                 f"++agent.name={agent_name_internal}"
             ]
             if not dataset_path_override:
-                overrides.append(f"++mode.dataset_path=results/datasets/{args.experiment}/{dataset_name_internal}")
+                overrides.append(f"++mode.dataset_path=results/datasets/{cfg.group}/{args.experiment}/{dataset_name_internal}")
             overrides += sanitized_extra_args
             
             script_content = generate_sbatch_script(
@@ -185,13 +185,14 @@ def main():
 
     # 3. Final Dependent Job: Plotting and Syncing
     if job_ids:
-        print(f"\n=== Preparing Final Job: Plotting and Syncing ({args.experiment}) ===")
-        job_name = f"final_{args.experiment}"
+        actual_exp_id = cfg.experiment_id
+        print(f"\n=== Preparing Final Job: Plotting and Syncing ({actual_exp_id}) ===")
+        job_name = f"final_{actual_exp_id}"
         
         all_dependencies = ":".join(jid for jid in job_ids if jid != "99999")
         
         project_root = os.getcwd()
-        plot_cmd = f"{project_root}/venv/bin/python3 plot_results.py {args.experiment}"
+        plot_cmd = f"{project_root}/venv/bin/python3 plot_results.py {actual_exp_id}"
         if args.plot_style:
             plot_cmd += f" --style {args.plot_style}"
             
@@ -206,7 +207,7 @@ def main():
             final_script += f"#SBATCH --dependency=afterany:{all_dependencies}\n"
         final_script += f"\nexport PROJECT_ROOT={project_root}\n"
         final_script += f"export PYTHONPATH=$PROJECT_ROOT/src:$PYTHONPATH\n\n"
-        final_script += f"echo 'Generating final plots for {args.experiment}...'\n"
+        final_script += f"echo 'Generating final plots for {actual_exp_id}...'\n"
         final_script += f"{plot_cmd}\n"
         
         submit_sbatch(final_script)

@@ -89,7 +89,7 @@ def main():
             f"mode=online",
             f"agent={agent_config}",
             f"++agent.name={agent_name_internal}",
-            f"++dataset_path=results/datasets/{args.experiment}/{agent_name_internal}"
+            f"++dataset_path=results/datasets/{cfg.group}/{args.experiment}/{agent_name_internal}"
         ] + sanitized_extra_args
         run_experiment(overrides)
 
@@ -100,7 +100,7 @@ def main():
         
         # Validate dataset existence or planned creation
         is_online = dataset_id in online_list
-        dataset_path = Path("results/datasets") / args.experiment / dataset_name_internal
+        dataset_path = Path("results/datasets") / cfg.group / args.experiment / dataset_name_internal
         
         if not is_online and not dataset_path.exists():
             print(f"Error: Dataset '{dataset_id}' not found.")
@@ -123,7 +123,7 @@ def main():
             ]
             
             if not dataset_path_override:
-                overrides.append(f"++mode.dataset_path=results/datasets/{args.experiment}/{dataset_name_internal}")
+                overrides.append(f"++mode.dataset_path=results/datasets/{cfg.group}/{args.experiment}/{dataset_name_internal}")
                 
             overrides += sanitized_extra_args
             run_experiment(overrides)

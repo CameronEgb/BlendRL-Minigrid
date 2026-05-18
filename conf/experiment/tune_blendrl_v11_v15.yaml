@@ -4,7 +4,9 @@ defaults:
 
 # Targeted Hyperparameter Sweep v11-v15
 experiment_id: tune_blendrl_v11_v15
-total_timesteps: 200000
+group: blendrl_tuning
+total_timesteps: 50000
+
 eval_episodes: 100
 online_methods: ppo/cp_tuned,blendrl/v11,blendrl/v12,blendrl/v13,blendrl/v14,blendrl/v15
 offline_methods: 
