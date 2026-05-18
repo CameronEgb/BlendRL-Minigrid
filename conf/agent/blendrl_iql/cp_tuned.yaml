@@ -9,7 +9,7 @@ tau: 0.7
 beta: 3.0
 batch_size: 256
 epochs_per_interval: 10
-blend_ent_coef: 0.01
+blend_ent_coef: 0.001
 blender_mode: logic
 blend_function: softmax
 actor_mode: hybrid

@@ -159,6 +159,9 @@ def load_run_data(run_folder, args):
         if "transitions" in df.columns:
             df['transitions'] = df['transitions'].ffill().bfill()
             df['transitions'] = df['transitions'].round().astype(int)
+        elif "step" in df.columns:
+            # Fallback for older runs
+            df['transitions'] = df['step']
 
         for col in df.columns:
             if col in ["step", "transitions", "epoch"]: continue
@@ -269,112 +272,160 @@ def create_plot(exp_groups, metric, title, ylabel, save_path, window=1, use_simp
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("experiment", type=str, help="Experiment ID or substring to filter")
+    parser.add_argument("experiment", type=str, nargs='?', default=None, help="Experiment ID or substring to filter (optional if --sources is provided)")
     parser.add_argument("--version", type=str, default=None, help="Specific version (e.g., 0), 'all' to aggregate, or latest by default.")
     parser.add_argument("--style", type=str, default=None, help="Path to a YAML config file defining plot styles and groupings.")
+    parser.add_argument("--sources", type=str, default=None, help="Path to a YAML file defining specific run paths to plot together.")
     args = parser.parse_args()
+
+    if not args.experiment and not args.sources:
+        parser.error("At least one of 'experiment' or '--sources' must be provided.")
 
     search_dirs = [Path("results/logs"), Path("results/experiments")]
     
-    experiment_filters = args.experiment.split(',')
-    
-    # Structure: {(exp_id, agent_path): {version_num: run_folder}}
-    # Load configuration to get method lists for filtering
-    try:
-        from hydra import compose, initialize
-        from hydra.core.global_hydra import GlobalHydra
-        GlobalHydra.instance().clear()
-        # Filter out experiment names from commas for multi-exp plotting
-        primary_exp = experiment_filters[0]
-        initialize(version_base=None, config_path="conf")
-        exp_cfg = compose(config_name="config", overrides=[f"+experiment={primary_exp}"])
-        
-        # Add the actual experiment_id from config to the filters
-        if "experiment_id" in exp_cfg:
-            actual_id = exp_cfg.experiment_id
-            if actual_id not in experiment_filters:
-                experiment_filters.append(actual_id)
-        
-        allowed_methods = set()
-        for key in ["online_methods", "offline_methods"]:
-            val = exp_cfg.get(key, "")
-            if val:
-                if isinstance(val, (list, tuple)): 
-                    methods = val
-                else:
-                    methods = [item.strip() for item in str(val).split(",") if item.strip()]
-                for m in methods:
-                    allowed_methods.add(m)
-                    allowed_methods.add(m.replace("/", "_"))
-        
-        print(f"Filtering plots to methods defined in {primary_exp}: {allowed_methods}")
-    except Exception as e:
-        print(f"Warning: Could not load experiment config for filtering ({e}). Plotting all found data.")
-        allowed_methods = None
-
-    agent_runs = defaultdict(dict)
-    for base in search_dirs:
-        if not base.exists(): continue
-        for p in base.rglob("metrics.csv"):
-            run_folder = p.parent
-            config_folder = run_folder.parent if run_folder.name.startswith("version_") else run_folder
-            exp_id_from_path = config_folder.parent.name
-            agent_folder_name = config_folder.name
-            
-            # Apply filters
-            if any(ef == exp_id_from_path for ef in experiment_filters):
-                if allowed_methods is not None and agent_folder_name not in allowed_methods:
-                    continue
-                
-                version = -1
-                if run_folder.name.startswith("version_"):
-                    try:
-                        version = int(run_folder.name.split("_")[1])
-                    except (ValueError, IndexError):
-                        pass
-                
-                # Extract dataset from hparams.yaml to differentiate offline runs
-                dataset_key = ""
-                hparams_path = run_folder / "hparams.yaml"
-                if not hparams_path.exists():
-                    hparams_path = config_folder / "hparams.yaml"
-                    
-                if hparams_path.exists():
-                    try:
-                        with open(hparams_path, "r") as f:
-                            # Simple parsing to avoid full yaml load overhead
-                            for line in f:
-                                if "dataset_path:" in line and "results/datasets/" in line:
-                                    dataset_key = line.strip().split()[-1]
-                                    break
-                    except Exception:
-                        pass
-                
-                agent_key = (exp_id_from_path, str(config_folder), dataset_key)
-                agent_runs[agent_key][version] = run_folder
-
     all_runs = []
-    for agent_key, versions in agent_runs.items():
-        if not versions: continue
+    
+    if args.sources:
+        # Load specific sources from YAML
+        sources_path = Path(args.sources)
+        if not sources_path.exists():
+            # Try conf/plot_sources/ as a default location
+            sources_path = Path("conf/plot_sources") / sources_path
+            if not sources_path.suffix: sources_path = sources_path.with_suffix(".yaml")
         
-        if args.version == "all":
-            # Add ALL versions for this agent for aggregation
-            for v_num in versions:
-                all_runs.append(load_run_data(versions[v_num], args))
-        elif args.version is not None:
-            # Add only the SPECIFIC version
-            try:
-                v_requested = int(args.version)
-                if v_requested in versions:
-                    all_runs.append(load_run_data(versions[v_requested], args))
-                elif v_requested == 0 and -1 in versions:
-                    all_runs.append(load_run_data(versions[-1], args))
-            except ValueError:
-                print(f"Warning: Invalid version '{args.version}' requested for {agent_key[1]}")
-        else:
-            # Default: Add only the LATEST version
-            latest_v = max(versions.keys())
-            all_runs.append(load_run_data(versions[latest_v], args))
+        if not sources_path.exists():
+            parser.error(f"Sources file not found: {args.sources}")
+            
+        with open(sources_path, "r") as f:
+            sources_cfg = yaml.safe_load(f)
+        
+        synthesized_name = Path(args.sources).stem
+        
+        for run_def in sources_cfg.get("runs", []):
+            run_path = Path(run_def["path"])
+            # If path points to version folder, use it. Else find version_0
+            target_folder = run_path
+            if not (run_path / "metrics.csv").exists():
+                # Check for version_0, etc.
+                versions = sorted(list(run_path.glob("version_*")))
+                if versions:
+                    target_folder = versions[-1] # Default to latest version
+            
+            if not (target_folder / "metrics.csv").exists():
+                print(f"Warning: No metrics.csv found at {target_folder}, skipping.")
+                continue
+                
+            run_data = load_run_data(target_folder, args)
+            # Override with synthesized labels and grouping
+            if "label" in run_def:
+                run_data["label"] = run_def["label"]
+            
+            run_data["group"] = "synthesized"
+            run_data["exp_id"] = synthesized_name
+            all_runs.append(run_data)
+            
+        experiment_name_for_save = synthesized_name
+    else:
+        # Standard recursive search logic
+        experiment_filters = args.experiment.split(',')
+        experiment_name_for_save = args.experiment
+        
+        # Structure: {(exp_id, agent_path): {version_num: run_folder}}
+        # Load configuration to get method lists for filtering
+        try:
+            from hydra import compose, initialize
+            from hydra.core.global_hydra import GlobalHydra
+            GlobalHydra.instance().clear()
+            # Filter out experiment names from commas for multi-exp plotting
+            primary_exp = experiment_filters[0]
+            initialize(version_base=None, config_path="conf")
+            exp_cfg = compose(config_name="config", overrides=[f"+experiment={primary_exp}"])
+            
+            # Add the actual experiment_id from config to the filters
+            if "experiment_id" in exp_cfg:
+                actual_id = exp_cfg.experiment_id
+                if actual_id not in experiment_filters:
+                    experiment_filters.append(actual_id)
+            
+            allowed_methods = set()
+            for key in ["online_methods", "offline_methods"]:
+                val = exp_cfg.get(key, "")
+                if val:
+                    if isinstance(val, (list, tuple)): 
+                        methods = val
+                    else:
+                        methods = [item.strip() for item in str(val).split(",") if item.strip()]
+                    for m in methods:
+                        allowed_methods.add(m)
+                        allowed_methods.add(m.replace("/", "_"))
+            
+            print(f"Filtering plots to methods defined in {primary_exp}: {allowed_methods}")
+        except Exception as e:
+            print(f"Warning: Could not load experiment config for filtering ({e}). Plotting all found data.")
+            allowed_methods = None
+
+        agent_runs = defaultdict(dict)
+        for base in search_dirs:
+            if not base.exists(): continue
+            for p in base.rglob("metrics.csv"):
+                run_folder = p.parent
+                config_folder = run_folder.parent if run_folder.name.startswith("version_") else run_folder
+                exp_id_from_path = config_folder.parent.name
+                agent_folder_name = config_folder.name
+                
+                # Apply filters
+                if any(ef == exp_id_from_path for ef in experiment_filters):
+                    if allowed_methods is not None and agent_folder_name not in allowed_methods:
+                        continue
+                    
+                    version = -1
+                    if run_folder.name.startswith("version_"):
+                        try:
+                            version = int(run_folder.name.split("_")[1])
+                        except (ValueError, IndexError):
+                            pass
+                    
+                    # Extract dataset from hparams.yaml to differentiate offline runs
+                    dataset_key = ""
+                    hparams_path = run_folder / "hparams.yaml"
+                    if not hparams_path.exists():
+                        hparams_path = config_folder / "hparams.yaml"
+                        
+                    if hparams_path.exists():
+                        try:
+                            with open(hparams_path, "r") as f:
+                                # Simple parsing to avoid full yaml load overhead
+                                for line in f:
+                                    if "dataset_path:" in line and "results/datasets/" in line:
+                                        dataset_key = line.strip().split()[-1]
+                                        break
+                        except Exception:
+                            pass
+                    
+                    agent_key = (exp_id_from_path, str(config_folder), dataset_key)
+                    agent_runs[agent_key][version] = run_folder
+
+        for agent_key, versions in agent_runs.items():
+            if not versions: continue
+            
+            if args.version == "all":
+                # Add ALL versions for this agent for aggregation
+                for v_num in versions:
+                    all_runs.append(load_run_data(versions[v_num], args))
+            elif args.version is not None:
+                # Add only the SPECIFIC version
+                try:
+                    v_requested = int(args.version)
+                    if v_requested in versions:
+                        all_runs.append(load_run_data(versions[v_requested], args))
+                    elif v_requested == 0 and -1 in versions:
+                        all_runs.append(load_run_data(versions[-1], args))
+                except ValueError:
+                    print(f"Warning: Invalid version '{args.version}' requested for {agent_key[1]}")
+            else:
+                # Default: Add only the LATEST version
+                latest_v = max(versions.keys())
+                all_runs.append(load_run_data(versions[latest_v], args))
 
     if not all_runs:
         if args.version is not None:
@@ -388,7 +439,7 @@ def main():
     group = list(found_groups)[0] if len(found_groups) == 1 else "combined"
     use_simple_labels = len(found_exp_ids) <= 1
 
-    save_dir = Path("results/plots") / group / args.experiment
+    save_dir = Path("results/plots") / group / experiment_name_for_save
     if save_dir.exists():
         import shutil
         print(f"Clearing existing plots in {save_dir}")
@@ -422,18 +473,18 @@ def main():
     if not plot_config:
         plot_config = {
             "plots": [
-                {"metric": "eval/reward", "title": f"Evaluation Reward: {args.experiment}", "ylabel": "Avg Reward", "filename": "eval_reward.png"},
-                {"metric": "train/reward", "title": f"Training Reward: {args.experiment}", "ylabel": "Reward", "filename": "train_reward.png", "window": 20},
-                {"metric": "train/length", "title": f"Episode Length: {args.experiment}", "ylabel": "Steps", "filename": "train_length.png", "window": 20},
-                {"metric": "losses/actor_loss", "title": f"Actor Loss: {args.experiment}", "ylabel": "Loss", "filename": "offline_actor_loss.png", "window": 20, "x_axis": "step", "xlabel": "Training Steps"},
-                {"metric": "losses/q_loss", "title": f"Q Loss: {args.experiment}", "ylabel": "Loss", "filename": "offline_q_loss.png", "window": 20, "x_axis": "step", "xlabel": "Training Steps"},
-                {"metric": "losses/value_loss", "title": f"Value Loss: {args.experiment}", "ylabel": "Loss", "filename": "offline_value_loss.png", "window": 20, "x_axis": "step", "xlabel": "Training Steps"},
+                {"metric": "eval/reward", "title": f"Evaluation Reward: {experiment_name_for_save}", "ylabel": "Avg Reward", "filename": "eval_reward.png"},
+                {"metric": "train/reward", "title": f"Training Reward: {experiment_name_for_save}", "ylabel": "Reward", "filename": "train_reward.png", "window": 20},
+                {"metric": "train/length", "title": f"Episode Length: {experiment_name_for_save}", "ylabel": "Steps", "filename": "train_length.png", "window": 20},
+                {"metric": "losses/actor_loss", "title": f"Actor Loss: {experiment_name_for_save}", "ylabel": "Loss", "filename": "offline_actor_loss.png", "window": 20, "x_axis": "step", "xlabel": "Training Steps"},
+                {"metric": "losses/q_loss", "title": f"Q Loss: {experiment_name_for_save}", "ylabel": "Loss", "filename": "offline_q_loss.png", "window": 20, "x_axis": "step", "xlabel": "Training Steps"},
+                {"metric": "losses/value_loss", "title": f"Value Loss: {experiment_name_for_save}", "ylabel": "Loss", "filename": "offline_value_loss.png", "window": 20, "x_axis": "step", "xlabel": "Training Steps"},
             ]
         }
 
     for p_def in plot_config.get("plots", []):
         metric = p_def.get("metric")
-        title_tmpl = p_def.get("title", f"{metric}: {args.experiment}")
+        title_tmpl = p_def.get("title", f"{metric}: {experiment_name_for_save}")
         ylabel = p_def.get("ylabel", metric)
         filename_tmpl = p_def.get("filename", f"{metric.replace('/', '_')}.png")
         window = p_def.get("window", 1)
@@ -455,8 +506,8 @@ def main():
                     current_groups[(r["exp_id"], r["label"])].append(r)
                 
                 # Format title and filename
-                title = title_tmpl.replace("{split_value}", str(split_val)).replace("{experiment}", args.experiment)
-                filename = filename_tmpl.replace("{split_value}", str(split_val)).replace("{experiment}", args.experiment)
+                title = title_tmpl.replace("{split_value}", str(split_val)).replace("{experiment}", experiment_name_for_save)
+                filename = filename_tmpl.replace("{split_value}", str(split_val)).replace("{experiment}", experiment_name_for_save)
                 
                 create_plot(current_groups, metric, title, ylabel, save_dir / filename, 
                            window=window, use_simple_labels=use_simple_labels, 
@@ -467,8 +518,8 @@ def main():
             for r in all_runs:
                 current_groups[(r["exp_id"], r["label"])].append(r)
             
-            title = title_tmpl.replace("{experiment}", args.experiment)
-            filename = filename_tmpl.replace("{experiment}", args.experiment)
+            title = title_tmpl.replace("{experiment}", experiment_name_for_save)
+            filename = filename_tmpl.replace("{experiment}", experiment_name_for_save)
             
             create_plot(current_groups, metric, title, ylabel, save_dir / filename, 
                        window=window, use_simple_labels=use_simple_labels, 
