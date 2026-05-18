@@ -146,11 +146,6 @@ def load_run_data(run_folder, args):
 
     data = defaultdict(list)
     metrics_path = run_folder / "metrics.csv"
-    if not metrics_path.exists(): 
-        # Check subdirectories for metrics.csv if not found
-        for p in run_folder.glob("**/metrics.csv"):
-            metrics_path = p
-            break
         
     if metrics_path.exists():
         df = pd.read_csv(metrics_path)

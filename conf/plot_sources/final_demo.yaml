@@ -1,6 +1,6 @@
 runs:
   - path: "results/logs/ungrouped/cp_final/ppo_cp_tuned"
-    label: "PPO (Online Baseline)"
+    label: "PPO (Best Online)"
   - path: "results/logs/ungrouped/tune_blendrl/blendrl_v9"
     label: "BlendRL v9 (Best Online)"
   - path: "results/logs/ungrouped/cp_final/iql_cp_tuned"
