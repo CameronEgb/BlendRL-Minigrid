@@ -346,13 +346,14 @@ def main():
             for key in ["online_methods", "offline_methods"]:
                 val = exp_cfg.get(key, "")
                 if val:
-                    if isinstance(val, (list, tuple)): 
-                        methods = val
+                    from omegaconf import ListConfig
+                    if isinstance(val, (list, tuple, ListConfig)): 
+                        methods = list(val)
                     else:
                         methods = [item.strip() for item in str(val).split(",") if item.strip()]
                     for m in methods:
-                        allowed_methods.add(m)
-                        allowed_methods.add(m.replace("/", "_"))
+                        allowed_methods.add(str(m))
+                        allowed_methods.add(str(m).replace("/", "_"))
             
             print(f"Filtering plots to methods defined in {primary_exp}: {allowed_methods}")
         except Exception as e:
