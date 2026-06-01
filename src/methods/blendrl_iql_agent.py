@@ -39,6 +39,7 @@ class BlendRLIQLAgent(IQLAgent):
             cfg.env.reasoner,
             self.device,
             architecture=cfg.env.architecture,
+            cfg=cfg.agent
         )
 
         # Q and Value networks are still neural-only in their standard implementation
@@ -47,27 +48,38 @@ class BlendRLIQLAgent(IQLAgent):
         
         self.automatic_optimization = False
 
+    def get_cfg(self, key, default=None):
+        """Helper to get a config value from either agent or agent.agent for backward compatibility."""
+        if hasattr(self, "cfg"):
+            if key in self.cfg.agent:
+                return self.cfg.agent[key]
+            # Try nested agent
+            if "agent" in self.cfg.agent and key in self.cfg.agent.agent:
+                return self.cfg.agent.agent[key]
+        return default
+
     def on_train_epoch_start(self):
         super().on_train_epoch_start()
         
         # Check if we need to self-organize CEW modules
-        epochs_per_interval = self.cfg.agent.get("epochs_per_interval", 1)
+        epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
         if self.current_epoch % epochs_per_interval == 0:
             datamodule = self.trainer.datamodule
             # Use a reasonably large sample for organization
             sample_size = min(len(datamodule.reader), 10000)
             if sample_size > 0:
                 batch = datamodule.reader.sample(sample_size)
-                # CEW usually organizes on the neural "obs" but it depends on what we want.
-                # CartPole obs is the vector we want.
-                self.model.self_organize_cew_modules(batch["obs"])
+                # Use logic_obs if available, otherwise obs
+                organize_obs = batch["logic_obs"] if batch["logic_obs"] is not None else batch["obs"]
+                self.model.self_organize_cew_modules(organize_obs)
                 
                 # Re-initialize actor optimizer because CEW parameters changed (new FLCs)
+                lr = self.get_cfg("lr", 3e-4)
                 opt_q, opt_v, opt_a = self.optimizers()
                 actor_params = list(self.model.policy_modules.parameters()) + \
                                list(self.model.blender.parameters())
                 # Replace the internal state of opt_a with a new optimizer for the new parameters
-                new_opt_a = optim.Adam(actor_params, lr=self.cfg.agent.lr)
+                new_opt_a = optim.Adam(actor_params, lr=lr)
                 # This is a bit hacky but Pytorch Lightning Manual Optimization allows it
                 self.trainer.strategy.optimizers[2] = new_opt_a
 
@@ -75,7 +87,8 @@ class BlendRLIQLAgent(IQLAgent):
         datamodule = self.trainer.datamodule
         cfg = self.cfg
         
-        real_batch = datamodule.reader.sample(cfg.agent.batch_size)
+        batch_size = self.get_cfg("batch_size", 256)
+        real_batch = datamodule.reader.sample(batch_size)
         obs = real_batch["obs"]
         logic_obs = real_batch["logic_obs"]
         actions = real_batch["action"]
@@ -110,7 +123,8 @@ class BlendRLIQLAgent(IQLAgent):
             
         value = self.value_network(obs).view(-1)
         diff = t_q_a - value
-        weight = torch.where(diff > 0, cfg.agent.tau, 1 - cfg.agent.tau)
+        tau = self.get_cfg("tau", 0.7)
+        weight = torch.where(diff > 0, tau, 1 - tau)
         value_loss = (weight * (diff**2)).mean()
         opt_v.zero_grad()
         self.manual_backward(value_loss)
@@ -120,7 +134,8 @@ class BlendRLIQLAgent(IQLAgent):
         with torch.no_grad():
             adv = t_q_a - value
             adv = (adv - adv.mean()) / (adv.std() + 1e-8)
-            weights = torch.exp(cfg.agent.beta * adv)
+            beta = self.get_cfg("beta", 3.0)
+            weights = torch.exp(beta * adv)
             weights = torch.clamp(weights, max=100.0)
             
         # Get logprobs from hybrid model
@@ -128,8 +143,8 @@ class BlendRLIQLAgent(IQLAgent):
         
         actor_loss = -(weights * log_probs).mean()
         # Add entropy regularization if desired
-        actor_loss -= cfg.agent.get("ent_coef", 0.0) * entropy.mean()
-        actor_loss -= cfg.agent.get("blend_ent_coef", 0.0) * blend_entropy.mean()
+        actor_loss -= self.get_cfg("ent_coef", 0.0) * entropy.mean()
+        actor_loss -= self.get_cfg("blend_ent_coef", 0.0) * blend_entropy.mean()
         
         opt_a.zero_grad()
         self.manual_backward(actor_loss)
@@ -139,7 +154,7 @@ class BlendRLIQLAgent(IQLAgent):
         self._soft_update(self.q_network2, self.target_q_network2)
         
         # Calculate current transitions for logging
-        epochs_per_interval = self.cfg.agent.get("epochs_per_interval", 1)
+        epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
         current_interval = self.current_epoch // epochs_per_interval
         interval_size = cfg.total_timesteps // cfg.intervals_count
         current_transitions = interval_size * (current_interval + 1)
@@ -154,14 +169,15 @@ class BlendRLIQLAgent(IQLAgent):
         self.log("transitions", float(current_transitions), logger=False, prog_bar=True)
 
     def configure_optimizers(self):
-        opt_q = optim.Adam(list(self.q_network.parameters()) + list(self.q_network2.parameters()), lr=self.cfg.agent.lr)
-        opt_v = optim.Adam(self.value_network.parameters(), lr=self.cfg.agent.lr)
+        # We use a standard LR from the agent config if available, otherwise fallback
+        lr = self.cfg.agent.get("lr", 3e-4)
+        opt_q = optim.Adam(list(self.q_network.parameters()) + list(self.q_network2.parameters()), lr=lr)
+        opt_v = optim.Adam(self.value_network.parameters(), lr=lr)
         
-        # Actor optimizer includes neural actor, all logic actors, and blender
-        actor_params = list(self.model.visual_neural_actor.parameters()) + \
-                       list(self.model.logic_actors.parameters()) + \
+        # Actor optimizer includes all heterogeneous policy modules and the blender
+        actor_params = list(self.model.policy_modules.parameters()) + \
                        list(self.model.blender.parameters())
-        opt_a = optim.Adam(actor_params, lr=self.cfg.agent.lr)
+        opt_a = optim.Adam(actor_params, lr=lr)
         
         return [opt_q, opt_v, opt_a]
 

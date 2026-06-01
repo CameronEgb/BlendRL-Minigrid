@@ -2,6 +2,7 @@ import random
 import pickle
 from pathlib import Path
 import os
+import numpy as np
 
 
 import torch
@@ -129,9 +130,9 @@ class BlenderActor(nn.Module):
         weights = self.to_blender_policy_distribution(neural_state, logic_state)
         self.w_policy = weights[0]
         
-        action_probs = torch.zeros(batch_size, self.env.n_actions, device=self.device)
+        action_probs = torch.zeros(batch_size, self.env.n_actions, device=neural_state.device)
         for i, m_probs in enumerate(module_probs):
-            action_probs += weights[:, i].unsqueeze(1) * m_probs
+            action_probs += weights[:, i].unsqueeze(1) * m_probs.to(neural_state.device)
             
         return action_probs, weights
 
@@ -139,7 +140,14 @@ class BlenderActor(nn.Module):
         """
         Compute action probabilities using only non-neural modules.
         """
-        dummy_neural = torch.zeros(1, 1).to(self.device) 
+        # Determine expected neural input size from blender if possible
+        n_in = 1
+        if hasattr(self.blender, "network") and len(self.blender.network) > 0:
+            n_in = self.blender.network[0].in_features
+        elif hasattr(self.blender, "fc"): # logic blender
+            n_in = 1 # dummy
+            
+        dummy_neural = torch.zeros(logic_state.size(0), n_in).to(logic_state.device) 
         weights = self.to_blender_policy_distribution(dummy_neural, logic_state)
         
         # Zero out neural modules and re-normalize
@@ -151,7 +159,7 @@ class BlenderActor(nn.Module):
         weights = weights / torch.clamp(weights_sum, min=1e-12)
         self.w_policy = weights[0]
         
-        action_probs = torch.zeros(logic_state.size(0), self.env.n_actions, device=self.device)
+        action_probs = torch.zeros(logic_state.size(0), self.env.n_actions, device=logic_state.device)
         for i, module in enumerate(self.policy_modules):
             if self.module_types[i] != "neural":
                 probs = module.get_action_probs(logic_state)
@@ -163,7 +171,12 @@ class BlenderActor(nn.Module):
         """
         Compute action probabilities using only neural modules.
         """
-        dummy_logic = torch.zeros(1, 1).to(self.device)
+        # Determine expected logic input size from blender
+        l_in = 1
+        if hasattr(self.blender, "network") and len(self.blender.network) > 0:
+             l_in = self.blender.network[0].in_features
+        
+        dummy_logic = torch.zeros(neural_state.size(0), l_in).to(neural_state.device)
         weights = self.to_blender_policy_distribution(neural_state, dummy_logic)
         
         # Zero out logic modules and re-normalize
@@ -175,7 +188,7 @@ class BlenderActor(nn.Module):
         weights = weights / torch.clamp(weights_sum, min=1e-12)
         self.w_policy = weights[0]
         
-        action_probs = torch.zeros(neural_state.size(0), self.env.n_actions, device=self.device)
+        action_probs = torch.zeros(neural_state.size(0), self.env.n_actions, device=neural_state.device)
         for i, module in enumerate(self.policy_modules):
             if self.module_types[i] == "neural":
                 probs = module.get_action_probs(neural_state)
@@ -278,8 +291,11 @@ class BlenderActorCritic(nn.Module):
                     self.module_types.append("logic")
                 elif m_type == "cew":
                     # Placeholder CEW module, will be self-organized later
+                    # Determine input size from env
+                    dummy_logic, dummy_neural = env.reset()
+                    n_inputs = np.prod(dummy_logic.shape[1:])
                     m = MultiFLC(
-                        n_inputs=np.prod(env.observation_space if hasattr(env, "observation_space") else (4,)), 
+                        n_inputs=n_inputs, 
                         n_outputs=env.n_actions,
                         antecedents=[],
                         rules=[]
@@ -354,6 +370,10 @@ class BlenderActorCritic(nn.Module):
             if self.module_types[i] == "cew":
                 print(f"Self-organizing CEW module {i}...")
                 obs = dataset_sample_obs.cpu().numpy()
+                # Flatten obs if it has more than 2 dimensions (B, entities, features) -> (B, entities*features)
+                if len(obs.shape) > 2:
+                    obs = obs.reshape(obs.shape[0], -1)
+                
                 mins = obs.min(axis=0)
                 maxes = obs.max(axis=0)
                 
@@ -372,12 +392,16 @@ class BlenderActorCritic(nn.Module):
                     rules = run_FYD(rules, obs, antecedents, top_k=top_k)
                 
                 # Re-initialize MultiFLC in place
+                from src.methods.cew_utils import MultiFLC
+                n_in = np.prod(obs.shape[1:])
+                # Determine current device from existing parameters
+                current_device = next(self.parameters()).device
                 new_m = MultiFLC(
-                    n_inputs=obs.shape[1],
+                    n_inputs=n_in,
                     n_outputs=self.env.n_actions,
                     antecedents=antecedents,
                     rules=rules
-                ).to(self.device)
+                ).to(current_device)
                 
                 # Replace the module in ModuleList
                 self.policy_modules[i] = new_m
@@ -418,10 +442,12 @@ class BlenderActorCritic(nn.Module):
         for i, m in enumerate(self.policy_modules):
             if self.module_types[i] == "neural":
                 return m.get_value(neural_state)
-        return torch.zeros(neural_state.size(0), 1, device=self.device)
+        return torch.zeros(neural_state.size(0), 1, device=neural_state.device)
 
     def get_logic_value(self, logic_state):
-        return self.logic_critic(logic_state) if self.logic_critic else torch.zeros(logic_state.size(0), 1, device=self.device)
+        if self.logic_critic:
+             return self.logic_critic(logic_state)
+        return torch.zeros(logic_state.size(0), 1, device=logic_state.device)
 
     def save(self, checkpoint_path, directory: Path, step_list, reward_list, weight_list):
         torch.save(self.state_dict(), checkpoint_path)

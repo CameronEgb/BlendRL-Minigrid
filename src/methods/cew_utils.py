@@ -230,6 +230,11 @@ class FLC(nn.Module):
         gaussians = {'centers': [], 'sigmas': []}
         self.input_variable_ids = []
         self.transformed_x_length = 0
+        
+        # Ensure antecedents is a list of lists, one for each input feature
+        if len(antecedents) == 0:
+            antecedents = [[] for _ in range(in_features)]
+            
         for input_variable_idx in range(in_features):
             num_of_antecedents[input_variable_idx] = len(antecedents[input_variable_idx])
             self.input_variable_ids.append(set())
@@ -262,13 +267,28 @@ class FLC(nn.Module):
         batch_size = X.shape[0]
         new_X = torch.zeros((batch_size, self.transformed_x_length), device=X.device)
         for input_variable_idx, indices_to_repeat_for in enumerate(self.input_variable_ids):
+            if not indices_to_repeat_for:
+                continue
             min_idx = min(indices_to_repeat_for)
             max_idx = max(indices_to_repeat_for) + 1
             copies = len(indices_to_repeat_for)
-            new_X[:, min_idx:max_idx] = X[:, input_variable_idx].unsqueeze(1).repeat(1, copies)
+            
+            # Ensure X is at least 2D
+            if len(X.shape) == 1:
+                X = X.unsqueeze(0)
+            
+            val = X[:, input_variable_idx].unsqueeze(1)
+            new_X[:, min_idx:max_idx] = val.repeat(1, copies)
         return new_X
 
     def forward(self, X):
+        if self.transformed_x_length == 0 or self.links_between_antecedents_and_rules.shape[1] == 0:
+            # Not yet organized: return zeros (which leads to uniform after softmax)
+            out = torch.zeros(X.shape[0], self.consequences.shape[1], device=X.device)
+            if self.consequences.shape[1] == 1:
+                out = out.squeeze(1)
+            return out
+            
         X_transformed = self.__transform(X)
         antecedents_memberships = self.input_terms(X_transformed)
         # shape: (batch, terms, rules)
@@ -296,6 +316,9 @@ class MultiFLC(nn.Module):
         self.n_outputs = n_outputs
 
     def forward(self, X):
+        # Flatten input: (B, ...) -> (B, -1)
+        if len(X.shape) > 2:
+            X = X.reshape(X.shape[0], -1)
         outputs = [flc(X) for flc in self.flcs]
         return torch.stack(outputs, dim=1)
 

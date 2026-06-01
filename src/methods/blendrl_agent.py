@@ -60,6 +60,7 @@ class BlendRLAgent(PPOAgent):
             self.get_cfg("reasoner", cfg.env.reasoner),
             self.device,
             architecture=self.get_cfg("architecture", cfg.env.architecture),
+            cfg=cfg.agent
         )
         
         self.automatic_optimization = False
@@ -89,6 +90,7 @@ class BlendRLAgent(PPOAgent):
         self.model.to(self.device)
 
     def on_train_epoch_start(self):
+        # 1. Standard PPO Rollout Collection
         cfg = self.cfg
         if cfg.mode.type == "offline":
             return
@@ -107,12 +109,23 @@ class BlendRLAgent(PPOAgent):
             logic_lrnow = frac * self.logic_lr
             blender_lrnow = frac * self.blender_lr
             
-            # Param groups: 0: visual_neural_actor, 1: logic_actor, 2: logic_critic, 3: blender
+            # Param groups: 0: policy_modules, 1: logic_critic, 2: blender
             opts = self.optimizers()
             opts.param_groups[0]['lr'] = lrnow
-            opts.param_groups[1]['lr'] = logic_lrnow
-            opts.param_groups[2]['lr'] = lrnow
-            opts.param_groups[3]['lr'] = blender_lrnow
+            opts.param_groups[1]['lr'] = lrnow
+            opts.param_groups[2]['lr'] = blender_lrnow
+
+        # 2. Check for CEW self-organization at interval starts
+        # For online training, we organize at epoch 0 if possible
+        if self.current_epoch == 0:
+             try:
+                 batch = self.trainer.datamodule.reader.sample(1000)
+                 organize_obs = batch["logic_obs"] if batch["logic_obs"] is not None else batch["obs"]
+                 self.model.self_organize_cew_modules(organize_obs)
+                 # Re-init optimizer
+                 self.trainer.strategy.optimizers[0] = self.configure_optimizers()
+             except:
+                 pass # Might not have data yet
 
         with torch.no_grad():
             for step in range(self.num_steps):
@@ -263,21 +276,6 @@ class BlendRLAgent(PPOAgent):
                 self.log("losses/entropy", entropy.mean())
                 self.log("losses/blend_entropy", blend_entropy.mean())
                 self.log("losses/total_loss", loss)
-
-    def on_train_epoch_start(self):
-        super().on_train_epoch_start()
-        # For online training, we only have the rollout buffer which might be small.
-        # But Phase 1 is often just point 0 or very small intervals.
-        # Let's organize at epoch 0 if needed.
-        if self.current_epoch == 0:
-             # Sample from datamodule if available
-             try:
-                 batch = self.trainer.datamodule.reader.sample(1000)
-                 self.model.self_organize_cew_modules(batch["obs"])
-                 # Re-init optimizer
-                 self.trainer.strategy.optimizers[0] = self.configure_optimizers()
-             except:
-                 pass # Might not have data yet
 
     def configure_optimizers(self):
         return optim.Adam([
