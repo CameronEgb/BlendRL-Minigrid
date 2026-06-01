@@ -273,14 +273,21 @@ def main():
         # this ensures loggers create manageable folder structures or names.
         agent_name_internal = agent_config.replace("/", "_")
         study_name = f"{args.experiment}_{agent_name_internal}"
+        dataset_path = f"results/datasets/{cfg.group}/{args.experiment}/{agent_name_internal}"
         
+        # Check if dataset already exists to skip training
+        if os.path.exists(dataset_path) and any(f.endswith(".pkl") for f in os.listdir(dataset_path) if os.path.isfile(os.path.join(dataset_path, f))):
+             print(f"Dataset already exists at {dataset_path}. Skipping online training.")
+             best_online_trial_ids[agent_config] = "0"
+             continue
+
         overrides = [
             f"+experiment={args.experiment}",
             f"++local={str(args.local).lower()}",
             f"mode=online",
             f"agent={agent_config}",
             f"++agent.name={agent_name_internal}",
-            f"++dataset_path=results/datasets/{cfg.group}/{args.experiment}/{agent_name_internal}",
+            f"++dataset_path={dataset_path}",
             f"++hydra.sweeper.study_name={study_name}"
         ] + sanitized_extra_args
         

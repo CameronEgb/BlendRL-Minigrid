@@ -11,6 +11,7 @@ batch_size: 256
 epochs_per_interval: 10
 blend_ent_coef: 0.01
 blender_mode: neural
+blend_function: softmax
 actor_mode: logic
 env:
   rules: "default, variant1"
