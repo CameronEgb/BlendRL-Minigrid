@@ -240,7 +240,7 @@ class FLC(nn.Module):
             self.input_variable_ids.append(set())
             for term_idx, antecedent in enumerate(antecedents[input_variable_idx]):
                 gaussians['centers'].append(antecedent['center'])
-                gaussians['sigmas'].append(antecedent['sigma'])
+                gaussians['sigmas'].append(antecedent['sigma'] * 1.2) # Increased overlap
                 antecedent['id'] = unique_id
                 self.input_variable_ids[-1].add(unique_id)
                 unique_id += 1
@@ -259,7 +259,7 @@ class FLC(nn.Module):
                                     sigmas=gaussians['sigmas'], trainable=False)
 
         if consequences is None:
-            self.consequences = Parameter(torch.randn(n_rules, out_features) * 0.01)
+            self.consequences = Parameter(torch.randn(n_rules, out_features) * 0.1) # Increased init scale
         else:
             self.consequences = Parameter(torch.tensor(consequences, dtype=torch.float32))
 

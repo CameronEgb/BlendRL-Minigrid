@@ -154,6 +154,9 @@ class CEWAgent(IQLAgent):
 
         self.log("losses/total_loss", total_loss_val / len(self.fuzzy_model.flcs))
         self.log("transitions", float(current_transitions), logger=False, prog_bar=True)
+        
+        if batch_idx % 100 == 0:
+            print(f"Epoch {self.current_epoch} Batch {batch_idx}: Loss={total_loss_val/len(self.fuzzy_model.flcs):.4f}")
 
     def _soft_update_fuzzy(self, model, target_model):
         tau = self.cfg.agent.get("soft_target_tau", 0.005)
