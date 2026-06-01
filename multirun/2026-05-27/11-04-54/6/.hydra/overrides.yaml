@@ -1,0 +1,10 @@
+- agent.lr=0.009175121847331892
+- agent.ent_coef=0.04185856370512586
+- agent.tau=0.566043279509724
+- agent.beta=7.9219611564531505
+- +experiment=quick_test
+- ++local=True
+- mode=offline
+- agent=iql/cp_tuned
+- ++agent.name=iql_cp_tuned
+- ++mode.dataset_path=results/datasets/test/quick_test/ppo_cp_tuned

@@ -105,7 +105,7 @@ def main():
     print(f"Using Datasets for Offline Training: {dataset_list}")
         
     # Ensure slurm log directories exist
-    log_dir = Path("results/logs/slurm") / cfg.group / args.experiment
+    log_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
     if log_dir.exists():
         print(f"Clearing old logs in {log_dir}...")
         for log_file in log_dir.glob("*"):
@@ -129,7 +129,7 @@ def main():
             f"mode=online",
             f"agent={agent_config}",
             f"++agent.name={agent_name_internal}",
-            f"++dataset_path=results/datasets/{cfg.group}/{args.experiment}/{agent_name_internal}"
+            f"++dataset_path=results/datasets/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}"
         ] + sanitized_extra_args
         
         script_content = generate_sbatch_script(
@@ -146,7 +146,7 @@ def main():
     for dataset_id in dataset_list:
         dataset_name_internal = dataset_id.replace("/", "_")
         is_online = dataset_id in online_list
-        dataset_path = Path("results/datasets") / cfg.group / args.experiment / dataset_name_internal
+        dataset_path = Path("results/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
         
         # Dependency logic
         dependency_job_id = online_job_ids.get(dataset_id)
@@ -170,7 +170,7 @@ def main():
                 f"++agent.name={agent_name_internal}"
             ]
             if not dataset_path_override:
-                overrides.append(f"++mode.dataset_path=results/datasets/{cfg.group}/{args.experiment}/{dataset_name_internal}")
+                overrides.append(f"++mode.dataset_path={dataset_path}")
             overrides += sanitized_extra_args
             
             script_content = generate_sbatch_script(

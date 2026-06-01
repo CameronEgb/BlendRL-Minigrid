@@ -1,0 +1,7 @@
+name: optuna
+best_params:
+  agent.lr: 0.009065479924369985
+  agent.ent_coef: 0.09233089660891147
+  agent.tau: 0.5238443703638861
+  agent.beta: 5.106180183856253
+best_value: 286.5

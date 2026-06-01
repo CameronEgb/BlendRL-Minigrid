@@ -1,0 +1,27 @@
+defaults:
+  - /agent: blendrl_base
+  - _self_
+
+lr: 0.01
+logic_lr: 0.01
+blender_lr: 0.01
+ent_coef: 0.01
+blend_ent_coef: 0.001
+vf_coef: 0.5
+max_grad_norm: 0.5
+clip_coef: 0.2
+update_epochs: 10
+num_minibatches: 4
+anneal_lr: true
+batch_size: 64
+norm_adv: true
+clip_vloss: true
+blender_mode: neural
+blend_function: softmax
+actor_mode: hybrid
+joint_training: true
+pretrained: false
+
+# Placeholders for sweep compatibility
+tau: 0.7
+beta: 3.0

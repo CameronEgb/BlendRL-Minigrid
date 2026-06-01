@@ -5,3 +5,6 @@ tau: 0.7
 beta: 3.0
 batch_size: 256
 epochs_per_interval: 10
+# Placeholders for sweep compatibility
+ent_coef: 0.0
+clip_coef: 0.2

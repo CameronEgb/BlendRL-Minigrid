@@ -1,0 +1,35 @@
+# @package _global_
+defaults:
+  - override /env: cartpole
+  - override /mode: online
+  - override /hydra/sweeper: optuna
+
+experiment_id: "quick_test"
+group: "test"
+seed: 1
+total_timesteps: 10000
+intervals_count: 5
+eval_episodes: 10
+online_methods: "ppo/cp_tuned,blendrl/cp_tuned"
+offline_methods: "iql/cp_tuned,blendrl_iql/cp_tuned"
+offline_datasets: "ppo/cp_tuned"
+save_dataset: true
+local: true
+recover: false
+
+trainer:
+  accelerator: cpu
+
+hydra:
+  sweeper:
+    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+    storage: "sqlite:///optuna.db"
+    study_name: "${experiment_id}_sweep"
+    n_trials: 10
+    n_jobs: 1
+    direction: maximize
+    params:
+      agent.lr: interval(1e-4, 1e-2)
+      agent.ent_coef: interval(0.0, 0.1)
+      agent.tau: interval(0.5, 0.9)
+      agent.beta: interval(0.1, 10.0)

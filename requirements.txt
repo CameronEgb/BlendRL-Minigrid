@@ -7,6 +7,9 @@ pytorch-lightning
 lightning
 hydra-core
 hydra-submitit-launcher
+hydra-optuna-sweeper
+optuna
+optuna-dashboard
 omegaconf
 
 # RL & Environments

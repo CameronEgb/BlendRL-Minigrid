@@ -28,7 +28,7 @@ hydra:
       warn_independent_sampling: true
     _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
     direction: maximize
-    storage: null
+    storage: "sqlite:///optuna.db"
     study_name: ppo_tuning
     n_trials: 10
     n_jobs: 1

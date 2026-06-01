@@ -90,6 +90,14 @@ class BlendRLAgent(PPOAgent):
 
     def on_train_epoch_start(self):
         cfg = self.cfg
+        if cfg.mode.type == "offline":
+            return
+            
+        # Hard stop if we've reached total timesteps
+        if self.global_step_count >= cfg.total_timesteps:
+            self.trainer.should_stop = True
+            return
+
         self.model.eval()
         
         # Learning rate annealing
@@ -155,7 +163,7 @@ class BlendRLAgent(PPOAgent):
                     if not hasattr(self, "dataset_writer"):
                         from src.dataset_utils import DatasetWriter
                         chunk_size = cfg.total_timesteps // cfg.intervals_count
-                        save_dir = os.path.join("results/datasets", cfg.group, cfg.experiment_id, cfg.agent.name)
+                        save_dir = cfg.dataset_path
                         self.dataset_writer = DatasetWriter(
                             save_dir=save_dir,
                             env_name=cfg.env.name,
@@ -259,7 +267,7 @@ class BlendRLAgent(PPOAgent):
     def configure_optimizers(self):
         return optim.Adam([
             {"params": self.model.visual_neural_actor.parameters(), "lr": self.lr},
-            {"params": self.model.logic_actor.parameters(), "lr": self.logic_lr},
+            {"params": self.model.logic_actors.parameters(), "lr": self.logic_lr},
             {"params": self.model.logic_critic.parameters(), "lr": self.lr},
             {"params": self.model.blender.parameters(), "lr": self.blender_lr},
         ], lr=self.lr, eps=1e-5)

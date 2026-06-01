@@ -12,3 +12,6 @@ anneal_lr: true
 norm_adv: true
 clip_vloss: true
 hidden_sizes: [64, 64]
+# Placeholders for sweep compatibility
+tau: 0.7
+beta: 3.0

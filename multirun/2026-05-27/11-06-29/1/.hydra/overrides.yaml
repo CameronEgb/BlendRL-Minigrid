@@ -1,0 +1,10 @@
+- agent.lr=0.0017713850564217235
+- agent.ent_coef=0.05880192412214222
+- agent.tau=0.7939917313277581
+- agent.beta=5.944976982558916
+- +experiment=quick_test
+- ++local=True
+- mode=offline
+- agent=blendrl_iql/cp_tuned
+- ++agent.name=blendrl_iql_cp_tuned
+- ++mode.dataset_path=results/datasets/test/quick_test/ppo_cp_tuned

@@ -1,0 +1,15 @@
+defaults:
+  - /agent: blendrl_iql_base
+  - _self_
+
+lr: 0.01
+logic_lr: 0.01
+blender_lr: 0.01
+tau: 0.7
+beta: 3.0
+batch_size: 256
+epochs_per_interval: 10
+blend_ent_coef: 0.01
+blender_mode: logic
+actor_mode: hybrid
+# rules: default (passed from env or experiment)

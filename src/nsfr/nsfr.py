@@ -38,6 +38,10 @@ class NSFReasoner(nn.Module):
                 prednames.append(clause.head.pred.name)
         return prednames
 
+    def get_all_valuations(self):
+        """Return the latest valuation tensor."""
+        return self.V_T
+
     def forward(self, x):
         zs = x
         # convert to the valuation tensor

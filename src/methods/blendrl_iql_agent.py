@@ -136,9 +136,9 @@ class BlendRLIQLAgent(IQLAgent):
         opt_q = optim.Adam(list(self.q_network.parameters()) + list(self.q_network2.parameters()), lr=self.cfg.agent.lr)
         opt_v = optim.Adam(self.value_network.parameters(), lr=self.cfg.agent.lr)
         
-        # Actor optimizer includes neural actor, logic actor, and blender
+        # Actor optimizer includes neural actor, all logic actors, and blender
         actor_params = list(self.model.visual_neural_actor.parameters()) + \
-                       list(self.model.logic_actor.parameters()) + \
+                       list(self.model.logic_actors.parameters()) + \
                        list(self.model.blender.parameters())
         opt_a = optim.Adam(actor_params, lr=self.cfg.agent.lr)
         

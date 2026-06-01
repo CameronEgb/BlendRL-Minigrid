@@ -1,0 +1,17 @@
+# @package _global_
+defaults:
+  - override /env: cartpole
+
+experiment_id: quick_test_cew
+group: quick_test
+total_timesteps: 100000
+eval_episodes: 100
+online_methods: ppo/cp_tuned
+offline_methods: cew,cew_fyd
+offline_datasets: ppo/cp_tuned
+intervals_count: 2
+
+save_dataset: true
+seed: 1
+local: true
+recover: false

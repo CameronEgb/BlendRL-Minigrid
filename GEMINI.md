@@ -15,7 +15,8 @@ This document is the foundational source of truth for Gemini CLI in this workspa
 - [10. Logic-Neural Bridge (The "Blender")](#10-logic-neural-bridge-the-blender)
 - [11. Maintenance & Evolution](#11-maintenance--evolution)
 - [12. Common Commands](#12-common-commands)
-- [13. Split Workflow: Local Dev & Remote Execution](#13-split-workflow-local-dev--remote-execution)
+- [13. Hyperparameter Tuning with Optuna](#13-hyperparameter-tuning-with-optuna)
+- [14. Split Workflow: Local Dev & Remote Execution](#14-split-workflow-local-dev--remote-execution)
 
 ---
 
@@ -150,7 +151,23 @@ The plotter supports YAML configurations to define which metrics to plot and how
 
 ---
 
-## 13. Split Workflow: Local Dev & Remote Execution
+## 13. Hyperparameter Tuning with Optuna
+The project uses the Hydra Optuna Sweeper for hyperparameter optimization.
+
+### Configuration
+1.  **Defaults:** In your experiment YAML, include `- override /hydra/sweeper: optuna`.
+2.  **Storage:** Use a persistent SQLite database: `hydra.sweeper.storage: "sqlite:///optuna.db"`.
+3.  **Parameters:** Define search ranges in the `hydra.sweeper.params` section using `interval()`, `choice()`, or `range()`.
+
+### Automatic Dashboard
+When running with `--multirun`, `run_pipeline.py` automatically:
+- Starts `optuna-dashboard` in the background.
+- Logs dashboard output to `results/optuna/dashboard.log`.
+- Opens the dashboard in your default browser.
+
+---
+
+## 14. Split Workflow: Local Dev & Remote Execution
 To accommodate cluster-based execution (Slurm), the development process follows a split model:
 - **Gemini's Role (Local):** 
     - Code implementation, bug fixing, and refactoring.

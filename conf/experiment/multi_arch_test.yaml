@@ -1,0 +1,28 @@
+# @package _global_
+defaults:
+  - override /env: cartpole
+
+experiment_id: multi_arch_test
+group: multi_module_tests
+total_timesteps: 50000
+eval_episodes: 100
+online_methods: ppo/cp_tuned
+offline_methods: 
+  - iql/cp_tuned
+  - multi_arch/blendrl_iql/arch2
+  - multi_arch/blendrl_iql/arch3
+  - multi_arch/blendrl_iql/arch4
+intervals_count: 5
+
+# Override rules for specific methods where needed
+# Note: run_pipeline.py passes overrides to each train.py call
+# We can use the method name as a trigger for overrides if we want, 
+# but for now, we will handle the rulesets in the agent configs or via CLI.
+
+env:
+  architecture: mlp
+
+save_dataset: true
+seed: 1
+local: true
+recover: false

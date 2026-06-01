@@ -48,6 +48,9 @@ def main(cfg: DictConfig):
     elif base_algo_name.startswith("iql"):
         from src.methods.iql_agent import IQLAgent
         model = IQLAgent(cfg)
+    elif base_algo_name.startswith("cew"):
+        from src.methods.cew_agent import CEWAgent
+        model = CEWAgent(cfg)
     else:
         raise ValueError(f"Unknown agent algorithm: {base_algo_name}")
     
@@ -78,7 +81,9 @@ def main(cfg: DictConfig):
     
     # Callbacks
     from src.utils import EnvironmentEvaluatorCallback
-    ckpt_dir = os.path.join("results/checkpoints", cfg.group, cfg.experiment_id, cfg.agent.name)
+    # Use trial-specific subdirectory for checkpoints to avoid auto-recovery collisions
+    trial_id = cfg.get("hydra", {}).get("job", {}).get("num", "0")
+    ckpt_dir = os.path.join("results/checkpoints", cfg.group, cfg.experiment_id, cfg.agent.name, str(trial_id))
     callbacks = [
         ModelCheckpoint(
             dirpath=ckpt_dir,
@@ -109,21 +114,43 @@ def main(cfg: DictConfig):
         limit_val_batches = 1
         check_val_every_n_epoch = 1  # Check every epoch, let callback handle frequency
 
+    # Trainer Configuration
+    trainer_kwargs = {
+        "max_epochs": max_epochs,
+        "accelerator": "auto",
+        "devices": 1,
+        "limit_train_batches": 1.0,
+        "limit_val_batches": limit_val_batches,
+        "check_val_every_n_epoch": check_val_every_n_epoch,
+        "log_every_n_steps": 1
+    }
+    
+    # Merge with overrides from the config file if they exist
+    if "trainer" in cfg and cfg.trainer is not None:
+        trainer_overrides = OmegaConf.to_container(cfg.trainer, resolve=True)
+        trainer_kwargs.update(trainer_overrides)
+
     trainer = L.Trainer(
-        **cfg.get("trainer", {
-            "max_epochs": max_epochs,
-            "accelerator": "auto",
-            "devices": 1,
-            "limit_train_batches": 1.0,
-            "limit_val_batches": limit_val_batches,
-            "check_val_every_n_epoch": check_val_every_n_epoch,
-            "log_every_n_steps": 1
-        }),
+        **trainer_kwargs,
         logger=loggers,
         callbacks=callbacks
     )
     
-    trainer.fit(model, datamodule=datamodule)
+    # Determine checkpoint for recovery
+    ckpt_path = None
+    if cfg.get("recover", False):
+        potential_ckpt = os.path.join(ckpt_dir, "best_model.ckpt")
+        if os.path.exists(potential_ckpt):
+            print(f"Recovering from checkpoint: {potential_ckpt}")
+            ckpt_path = potential_ckpt
+        else:
+            # Fallback to the non-trial-specific directory if trial-specific doesn't exist yet
+            legacy_ckpt = os.path.join("results/checkpoints", cfg.group, cfg.experiment_id, cfg.agent.name, "best_model.ckpt")
+            if os.path.exists(legacy_ckpt):
+                 print(f"Recovering from legacy checkpoint: {legacy_ckpt}")
+                 ckpt_path = legacy_ckpt
+
+    trainer.fit(model, datamodule=datamodule, ckpt_path=ckpt_path)
 
     # Return metric for Optuna
     if "eval/reward" in trainer.callback_metrics:

@@ -35,12 +35,12 @@ from captum.attr import (
 
 class BlenderActor(nn.Module):
     """
-    BlendeRL actor that combines neural and logic policies.
+    BlendeRL actor that combines neural and multiple logic policies.
 
     Args:
         env: environment
         neural_actor: neural policy
-        logic_actor: logic policy
+        logic_actors: list of logic policies
         blender: blending policy
         actor_mode: actor mode, one of ["hybrid", "logic", "neural"]
         blender_mode: blender mode, one of ["logic", "neural"]
@@ -52,7 +52,7 @@ class BlenderActor(nn.Module):
         self,
         env,
         neural_actor,
-        logic_actor,
+        logic_actors,
         blender,
         actor_mode,
         blender_mode,
@@ -62,88 +62,84 @@ class BlenderActor(nn.Module):
     ):
         """
         Initialize a BlendeRL agent.
-        Args:
-            env: environment
-            neural_actor: neural policy
-            logic_actor: logic policy
-            blender: blending policy
-            actor_mode: actor mode, one of ["hybrid", "logic", "neural"]
-            blender_mode: blender mode, one of ["logic", "neural"]
-            blend_function: blending function, one of ["softmax", "gumbel_softmax"]
-            device: device
         """
         super(BlenderActor, self).__init__()
         self.env = env
         self.neural_actor = neural_actor
-        self.logic_actor = logic_actor
+        if isinstance(logic_actors, nn.ModuleList):
+            self.logic_actors = logic_actors
+        elif isinstance(logic_actors, nn.Module):
+            self.logic_actors = nn.ModuleList([logic_actors])
+        else:
+            self.logic_actors = nn.ModuleList(logic_actors)
         self.blender = blender
         self.actor_mode = actor_mode
         self.blender_mode = blender_mode
         self.blend_function = blend_function
         self.device = device
         self.explain = explain
-        self.env_action_id_to_action_pred_indices = self._build_action_id_dict()
+        
+        # Build action mappings for each logic actor
+        self.logic_actor_mappings = [self._build_action_id_dict(la) for la in self.logic_actors]
         self.blender_id_to_pred_indices = self._build_blender_id_dict()
 
     def _build_blender_id_dict(self):
         """
         Initialize a dictionary that maps blender mode id to predicate indices.
-        0: neural, 1: logic
+        0: neural, 1: logic_1, 2: logic_2, ...
         Returns:
             blender_id_to_pred_indices: dictionary that maps blender mode id to predicate indices
         """
-        blender_mode_names = ["neural_agent", "logic_agent"]
-        blender_id_to_pred_indices = {0: [], 1: []}
+        if self.blender_mode == "neural":
+            return {} # Not needed for neural blender
+            
+        blender_mode_names = ["neural_agent"] + [f"logic_agent_{i}" for i in range(len(self.logic_actors))]
+        # Compatibility with legacy single logic actor
+        if len(self.logic_actors) == 1:
+            blender_mode_names = ["neural_agent", "logic_agent"]
+            
+        blender_id_to_pred_indices = {i: [] for i in range(len(blender_mode_names))}
         
-        for i, mode_name in enumerate(blender_mode_names):
-            for j, pred_name in enumerate(self.blender.get_prednames()):
+        for j, pred_name in enumerate(self.blender.get_prednames()):
+            for i, mode_name in enumerate(blender_mode_names):
                 # Use robust matching for names like 'logic_agent/1'
                 if mode_name in pred_name:
                     blender_id_to_pred_indices[i].append(j)
         return blender_id_to_pred_indices
 
-    def _build_action_id_dict(self):
+    def _build_action_id_dict(self, logic_actor):
         """
-        Initialize a dictionary that maps environment action id to predicate indices.
+        Initialize a dictionary that maps environment action id to predicate indices for a specific logic actor.
         Returns:
             env_action_id_to_action_pred_indices: dictionary that maps environment action id to predicate indices
         """
         env_action_names = list(self.env.pred2action.keys())
-        # action_probs = torch.zeros(len(env_action_names))
         env_action_id_to_action_pred_indices = {}
-        # init dic
         for i, env_action_name in enumerate(env_action_names):
             env_action_id_to_action_pred_indices[i] = []
 
+        atoms = logic_actor.atoms
         for i, env_action_name in enumerate(env_action_names):
             exist_flag = False
-            for j, action_pred_name in enumerate(self.logic_actor.get_prednames()):
-                if env_action_name in action_pred_name:
-                    # if i not in env_action_id_to_action_pred_indices:
-                    #    env_action_id_to_action_pred_indices[i] = []
+            for j, atom in enumerate(atoms):
+                if env_action_name == atom.pred.name:
                     env_action_id_to_action_pred_indices[i].append(j)
                     exist_flag = True
             if not exist_flag:
-                # i-th env action is not defined by any rules thus will be always 0.0
-                # refer to dummy predicte index
-                # pred1, pred2, ..., predn, dummy_pred
-                dummy_index = len(self.logic_actor.get_prednames())
+                # Map to a dummy index (last index + 1)
+                dummy_index = len(atoms)
                 env_action_id_to_action_pred_indices[i].append(dummy_index)
         return env_action_id_to_action_pred_indices
 
     def get_explanation(self, neural_state, logic_state, action):
         """
         Get the explanation of the blending weights.
-
-        Args:
-            neural_state: neural state
-            logic_state: logic state
         """
+        # TODO: Update for multiple logic actors
         neural_explanation = self.get_neural_explanation(neural_state, action)
-        logic_explanation = self.get_logic_explanation(logic_state, action)
-        # blend??
+        # For now, just explain the first logic actor
+        logic_explanation = self.get_logic_explanation(logic_state, action, 0)
         weights = self.to_blender_policy_distribution(neural_state, logic_state)[0]
-        # blended_explanation = weights[0, 0] * neural_explanation + weights[0, 1] * logic_explanation
         return neural_explanation, logic_explanation, weights.detach().cpu().numpy()
 
     def get_neural_explanation(self, neural_state, action):
@@ -158,226 +154,170 @@ class BlenderActor(nn.Module):
         attributions = (attributions - minimum) / (maximum - minimum)
         return attributions
 
-    def get_logic_explanation(self, logic_state, action):
-        # self.logic_action_probs.max().backward()
-        # self.logic_actor.V_T.max().backward()
-        self.raw_action_probs.max().backward()
-        # print(self.logic_action_probs, self.logic_action_probs.max())
-        atom_attributes = self.logic_actor.dummy_zeros.grad
+    def get_logic_explanation(self, logic_state, action, logic_idx=0):
+        self.raw_action_probs_list[logic_idx].max().backward()
+        atom_attributes = self.logic_actors[logic_idx].dummy_zeros.grad
         # normalize to [0, 1]
         minimum = atom_attributes.min()
         maximum = atom_attributes.max()
         atom_attributes = (atom_attributes - minimum) / (maximum - minimum)
-        new_minimum = atom_attributes.min()
-        new_maximum = atom_attributes.max()
-        if atom_attributes.max() > 1.0:
-            pass
-        # atom_attributes = atom_attributes / atom_attributes.max()
-        # print(atom_attributes)
-        # self.logic_actor.print_valuations(min_value=0.5)
-        # self.logic_actor.print_valuations_input(atom_attributes, min_value=0.5)
-        self.logic_actor.dummy_zeros.grad.zero_()
+        self.logic_actors[logic_idx].dummy_zeros.grad.zero_()
         return atom_attributes
-
-    def get_logic_explanation_IG(self, logic_state, action):
-        self.logic_actor.eval()
-        baseline = torch.zeros_like(logic_state).to(logic_state.device)
-        # env action to predicate indices
-        # indices = self.env_action_id_to_action_pred_indices[action.item()]
-        # target_pred = self.logic_actor(logic_state)[indices].max().item()
-        logic_pred_probs = self.logic_actor(logic_state)
-        target_pred = torch.argmax(logic_pred_probs).item()
-
-        ig = IntegratedGradients(self.logic_actor)
-        attributions, delta = ig.attribute(
-            logic_state, baseline, target=target_pred, return_convergence_delta=True
-        )
-        return attributions
 
     def compute_action_probs_hybrid(self, neural_state, logic_state):
         """
         Compute action probabilities for hybrid actor.
-        Args:
-            neural_state: neural state
-            logic_state: logic state
-        Returns:
-            action_probs: action probabilities
-            weights: blending weights
         """
-        # state size: B * N
         batch_size = neural_state.size(0)
-        logic_action_probs = self.to_action_distribution(self.logic_actor(logic_state))
         neural_action_probs = self.to_neural_action_distribution(neural_state)
-        self.logic_action_probs = logic_action_probs
+        
+        self.logic_action_probs_list = []
+        for i, logic_actor in enumerate(self.logic_actors):
+            # We call logic_actor(logic_state) to perform reasoning, 
+            # but we use V_T directly to avoid prednames errors
+            try:
+                logic_actor(logic_state)
+            except AssertionError as e:
+                # Catch "right not found" or similar if prednames check fails inside forward
+                if "not found" not in str(e):
+                    raise e
+            
+            if hasattr(logic_actor, "get_all_valuations"):
+                V_T = logic_actor.get_all_valuations()
+            else:
+                V_T = logic_actor.V_T
+            
+            probs = self.to_action_distribution_from_valuation(V_T, i)
+            self.logic_action_probs_list.append(probs)
+            
         self.neural_action_probs = neural_action_probs
-        # action_probs size : B * N_actions
-        batch_size = neural_state.size(0)
-        # weights size: B * 2
+        
+        # weights size: B * (1 + N_logic)
         weights = self.to_blender_policy_distribution(neural_state, logic_state)
-        # save weights: w1 and w2
         self.w_policy = weights[0]
-        n_actions = neural_action_probs.size(1)
-        # expanded weights size: B * N_actions * 2
-        weights_expanded = weights.unsqueeze(1).repeat(1, n_actions, 1)
-        # p_action = w1 * p_neural + w2 * p_logic
-        action_probs = (
-            weights_expanded[:, :, 0] * neural_action_probs
-            + weights_expanded[:, :, 1] * logic_action_probs
-        )
+        
+        action_probs = weights[:, 0].unsqueeze(1) * neural_action_probs
+        for i, logic_probs in enumerate(self.logic_action_probs_list):
+            action_probs += weights[:, i+1].unsqueeze(1) * logic_probs
+            
         return action_probs, weights
 
     def compute_action_probs_logic(self, logic_state):
         """
-        Compute action probabilities using only logic actor.
-
-        Args:
-            logic_state: logic state
-        Returns:
-            action_probs: action probabilities
-            weights: blending weights [0.0, 1.0]
+        Compute action probabilities using only logic actors (combined).
         """
-        self.w_policy = torch.tensor([0.0, 1.0], device=logic_state.device)
-        logic_action_probs = self.to_action_distribution(self.logic_actor(logic_state))
-        neural_action_probs = torch.zeros_like(logic_action_probs).to(
-            device=logic_state.device
-        )
-        self.logic_action_probs = logic_action_probs
-        self.neural_action_probs = neural_action_probs
-        return logic_action_probs, torch.tensor(
-            [0.0, 1.0], device=logic_state.device
-        ).unsqueeze(0).expand(logic_state.size(0), -1)
+        # Create a dummy neural state
+        dummy_neural = torch.zeros(1, 1).to(self.device) 
+        weights = self.to_blender_policy_distribution(dummy_neural, logic_state)
+        # Zero out neural weight and re-normalize
+        weights[:, 0] = 0.0
+        weights = weights / weights.sum(dim=1, keepdim=True)
+        
+        self.w_policy = weights[0]
+        
+        action_probs = torch.zeros(logic_state.size(0), self.env.n_actions, device=logic_state.device)
+        for i, logic_actor in enumerate(self.logic_actors):
+            try:
+                logic_actor(logic_state)
+            except AssertionError:
+                pass
+            
+            if hasattr(logic_actor, "get_all_valuations"):
+                V_T = logic_actor.get_all_valuations()
+            else:
+                V_T = logic_actor.V_T
+            
+            probs = self.to_action_distribution_from_valuation(V_T, i)
+            action_probs += weights[:, i+1].unsqueeze(1) * probs
+            
+        return action_probs, weights
 
     def compute_action_probs_neural(self, neural_state):
         """
         Compute action probabilities using only neural actor.
-
-        Args:
-            neural_state: neural state
-        Returns:
-            action_probs: action probabilities
-            weights: blending weights [1.0, 0.0]
         """
-        self.w_policy = torch.tensor([1.0, 0.0], device=neural_state.device)
+        weights = torch.zeros(neural_state.size(0), 1 + len(self.logic_actors), device=neural_state.device)
+        weights[:, 0] = 1.0
+        self.w_policy = weights[0]
         neural_action_probs = self.to_neural_action_distribution(neural_state)
-        logic_action_probs = torch.zeros_like(neural_action_probs).to(
-            device=neural_state.device
-        )
-        self.logic_action_probs = logic_action_probs
-        self.neural_action_probs = neural_action_probs
-        return neural_action_probs, torch.tensor(
-            [1.0, 0.0], device=neural_state.device
-        ).unsqueeze(0).expand(neural_state.size(0), -1)
+        return neural_action_probs, weights
 
     def to_blender_policy_distribution(self, neural_state, logic_state):
         """
         Merge neural and logic policies using the blender funciton.
-
-        Args:
-            neural_state: neural state
-            logic_state: logic state
-        Returns:
-            action_probs: action probabilities
         """
-        # get prob for neural and logic policy
-        # probs = extract_policy_probs(self.blender, V_T, self.device)
-        # to logit
-        assert self.blender_mode in [
-            "logic",
-            "neural",
-        ], "Invalid blender mode {}".format(self.blender_mode)
-        assert self.blend_function in [
-            "softmax",
-            "gumbel_softmax",
-        ], "Invalid blend function {}".format(self.blend_function)
+        assert self.blender_mode in ["logic", "neural"]
+        assert self.blend_function in ["softmax", "gumbel_softmax"]
 
         if self.blender_mode == "logic":
             policy_probs = self.blender(logic_state)
+            
+            # Map logic predicates to blender modes
+            batch_size = policy_probs.size(0)
+            mode_probs = []
+            n_modes = 1 + len(self.logic_actors)
+            for i in range(n_modes):
+                indices = torch.tensor(self.blender_id_to_pred_indices.get(i, []), device=policy_probs.device)
+                if len(indices) == 0:
+                    mode_probs.append(torch.zeros(batch_size, 1, device=policy_probs.device))
+                    continue
+                indices = indices.expand(batch_size, -1)
+                gathered = torch.gather(policy_probs, 1, indices)
+                merged = softor(gathered, dim=1)
+                mode_probs.append(merged)
+            
+            probs = torch.stack(mode_probs, dim=1).squeeze(-1)
+            logits = torch.logit(probs, eps=0.01)
         else:
-            policy_probs = self.blender(neural_state)
-
-        # Map logic predicates to blender modes (neural, logic)
-        batch_size = policy_probs.size(0)
-        mode_probs = []
-        for i in range(2): # 0: neural, 1: logic
-            indices = torch.tensor(self.blender_id_to_pred_indices[i], device=policy_probs.device)
-            indices = indices.expand(batch_size, -1)
-            # Gather raw probabilities for these mode-specific predicates
-            gathered = torch.gather(policy_probs, 1, indices)
-            # Use softor to merge multiple rules into one mode probability
-            merged = softor(gathered, dim=1)
-            mode_probs.append(merged)
-        
-        # Combine into (B, 2) tensor
-        probs = torch.stack(mode_probs, dim=1)
-        
-        # Convert to logits for the final selection function (softmax/gumbel)
-        logits = torch.logit(probs, eps=0.01)
+            # Neural blender returns logits directly now
+            if len(neural_state.shape) == 2: # vector
+                 logits = self.blender(logic_state) # MLP blender takes logic_state (vector)
+            else:
+                 logits = self.blender(neural_state)
         
         if self.blend_function == "softmax":
             return torch.softmax(logits, dim=1)
         else:
-            return F.gumbel_softmax(logits, dim=1)
+            return F.gumbel_softmax(logits, dim=1, hard=True)
 
-    def to_action_distribution(self, raw_action_probs):
+    def to_action_distribution_from_valuation(self, valuation, logic_idx=0):
         """
-        Converts raw action probabilities to a distribution.
-
-        Args:
-            raw_action_probs: raw action scores
-
-        Returns:
-            action_dist: action distribution
+        Converts full valuation tensor to an action distribution for a specific logic actor.
         """
-        batch_size = raw_action_probs.size(0)
+        batch_size = valuation.size(0)
         env_action_names = list(self.env.pred2action.keys())
 
-        raw_action_probs = torch.cat(
-            [raw_action_probs, torch.zeros(batch_size, 1, device=raw_action_probs.device)], dim=1
+        # Add a dummy zero column at the end for actions not present in the atoms
+        valuation_with_dummy = torch.cat(
+            [valuation, torch.zeros(batch_size, 1, device=valuation.device)], dim=1
         )
-        # save raw_action_probs for explanations (attributions)
-        self.raw_action_probs = raw_action_probs
-        raw_action_logits = torch.logit(raw_action_probs, eps=0.01)
+        # Store for explanations
+        if not hasattr(self, "raw_action_probs_list"):
+            self.raw_action_probs_list = [None] * len(self.logic_actors)
+        self.raw_action_probs_list[logic_idx] = valuation_with_dummy
+        
+        valuation_logits = torch.logit(valuation_with_dummy, eps=0.01)
         dist_values = []
+        mapping = self.logic_actor_mappings[logic_idx]
+        
         for i in range(len(env_action_names)):
-            if i in self.env_action_id_to_action_pred_indices:
-                indices = torch.tensor(self.env_action_id_to_action_pred_indices[i])
-                indices = indices.expand(batch_size, -1)
-                indices = indices.to(raw_action_probs.device)
-                gathered = torch.gather(raw_action_logits, 1, indices)
-                # merged value for i-th action for samples in the batch
-                merged = softor(gathered, dim=1)  # (batch_size, 1)
-                dist_values.append(merged)
+            indices = torch.tensor(mapping[i], device=valuation.device)
+            indices = indices.expand(batch_size, -1)
+            gathered = torch.gather(valuation_logits, 1, indices)
+            merged = softor(gathered, dim=1)
+            dist_values.append(merged)
 
-        action_values = torch.stack(dist_values, dim=1)  # (batch_size, n_actions)
+        action_values = torch.stack(dist_values, dim=1)
         action_dist = torch.softmax(action_values, dim=1)
-
-        action_dist = self.reshape_action_distribution(action_dist)
-        return action_dist
+        return self.reshape_action_distribution(action_dist)
 
     def to_neural_action_distribution(self, neural_state):
-        """
-        Obtain action distribution from neural policy.
-
-        Args:
-            neural_state: neural state
-        Returns:
-            action_dist: action distribution
-        """
         hidden = self.neural_actor.network(neural_state)
         logits = self.neural_actor.actor(hidden)
         probs = Categorical(logits=logits)
-        action_dist = probs.probs
-        return action_dist
+        return probs.probs
 
     def reshape_action_distribution(self, action_dist):
-        """
-        Reshape action distribution to match the number of actions in the environment.
-
-        Args:
-            action_dist: action distribution
-        Returns:
-            action_dist: reshaped action distribution
-        """
         batch_size = action_dist.size(0)
         if action_dist.size(1) < self.env.n_raw_actions:
             zeros = torch.zeros(
@@ -390,21 +330,6 @@ class BlenderActor(nn.Module):
         return action_dist
 
     def forward(self, neural_state, logic_state):
-        """
-        Forward pass of the actor.
-
-        Args:
-            neural_state: neural state
-            logic_state: logic state
-        Returns:
-            action_probs: action probabilities
-            weights: blending weights
-        """
-        assert self.actor_mode in [
-            "hybrid",
-            "logic",
-            "neural",
-        ], "Invalid actor mode {}".format(self.actor_mode)
         if self.actor_mode == "hybrid":
             return self.compute_action_probs_hybrid(neural_state, logic_state)
         elif self.actor_mode == "logic":
@@ -415,11 +340,11 @@ class BlenderActor(nn.Module):
 
 class BlenderActorCritic(nn.Module):
     """
-    BlendeRL actor-critic that combines neural and logic policies.
+    BlendeRL actor-critic that combines neural and multiple logic policies.
 
     Args:
         env: environment
-        rules: rules
+        rules: rules (can be a comma-separated string for multiple rulesets)
         actor_mode: actor mode, one of ["hybrid", "logic", "neural"]
         blender_mode: blender mode, one of ["logic", "neural"]
         blend_function: blending function, one of ["softmax", "gumbel_softmax"]
@@ -449,46 +374,52 @@ class BlenderActorCritic(nn.Module):
         self.env = env
         self.rules = rules
         self.explain = explain
+        
+        if isinstance(rules, str) and "," in rules:
+            self.rulesets = [r.strip() for r in rules.split(",")]
+        elif isinstance(rules, list):
+            self.rulesets = rules
+        else:
+            self.rulesets = [rules]
+
         self.visual_neural_actor = get_neural_agent(self.env.name, self.env.n_actions, device, arch_name=architecture)
-        if reasoner == "neumann":
-            from neumann.common import get_neumann_model
-            self.logic_actor = get_neumann_model(
-                env.name, rules, device=device, train=True, explain=explain
-            )
-            self.blender = get_blender(
-                env,
-                rules,
-                device,
-                blender_mode=blender_mode,
-                train=True,
-                explain=explain,
-            )
-        elif reasoner == "nsfr":
-            self.logic_actor = get_nsfr_model(
-                env.name, rules, device=device, train=True, explain=explain
-            )
-            self.blender = get_blender(
-                env,
-                rules,
-                device,
-                blender_mode=blender_mode,
-                train=True,
-                explain=explain,
-            )
+        
+        self.logic_actors = nn.ModuleList()
+        for r in self.rulesets:
+            if reasoner == "neumann":
+                from neumann.common import get_neumann_model
+                la = get_neumann_model(env.name, r, device=device, train=True, explain=explain)
+            else:
+                la = get_nsfr_model(env.name, r, device=device, train=True, explain=explain)
+            self.logic_actors.append(la)
+        
+        # Shortcut for single logic actor compatibility
+        self.logic_actor = self.logic_actors[0]
+        
+        out_size = 1 + len(self.logic_actors)
+        self.blender = get_blender(
+            env,
+            self.rulesets[0],
+            device,
+            blender_mode=blender_mode,
+            train=True,
+            explain=explain,
+            out_size=out_size,
+            architecture=architecture if architecture else "cnn"
+        )
+        
         # Load logic critic (MLP)
         mlp_module_path = f"in/envs/{env.name}/mlp.py"
         if os.path.exists(mlp_module_path):
             module = load_module(mlp_module_path)
             self.logic_critic = module.MLP(device=device, out_size=1, logic=True)
         else:
-            # Fallback for logic critic if no mlp.py is present? 
-            # For now, let's just keep it simple.
             self.logic_critic = None 
 
         self.actor = BlenderActor(
             env,
             self.visual_neural_actor,
-            self.logic_actor,
+            self.logic_actors,
             self.blender,
             actor_mode,
             blender_mode,
@@ -519,8 +450,9 @@ class BlenderActorCritic(nn.Module):
         if self.blender_mode == "logic":
             print("==== Blender ====")
             print_program(self.blender)
-        print("==== Logic Policy ====")
-        print_program(self.logic_actor)
+        for i, la in enumerate(self.logic_actors):
+            print(f"==== Logic Policy {i} ({self.rulesets[i]}) ====")
+            print_program(la)
 
     def get_policy_weights(self):
         """
@@ -583,7 +515,8 @@ class BlenderActorCritic(nn.Module):
         Returns:
             prednames: predicate names
         """
-        return self.actor.get_prednames()
+        # Return prednames of the first logic actor for compatibility
+        return self.logic_actor.get_prednames()
 
     def get_action_and_value(self, neural_state, logic_state, action=None):
         """
@@ -609,12 +542,16 @@ class BlenderActorCritic(nn.Module):
 
         # Compute state values using each neural and logic value function
         # size: n_envs * 1
-        neural_value = self.get_neural_value(neural_state)
-        logic_value = self.get_logic_value(logic_state)
-        # blend the two values using blending weights and compute the final value
+        neural_value = self.get_neural_value(neural_state).squeeze(1)
+        logic_value = self.get_logic_value(logic_state).squeeze(1)
+        
+        # blend the values using blending weights
+        # neural_weight * neural_value + sum(logic_weights) * logic_value
+        # Since logic modules share the same logic_critic for now.
+        logic_weight_sum = blending_weights[:, 1:].sum(dim=1)
         blended_value = (
-            blending_weights[:, 0] * neural_value.squeeze(1)
-            + blending_weights[:, 1] * logic_value.squeeze(1)
+            blending_weights[:, 0] * neural_value
+            + logic_weight_sum * logic_value
         ).unsqueeze(1)
 
         return action, logprob, dist.entropy(), blend_dist.entropy(), blended_value

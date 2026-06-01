@@ -24,7 +24,7 @@ class NeuralBlenderActor(nn.Module):
     a neural network that takes an image as input and outputs a probability distribution over policies.
     """
 
-    def __init__(self):
+    def __init__(self, out_size=2):
         super().__init__()
         self.network = nn.Sequential(
             layer_init(nn.Conv2d(4, 32, 8, stride=4)),
@@ -37,13 +37,37 @@ class NeuralBlenderActor(nn.Module):
             layer_init(nn.Linear(64 * 7 * 7, 512)),
             nn.ReLU(),
         )
-        self.actor = layer_init(nn.Linear(512, 2), std=0.01)
+        self.actor = layer_init(nn.Linear(512, out_size), std=0.01)
 
     def forward(self, x):
         hidden = self.network(x / 255.0)
         logits = self.actor(hidden)
-        probs = Categorical(logits=logits)
-        return probs.probs
+        return logits
+
+
+class NeuralBlenderMLP(nn.Module):
+    """
+    Neural Blender MLP;
+    a neural network that takes a vector as input and outputs a probability distribution over policies.
+    """
+
+    def __init__(self, num_in_features, out_size=2, hidden_sizes=[64, 64]):
+        super().__init__()
+        layers = []
+        last_size = num_in_features
+        for size in hidden_sizes:
+            layers.append(layer_init(nn.Linear(last_size, size)))
+            layers.append(nn.Tanh())
+            last_size = size
+        self.network = nn.Sequential(*layers)
+        self.actor = layer_init(nn.Linear(last_size, out_size), std=0.01)
+
+    def forward(self, x):
+        # Flatten input: (B, ...) -> (B, -1)
+        x = x.float().reshape(x.shape[0], -1)
+        hidden = self.network(x)
+        logits = self.actor(hidden)
+        return logits
 
 
 class CNNActor(nn.Module):
@@ -202,6 +226,8 @@ def get_blender(
     blender_mode="logic",
     reasoner="nsfr",
     explain=False,
+    out_size=2,
+    architecture="cnn",
 ):
     """
     Load a Blender model.
@@ -213,6 +239,8 @@ def get_blender(
         blender_mode (str): Mode of Blender. Possible values are "logic" and "neural".
         reasoner (str): Reasoner. Possible values are "nsfr" and "neumann".
         explain (bool): Whether to explain the model.
+        out_size (int): Number of outputs for neural blender.
+        architecture (str): Architecture for neural blender ("cnn" or "mlp").
     Returns:
         Blender: Blender model.
     """
@@ -229,7 +257,14 @@ def get_blender(
                 env.name, blender_rules, device, train=train, explain=explain
             )
     if blender_mode == "neural":
-        net = NeuralBlenderActor()
+        if architecture == "cnn":
+            net = NeuralBlenderActor(out_size=out_size)
+        else:
+            # Assume mlp
+            dummy_logic, dummy_neural = env.reset()
+            # Calculate total features after flattening
+            num_in_features = np.prod(dummy_logic.shape[1:]) 
+            net = NeuralBlenderMLP(num_in_features=num_in_features, out_size=out_size)
         net.to(device)
         return net
 
