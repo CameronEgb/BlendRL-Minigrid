@@ -90,6 +90,9 @@ def main():
     def parse_list(val):
         if not val: return []
         if isinstance(val, (list, tuple)): return list(val)
+        # Handle OmegaConf ListConfig/DictConfig
+        if hasattr(val, "__iter__") and not isinstance(val, str):
+            return list(val)
         return [item.strip() for item in str(val).split(",") if item.strip()]
 
     online_list = parse_list(online_methods)
@@ -121,7 +124,14 @@ def main():
         print(f"\n=== Preparing Slurm Job: Online Training ({agent_config}) ===")
         agent_name_internal = agent_config.replace("/", "_")
         job_name = agent_name_internal
+        dataset_path = f"results/datasets/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}"
         
+        # Check if dataset already exists to skip training
+        if os.path.exists(dataset_path) and any(f.endswith(".pkl") for f in os.listdir(dataset_path) if os.path.isfile(os.path.join(dataset_path, f))):
+             print(f"Dataset already exists at {dataset_path}. Skipping online training.")
+             online_job_ids[agent_config] = None # No dependency
+             continue
+
         overrides = [
             "train.py",
             f"+experiment={args.experiment}",
@@ -129,7 +139,7 @@ def main():
             f"mode=online",
             f"agent={agent_config}",
             f"++agent.name={agent_name_internal}",
-            f"++dataset_path=results/datasets/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}"
+            f"++dataset_path={dataset_path}"
         ] + sanitized_extra_args
         
         script_content = generate_sbatch_script(
