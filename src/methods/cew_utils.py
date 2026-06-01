@@ -254,7 +254,7 @@ class FLC(nn.Module):
                                     sigmas=gaussians['sigmas'], trainable=False)
 
         if consequences is None:
-            self.consequences = Parameter(torch.zeros(n_rules, out_features))
+            self.consequences = Parameter(torch.randn(n_rules, out_features) * 0.01)
         else:
             self.consequences = Parameter(torch.tensor(consequences, dtype=torch.float32))
 
@@ -298,6 +298,11 @@ class MultiFLC(nn.Module):
     def forward(self, X):
         outputs = [flc(X) for flc in self.flcs]
         return torch.stack(outputs, dim=1)
+
+    def get_action_probs(self, X):
+        """Returns a probability distribution over actions."""
+        q_values = self.forward(X)
+        return torch.softmax(q_values, dim=1)
 
     def get_action_and_value(self, X, action=None):
         q_values = self.forward(X)

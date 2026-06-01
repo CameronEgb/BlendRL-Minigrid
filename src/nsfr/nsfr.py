@@ -42,6 +42,10 @@ class NSFReasoner(nn.Module):
         """Return the latest valuation tensor."""
         return self.V_T
 
+    def get_action_probs(self, x):
+        """Returns the action probabilities calculated during the last forward pass."""
+        return self.forward(x)
+
     def forward(self, x):
         zs = x
         # convert to the valuation tensor

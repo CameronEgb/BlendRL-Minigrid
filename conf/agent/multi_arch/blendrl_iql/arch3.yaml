@@ -2,16 +2,14 @@ defaults:
   - /agent: blendrl_iql_base
   - _self_
 
-lr: 0.01
-logic_lr: 0.01
-blender_lr: 0.01
-tau: 0.7
-beta: 3.0
-batch_size: 256
-epochs_per_interval: 10
-blend_ent_coef: 0.01
+modules:
+  - type: nsfr
+    rules: default
+  - type: cew
+    fyd: true
 blender_mode: neural
-blend_function: softmax
 actor_mode: logic
+fyd: true
+ecm_dthr: 0.1
 env:
-  rules: "default, variant1"
+  rules: default

@@ -114,22 +114,20 @@ class CEWAgent(IQLAgent):
             next_v = torch.max(next_q, dim=1)[0]
             q_target = rewards + cfg.env.gamma * next_v * (1 - dones)
             
+        # Compute all_q_values once for the batch
+        all_q_values = self.fuzzy_model(obs)
+        
+        # Calculate shared metrics for CQL
+        logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
+        q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
+        cql_loss_shared = (logsumexp_qvalues - q_action).mean()
+        
         total_loss_val = 0
         for flc_idx, flc in enumerate(self.fuzzy_model.flcs):
             opt = self.optimizers_list[flc_idx]
             
-            # Recompute all_q_values for each flc update to avoid graph issues
-            # and ensure we use the latest values if we were doing sequential updates.
-            # However, for efficiency, let's just use the current flc and detach others if possible.
-            # Or simpler: compute all_q_values once with gradients, then update each flc.
-            
-            # Recompute for each to be safe with individual optimizers
-            all_q_values = self.fuzzy_model(obs)
+            # pred_q is the Q-value for this specific action
             pred_q = all_q_values[:, flc_idx]
-            
-            logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
-            q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
-            cql_loss = (logsumexp_qvalues - q_action).mean()
             
             indices = (actions == flc_idx).nonzero(as_tuple=True)[0]
             if len(indices) > 0:
@@ -137,10 +135,11 @@ class CEWAgent(IQLAgent):
             else:
                 bellman_loss = 0
                 
-            loss = bellman_loss + self.fuzzy_model.cql_alpha * cql_loss
+            loss = bellman_loss + self.fuzzy_model.cql_alpha * cql_loss_shared
             
             opt.zero_grad()
-            self.manual_backward(loss)
+            # Use retain_graph=True for all but the last FLC to avoid recomputing the graph
+            self.manual_backward(loss, retain_graph=(flc_idx < len(self.fuzzy_model.flcs) - 1))
             opt.step()
             total_loss_val += loss.item()
             

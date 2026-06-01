@@ -40,6 +40,12 @@ class MLP(nn.Module):
         logits = self.actor(hidden)
         return self.softmax(logits)
 
+    def get_action_probs(self, x):
+        x = x.float().reshape(x.shape[0], -1)
+        hidden = self.network(x)
+        logits = self.actor(hidden)
+        return torch.softmax(logits, dim=-1)
+
     def get_value(self, x, logic_state=None):
         x = x.float().reshape(x.shape[0], -1)
         return self.critic(self.network(x))

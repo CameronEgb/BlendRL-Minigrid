@@ -44,6 +44,10 @@ class NeuralBlenderActor(nn.Module):
         logits = self.actor(hidden)
         return logits
 
+    def get_action_probs(self, x):
+        logits = self.forward(x)
+        return torch.softmax(logits, dim=-1)
+
 
 class NeuralBlenderMLP(nn.Module):
     """

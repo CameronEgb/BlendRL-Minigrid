@@ -264,10 +264,24 @@ class BlendRLAgent(PPOAgent):
                 self.log("losses/blend_entropy", blend_entropy.mean())
                 self.log("losses/total_loss", loss)
 
+    def on_train_epoch_start(self):
+        super().on_train_epoch_start()
+        # For online training, we only have the rollout buffer which might be small.
+        # But Phase 1 is often just point 0 or very small intervals.
+        # Let's organize at epoch 0 if needed.
+        if self.current_epoch == 0:
+             # Sample from datamodule if available
+             try:
+                 batch = self.trainer.datamodule.reader.sample(1000)
+                 self.model.self_organize_cew_modules(batch["obs"])
+                 # Re-init optimizer
+                 self.trainer.strategy.optimizers[0] = self.configure_optimizers()
+             except:
+                 pass # Might not have data yet
+
     def configure_optimizers(self):
         return optim.Adam([
-            {"params": self.model.visual_neural_actor.parameters(), "lr": self.lr},
-            {"params": self.model.logic_actors.parameters(), "lr": self.logic_lr},
+            {"params": self.model.policy_modules.parameters(), "lr": self.lr},
             {"params": self.model.logic_critic.parameters(), "lr": self.lr},
             {"params": self.model.blender.parameters(), "lr": self.blender_lr},
         ], lr=self.lr, eps=1e-5)

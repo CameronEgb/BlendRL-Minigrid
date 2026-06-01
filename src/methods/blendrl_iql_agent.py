@@ -49,6 +49,27 @@ class BlendRLIQLAgent(IQLAgent):
 
     def on_train_epoch_start(self):
         super().on_train_epoch_start()
+        
+        # Check if we need to self-organize CEW modules
+        epochs_per_interval = self.cfg.agent.get("epochs_per_interval", 1)
+        if self.current_epoch % epochs_per_interval == 0:
+            datamodule = self.trainer.datamodule
+            # Use a reasonably large sample for organization
+            sample_size = min(len(datamodule.reader), 10000)
+            if sample_size > 0:
+                batch = datamodule.reader.sample(sample_size)
+                # CEW usually organizes on the neural "obs" but it depends on what we want.
+                # CartPole obs is the vector we want.
+                self.model.self_organize_cew_modules(batch["obs"])
+                
+                # Re-initialize actor optimizer because CEW parameters changed (new FLCs)
+                opt_q, opt_v, opt_a = self.optimizers()
+                actor_params = list(self.model.policy_modules.parameters()) + \
+                               list(self.model.blender.parameters())
+                # Replace the internal state of opt_a with a new optimizer for the new parameters
+                new_opt_a = optim.Adam(actor_params, lr=self.cfg.agent.lr)
+                # This is a bit hacky but Pytorch Lightning Manual Optimization allows it
+                self.trainer.strategy.optimizers[2] = new_opt_a
 
     def training_step(self, batch, batch_idx):
         datamodule = self.trainer.datamodule
