@@ -88,8 +88,8 @@ class CEWAgent(IQLAgent):
         ).to(self.device)
         self.target_fuzzy_model.load_state_dict(self.fuzzy_model.state_dict())
         
-        # Re-initialize optimizers for the new flcs
-        self.optimizers_list = [optim.Adam(flc.parameters(), lr=self.cfg.agent.lr) for flc in self.fuzzy_model.flcs]
+        # Use a single optimizer for the whole fuzzy model
+        self.optimizer = optim.Adam(self.fuzzy_model.parameters(), lr=self.cfg.agent.lr)
         
         self.self_organized = True
         print(f"Self-organization complete. Number of rules: {len(self.rules)}")
@@ -114,34 +114,24 @@ class CEWAgent(IQLAgent):
             next_v = torch.max(next_q, dim=1)[0]
             q_target = rewards + cfg.env.gamma * next_v * (1 - dones)
             
-        # Compute all_q_values once for the batch
+        # Compute all_q_values
         all_q_values = self.fuzzy_model(obs)
         
         # Calculate shared metrics for CQL
         logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
         q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
-        cql_loss_shared = (logsumexp_qvalues - q_action).mean()
+        cql_loss = (logsumexp_qvalues - q_action).mean()
         
-        total_loss_val = 0
-        for flc_idx, flc in enumerate(self.fuzzy_model.flcs):
-            opt = self.optimizers_list[flc_idx]
-            
-            # pred_q is the Q-value for this specific action
-            pred_q = all_q_values[:, flc_idx]
-            
-            indices = (actions == flc_idx).nonzero(as_tuple=True)[0]
-            if len(indices) > 0:
-                bellman_loss = F.mse_loss(pred_q[indices], q_target[indices])
-            else:
-                bellman_loss = 0
+        # Bellman loss
+        bellman_loss = F.mse_loss(q_action, q_target)
                 
-            loss = bellman_loss + self.fuzzy_model.cql_alpha * cql_loss_shared
-            
-            opt.zero_grad()
-            # Use retain_graph=True for all but the last FLC to avoid recomputing the graph
-            self.manual_backward(loss, retain_graph=(flc_idx < len(self.fuzzy_model.flcs) - 1))
-            opt.step()
-            total_loss_val += loss.item()
+        # Total loss
+        alpha = self.cfg.agent.get("cql_alpha", 0.5)
+        loss = bellman_loss + alpha * cql_loss
+        
+        self.optimizer.zero_grad()
+        self.manual_backward(loss)
+        self.optimizer.step()
             
         # Soft update target
         self._soft_update_fuzzy(self.fuzzy_model, self.target_fuzzy_model)
@@ -152,11 +142,18 @@ class CEWAgent(IQLAgent):
         interval_size = cfg.total_timesteps // cfg.intervals_count
         current_transitions = interval_size * (current_interval + 1)
 
-        self.log("losses/total_loss", total_loss_val / len(self.fuzzy_model.flcs))
+        self.log_dict({
+            "losses/total_loss": loss,
+            "losses/bellman_loss": bellman_loss,
+            "losses/cql_loss": cql_loss,
+            "stats/n_rules": float(len(self.rules)),
+            "stats/q_mean": all_q_values.mean(),
+            "stats/q_max": all_q_values.max(),
+        })
         self.log("transitions", float(current_transitions), logger=False, prog_bar=True)
         
         if batch_idx % 100 == 0:
-            print(f"Epoch {self.current_epoch} Batch {batch_idx}: Loss={total_loss_val/len(self.fuzzy_model.flcs):.4f}")
+            print(f"Epoch {self.current_epoch} Batch {batch_idx}: Loss={loss.item():.4f} Rules={len(self.rules)}")
 
     def _soft_update_fuzzy(self, model, target_model):
         tau = self.cfg.agent.get("soft_target_tau", 0.005)
@@ -164,10 +161,9 @@ class CEWAgent(IQLAgent):
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
     def configure_optimizers(self):
-        # We handle optimizers manually in training_step because they are per-action FLC
-        # But Lightning might want at least one or it might complain.
-        # We'll return a dummy one and use manual optimization.
-        return optim.Adam([torch.zeros(1, requires_grad=True)], lr=1.0)
+        # We handle optimizers manually, but Lightning needs something.
+        # We'll re-init in self_organize anyway.
+        return optim.Adam([torch.zeros(1, requires_grad=True)], lr=1e-4)
 
     def get_action_and_value(self, obs, logic_obs=None):
         if self.fuzzy_model is None:

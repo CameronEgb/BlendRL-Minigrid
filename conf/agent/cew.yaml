@@ -1,8 +1,8 @@
 name: cew
 algorithm: cew
-lr: 3e-4
-batch_size: 32
+lr: 1e-4
+batch_size: 64
 epochs_per_interval: 100
-ecm_dthr: 0.01
-cql_alpha: 1.0
+ecm_dthr: 0.4
+cql_alpha: 0.5
 soft_target_tau: 0.005
