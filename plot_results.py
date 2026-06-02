@@ -411,12 +411,8 @@ def main():
         for agent_key, versions in agent_runs.items():
             if not versions: continue
             
-            # agent_key is (exp_id, agent_folder, dataset_key)
-            # We treat EACH agent_key as a separate potential line if they have different datasets,
-            # but we aggregate the versions within that specific leaf.
-            
             if args.version == "all":
-                # Add ALL versions for this agent for aggregation
+                # Add ALL versions for this agent for aggregation (explicitly requested)
                 for v_num in versions:
                     all_runs.append(load_run_data(versions[v_num], args))
             elif args.version is not None:
@@ -430,13 +426,13 @@ def main():
                 except ValueError:
                     print(f"Warning: Invalid version '{args.version}' requested for {agent_key[1]}")
             else:
-                # Default behavior: aggregate versions within this specific agent_key
-                # This ensures we combine version_0, version_1, etc. if they are part of the same logical run.
-                # Since we grouped by (exp, folder, dataset), this is safe.
-                for v_num in versions:
+                # Default: Add only the LATEST version that actually has data
+                # Check versions in descending order
+                for v_num in sorted(versions.keys(), reverse=True):
                     run_data = load_run_data(versions[v_num], args)
-                    if run_data["data"]: 
+                    if run_data.get("data"):
                         all_runs.append(run_data)
+                        break
 
     if not all_runs:
         if args.version is not None:

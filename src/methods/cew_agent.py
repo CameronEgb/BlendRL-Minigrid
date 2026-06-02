@@ -45,20 +45,17 @@ class CEWAgent(IQLAgent):
     def self_organize(self):
         print(f"Self-organizing for interval at epoch {self.current_epoch}...")
         datamodule = self.trainer.datamodule
-        # Sample some data from the current limited dataset to organize rules
-        # Use a reasonably large sample for organization
         sample_size = min(len(datamodule.reader), 10000)
         batch = datamodule.reader.sample(sample_size)
         obs = batch["obs"].cpu().numpy()
         
         # 1. CLIP: Generate membership functions
-        # Use full dataset range for CLIP initialization if possible, or current sample
         mins = obs.min(axis=0)
         maxes = obs.max(axis=0)
         self.antecedents = run_CLIP(obs, mins, maxes)
         
         # 2. ECM: Generate rule candidates (reduced centers)
-        dthr = self.cfg.agent.get("ecm_dthr", 0.05)
+        dthr = self.cfg.agent.get("ecm_dthr", 0.4)
         clusters = run_ECM(obs, [], dthr)
         reduced_X = np.array([c.center for c in clusters])
         
@@ -70,7 +67,7 @@ class CEWAgent(IQLAgent):
             top_k = self.cfg.agent.get("fyd_top_k", None)
             self.rules = run_FYD(self.rules, obs, self.antecedents, top_k=top_k)
             
-        # 5. Initialize/Re-initialize MultiFLC
+        # 5. Initialize/Re-initialize MIMO MultiFLC
         self.fuzzy_model = MultiFLC(
             n_inputs=obs.shape[1],
             n_outputs=self.n_actions,
@@ -88,11 +85,9 @@ class CEWAgent(IQLAgent):
         ).to(self.device)
         self.target_fuzzy_model.load_state_dict(self.fuzzy_model.state_dict())
         
-        # Use a single optimizer for the whole fuzzy model
         self.optimizer = optim.Adam(self.fuzzy_model.parameters(), lr=self.cfg.agent.lr)
-        
         self.self_organized = True
-        print(f"Self-organization complete. Number of rules: {len(self.rules)}")
+        print(f"Self-organization complete. MIMO Rules: {len(self.rules)}")
 
     def training_step(self, batch, batch_idx):
         if not self.self_organized:
@@ -108,32 +103,25 @@ class CEWAgent(IQLAgent):
         next_obs = real_batch["next_obs"]
         dones = real_batch["done"]
         
-        # Update Target Q
+        # MIMO Forward pass (Batch, Actions)
         with torch.no_grad():
             next_q = self.target_fuzzy_model(next_obs)
             next_v = torch.max(next_q, dim=1)[0]
             q_target = rewards + cfg.env.gamma * next_v * (1 - dones)
             
-        # Compute all_q_values
         all_q_values = self.fuzzy_model(obs)
         
-        # Calculate shared metrics for CQL
         logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
         q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
         cql_loss = (logsumexp_qvalues - q_action).mean()
-        
-        # Bellman loss
         bellman_loss = F.mse_loss(q_action, q_target)
-                
-        # Total loss
-        alpha = self.cfg.agent.get("cql_alpha", 0.5)
-        loss = bellman_loss + alpha * cql_loss
+        
+        loss = bellman_loss + self.fuzzy_model.cql_alpha * cql_loss
         
         self.optimizer.zero_grad()
         self.manual_backward(loss)
         self.optimizer.step()
-            
-        # Soft update target
+        
         self._soft_update_fuzzy(self.fuzzy_model, self.target_fuzzy_model)
         
         # Calculate current transitions for logging

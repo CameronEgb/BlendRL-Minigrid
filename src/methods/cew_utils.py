@@ -224,106 +224,98 @@ class FLC(nn.Module):
     def __init__(self, in_features, out_features, antecedents, rules, consequences=None):
         super(FLC, self).__init__()
         self.in_features = in_features
+        self.out_features = out_features
 
         num_of_antecedents = np.zeros(in_features).astype('int32')
         unique_id = 0
         gaussians = {'centers': [], 'sigmas': []}
         self.input_variable_ids = []
-        self.transformed_x_length = 0
         
-        # Ensure antecedents is a list of lists, one for each input feature
+        # Build mapping from input features to fuzzy terms
         if len(antecedents) == 0:
             antecedents = [[] for _ in range(in_features)]
             
         for input_variable_idx in range(in_features):
             num_of_antecedents[input_variable_idx] = len(antecedents[input_variable_idx])
-            self.input_variable_ids.append(set())
+            self.input_variable_ids.append([])
             for term_idx, antecedent in enumerate(antecedents[input_variable_idx]):
                 gaussians['centers'].append(antecedent['center'])
-                gaussians['sigmas'].append(antecedent['sigma'] * 1.2) # Increased overlap
+                gaussians['sigmas'].append(antecedent['sigma'] * 1.2) # Overlap multiplier
                 antecedent['id'] = unique_id
-                self.input_variable_ids[-1].add(unique_id)
+                self.input_variable_ids[-1].append(unique_id)
                 unique_id += 1
         self.transformed_x_length = unique_id
 
+        # Rule base mapping
         n_rules = len(rules)
         links = np.zeros((self.transformed_x_length, n_rules))
-
         for rule_idx, rule in enumerate(rules):
             for input_variable_idx, term_idx in enumerate(rule['A']):
                 new_term_idx = antecedents[input_variable_idx][term_idx]['id']
                 links[new_term_idx, rule_idx] = 1
 
-        self.register_buffer('links_between_antecedents_and_rules', torch.tensor(links, dtype=torch.float32))
-        self.input_terms = Gaussian(in_features=self.transformed_x_length, centers=gaussians['centers'],
-                                    sigmas=gaussians['sigmas'], trainable=False)
+        self.register_buffer('links', torch.tensor(links, dtype=torch.float32))
+        # Mask for Product T-norm: inactive terms set to 1.0
+        self.register_buffer('links_mask', (torch.tensor(links, dtype=torch.float32) == 0).float())
+        
+        self.input_terms = Gaussian(in_features=self.transformed_x_length, 
+                                    centers=gaussians['centers'],
+                                    sigmas=gaussians['sigmas'], 
+                                    trainable=False)
 
         if consequences is None:
-            self.consequences = Parameter(torch.randn(n_rules, out_features) * 0.1) # Increased init scale
+            # Multi-output consequences: (n_rules, out_features)
+            self.consequences = Parameter(torch.randn(n_rules, out_features) * 0.1)
         else:
             self.consequences = Parameter(torch.tensor(consequences, dtype=torch.float32))
 
-    def __transform(self, X):
-        batch_size = X.shape[0]
-        new_X = torch.zeros((batch_size, self.transformed_x_length), device=X.device)
-        for input_variable_idx, indices_to_repeat_for in enumerate(self.input_variable_ids):
-            if not indices_to_repeat_for:
-                continue
-            min_idx = min(indices_to_repeat_for)
-            max_idx = max(indices_to_repeat_for) + 1
-            copies = len(indices_to_repeat_for)
-            
-            # Ensure X is at least 2D
-            if len(X.shape) == 1:
-                X = X.unsqueeze(0)
-            
-            val = X[:, input_variable_idx].unsqueeze(1)
-            new_X[:, min_idx:max_idx] = val.repeat(1, copies)
-        return new_X
+        # Flatten input variable IDs for faster gathering
+        self.register_buffer('gather_indices', torch.tensor(
+            [idx for feature_ids in self.input_variable_ids for idx in feature_ids], 
+            dtype=torch.long))
+        self.register_buffer('feature_map', torch.tensor(
+            [i for i, ids in enumerate(self.input_variable_ids) for _ in ids], 
+            dtype=torch.long))
 
     def forward(self, X):
-        if self.transformed_x_length == 0 or self.links_between_antecedents_and_rules.shape[1] == 0:
-            # Not yet organized: return zeros (which leads to uniform after softmax)
-            out = torch.zeros(X.shape[0], self.consequences.shape[1], device=X.device)
-            if self.consequences.shape[1] == 1:
-                out = out.squeeze(1)
-            return out
+        if self.transformed_x_length == 0 or self.links.shape[1] == 0:
+            return torch.zeros(X.shape[0], self.out_features, device=X.device)
             
-        X_transformed = self.__transform(X)
-        antecedents_memberships = self.input_terms(X_transformed)
-        # shape: (batch, terms, rules)
-        terms_to_rules = antecedents_memberships.unsqueeze(2) * self.links_between_antecedents_and_rules
+        # Fast vectorized transform
+        X_transformed = X.index_select(1, self.feature_map)
         
-        # We need to handle the product only for active links
-        # A trick: set inactive links to 1.0 so they don't affect the product
-        mask = (self.links_between_antecedents_and_rules == 0)
-        terms_to_rules = terms_to_rules + mask.unsqueeze(0).float()
+        # Calculate Gaussian memberships
+        memberships = self.input_terms(X_transformed)
+        
+        # Product T-norm for rules: (batch, terms, 1) * (1, terms, rules)
+        # We use the mask to set inactive memberships to 1.0 so they don't affect the product
+        terms_to_rules = memberships.unsqueeze(2) * self.links.unsqueeze(0)
+        terms_to_rules = terms_to_rules + self.links_mask.unsqueeze(0)
         
         rules_applicability = terms_to_rules.prod(dim=1)
         
-        # MISO: self.consequences is (n_rules, 1)
-        numerator = (rules_applicability * self.consequences.squeeze(1)).sum(dim=1)
-        denominator = rules_applicability.sum(dim=1)
+        # TSK-like weighted average: (batch, rules) @ (rules, out)
+        numerator = torch.matmul(rules_applicability, self.consequences)
+        denominator = rules_applicability.sum(dim=1, keepdim=True)
         denominator = torch.clamp(denominator, min=1e-12)
+        
         return numerator / denominator
 
 class MultiFLC(nn.Module):
     def __init__(self, n_inputs, n_outputs, antecedents, rules, learning_rate=3e-4, cql_alpha=0.5):
         super(MultiFLC, self).__init__()
-        self.flcs = nn.ModuleList([FLC(n_inputs, 1, antecedents, rules) for _ in range(n_outputs)])
+        # Use a single MIMO FLC for efficiency
+        self.flc = FLC(n_inputs, n_outputs, antecedents, rules)
         self.learning_rate = learning_rate
         self.cql_alpha = cql_alpha
         self.n_outputs = n_outputs
 
     def forward(self, X):
-        # Flatten input: (B, ...) -> (B, -1)
         if len(X.shape) > 2:
             X = X.reshape(X.shape[0], -1)
-        outputs = [flc(X) for flc in self.flcs]
-        return torch.stack(outputs, dim=1)
+        return self.flc(X)
 
     def get_action_probs(self, X):
-        """Returns a probability distribution over actions."""
         q_values = self.forward(X)
         return torch.softmax(q_values, dim=1)
 
@@ -332,19 +324,10 @@ class MultiFLC(nn.Module):
         if action is None:
             action = torch.argmax(q_values, dim=1)
         
-        # We need to return (action, logprob, entropy, value) for the evaluator
-        # But this is a Q-learning agent, not PPO.
-        # Let's return what IQLAgent evaluator expects if possible.
-        # Looking at EnvironmentEvaluatorCallback, it calls get_action_and_value
-        # and expects (action, logprob, entropy, value).
-        
         log_probs = torch.log_softmax(q_values, dim=1)
         action_logprob = log_probs.gather(1, action.unsqueeze(1)).squeeze(1)
-        
-        # Entropy for a deterministic policy is 0, but we can use softmax entropy
         probs = torch.softmax(q_values, dim=1)
         entropy = -(probs * torch.log(probs + 1e-12)).sum(dim=1)
-        
         value = torch.max(q_values, dim=1)[0]
         
         return action, action_logprob, entropy, value
