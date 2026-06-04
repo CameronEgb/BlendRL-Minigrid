@@ -11,6 +11,7 @@ env:
 # 1. Run PPO to generate data, then CEW to verify learning
 online_methods: [ppo]
 offline_methods: [cew]
+offline_datasets: [ppo]
 
 total_timesteps: 100000 
 intervals_count: 1      
