@@ -68,17 +68,28 @@ def main():
     parser.add_argument("--plot-style", type=str, default=None, help="Style config for plotter")
     args, extra_args = parser.parse_known_args()
     
+    # Prepare extra_args: 
+    # sanitized_extra_args -> passed to Slurm/train.py
+    # overrides_for_compose -> passed to hydra.compose to read the config
     sanitized_extra_args = []
+    overrides_for_compose = [f"+experiment={args.experiment}"]
+    
     for arg in extra_args:
-        if "=" in arg and not (arg.startswith("+") or arg.startswith("++")):
-            sanitized_extra_args.append("++" + arg)
+        if "=" in arg:
+            if not (arg.startswith("+") or arg.startswith("++")):
+                sanitized_arg = "++" + arg
+            else:
+                sanitized_arg = arg
+            sanitized_extra_args.append(sanitized_arg)
+            overrides_for_compose.append(sanitized_arg)
         else:
+            # Flags like --multirun or -m should be passed to subprocess but NOT to compose
             sanitized_extra_args.append(arg)
             
     try:
         hydra.core.global_hydra.GlobalHydra.instance().clear()
         initialize(version_base=None, config_path="conf")
-        cfg = compose(config_name="config", overrides=[f"+experiment={args.experiment}"] + sanitized_extra_args)
+        cfg = compose(config_name="config", overrides=overrides_for_compose)
     except Exception as e:
         print(f"Error loading configuration: {e}")
         sys.exit(1)
