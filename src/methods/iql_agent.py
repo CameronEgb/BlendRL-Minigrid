@@ -17,7 +17,7 @@ class IQLAgent(PPOAgent):
         algorithm = self.get_cfg("algorithm", self.get_cfg("name", cfg.env.name))
 
         # In offline mode, env is only for evaluation
-        from blendrl.env_vectorized import VectorizedNudgeBaseEnv
+        from src.blendrl.env_vectorized import VectorizedNudgeBaseEnv
         self.env = VectorizedNudgeBaseEnv.from_name(
             cfg.env.name, 
             n_envs=1, 

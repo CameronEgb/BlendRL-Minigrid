@@ -6,7 +6,7 @@ import numpy as np
 import os
 from typing import Any, Dict, Optional
 from src.methods.ppo_agent import PPOAgent
-from blendrl.agents.blender_agent import BlenderActorCritic
+from src.blendrl.agents.blender_agent import BlenderActorCritic
 
 class BlendRLAgent(PPOAgent):
     def __init__(self, cfg: Dict[str, Any]):
@@ -38,7 +38,7 @@ class BlendRLAgent(PPOAgent):
         self.norm_adv = self.get_cfg("norm_adv", True)
         self.clip_vloss = self.get_cfg("clip_vloss", True)
         
-        from blendrl.env_vectorized import VectorizedNudgeBaseEnv
+        from src.blendrl.env_vectorized import VectorizedNudgeBaseEnv
         self.env = VectorizedNudgeBaseEnv.from_name(
             cfg.env.name, 
             n_envs=self.num_envs, 

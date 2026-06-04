@@ -263,8 +263,19 @@ def main():
         final_script += f"echo 'Generating final plots for {actual_exp_id}...'\n"
         final_script += f"{plot_cmd}\n"
         
-        submit_sbatch(final_script)
+        job_id = submit_sbatch(final_script)
+        if job_id:
+            job_ids.append(job_id)
                 
+    # Save Job IDs to a file for easy cancellation
+    ids_file = Path("results/slurm_ids") / f"{cfg.experiment_id}.txt"
+    ids_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(ids_file, "w") as f:
+        for jid in job_ids:
+            if jid != "99999":
+                f.write(f"{jid}\n")
+    print(f"Saved {len(job_ids)} Job IDs to {ids_file}")
+
     print(f"\n=== Submission Complete ===")
     sys.stdout.flush()
     sys.exit(0)

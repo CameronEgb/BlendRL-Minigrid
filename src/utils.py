@@ -274,7 +274,7 @@ def get_blender(
 
 
 def load_cleanrl_envs(env_id, run_name=None, capture_video=False, num_envs=1):
-    from blendrl.env_utils import make_env as apply_wrappers
+    from src.blendrl.env_utils import make_env as apply_wrappers
 
     def make_env(env_id, seed, capture_video, run_name):
         def thunk():
@@ -326,7 +326,7 @@ def load_logic_ppo(agent, path):
 
 import time
 import lightning as L
-from blendrl.env_vectorized import VectorizedNudgeBaseEnv
+from src.blendrl.env_vectorized import VectorizedNudgeBaseEnv
 
 class EnvironmentEvaluatorCallback(L.Callback):
     def __init__(self, cfg):

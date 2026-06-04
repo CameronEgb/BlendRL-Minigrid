@@ -6,7 +6,7 @@ import lightning as L
 import numpy as np
 from typing import Any, Dict, Optional
 from src.methods.iql_agent import IQLAgent
-from blendrl.agents.blender_agent import BlenderActorCritic
+from src.blendrl.agents.blender_agent import BlenderActorCritic
 
 class BlendRLIQLAgent(IQLAgent):
     def __init__(self, cfg: Dict[str, Any]):
@@ -17,7 +17,7 @@ class BlendRLIQLAgent(IQLAgent):
         # Handle nested agent config for algorithm
         algorithm = self.get_cfg("algorithm", self.get_cfg("name", cfg.env.name))
 
-        from blendrl.env_vectorized import VectorizedNudgeBaseEnv
+        from src.blendrl.env_vectorized import VectorizedNudgeBaseEnv
         self.env = VectorizedNudgeBaseEnv.from_name(
             cfg.env.name, 
             n_envs=1, 

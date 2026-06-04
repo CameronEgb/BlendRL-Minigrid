@@ -27,7 +27,7 @@ class CEWAgent(L.LightningModule):
         self.automatic_optimization = False # We handle optimization manually
         
         # Setup for evaluation
-        from blendrl.env_vectorized import VectorizedNudgeBaseEnv
+        from src.blendrl.env_vectorized import VectorizedNudgeBaseEnv
         self.eval_env = VectorizedNudgeBaseEnv.from_name(
             cfg.env.name, 
             n_envs=1, 
