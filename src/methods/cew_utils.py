@@ -1,92 +1,96 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.nn.parameter import Parameter
 from scipy.spatial.distance import minkowski
 import time
+from kneed import KneeLocator
+import igraph
 
 def gaussian(x, center, sigma):
-    return np.exp(-1.0 * (np.power(x - center, 2) / np.power(sigma, 2)))
+    return np.exp(-1.0 * (np.power(x - center, 2) / (np.power(sigma, 2) + 1e-12)))
 
 def R_regulator(sigma_1, sigma_2):
     return (1/2) * (sigma_1 + sigma_2)
 
-def run_CLIP(X, mins, maxes, terms=None, eps=0.2, kappa=0.6, theta=1e-8):
+def run_CLIP(X, mins, maxes, terms=None, eps=0.1, kappa=0.6, theta=1e-8):
     if terms is None: terms = []
     if not terms:
         for _ in range(X.shape[1]): terms.append([])
-
+    
     for x in X:
         if not terms[0]:
-            for p in range(len(x)):
+            # First observation creates initial clusters
+            for p in range(X.shape[1]):
                 c_1p = x[p]
-                min_p = mins[p]
-                max_p = maxes[p]
-                left_width = np.sqrt(-1.0 * (np.power((min_p - x[p]) + theta, 2) / np.log(eps)))
-                right_width = np.sqrt(-1.0 * (np.power((max_p - x[p]) + theta, 2) / np.log(eps)))
+                # Sigma calculation matching original repo: R(left, right)
+                left_width = np.sqrt(-1.0 * (np.power((mins[p] - x[p]) + theta, 2) / np.log(eps)))
+                right_width = np.sqrt(-1.0 * (np.power((maxes[p] - x[p]) + theta, 2) / np.log(eps)))
                 sigma_1p = R_regulator(left_width, right_width)
                 terms[p].append({'center': c_1p, 'sigma': sigma_1p, 'support': 1})
-        else:
-            for p in range(len(x)):
-                SM_jps = [gaussian(x[p], A_jp['center'], A_jp['sigma']) for A_jp in terms[p]]
-                if not SM_jps: continue
-                j_star_p = np.argmax(SM_jps)
+            continue
+
+        for p in range(len(x)):
+            SM_jps = [gaussian(x[p], A_jp['center'], A_jp['sigma']) for A_jp in terms[p]]
+            if not SM_jps: continue
+            j_star_p = np.argmax(SM_jps)
+            
+            if np.max(SM_jps) > kappa:
+                terms[p][j_star_p]['support'] += 1
+            else:
+                # Find neighbors
+                jL_p = None
+                jR_p = None
+                jL_dist = float('inf')
+                jR_dist = float('inf')
                 
-                if np.max(SM_jps) > kappa:
-                    terms[p][j_star_p]['support'] += 1
+                for j, A_jp in enumerate(terms[p]):
+                    c_jp = A_jp['center']
+                    dist = np.abs(c_jp - x[p])
+                    if c_jp < x[p]:
+                        if dist < jL_dist:
+                            jL_dist = dist
+                            jL_p = j
+                    elif c_jp > x[p]:
+                        if dist < jR_dist:
+                            jR_dist = dist
+                            jR_p = j
+                
+                new_c = x[p]
+                new_sigma = None
+                
+                if jL_p is None and jR_p is None:
+                    # Fallback if somehow no neighbors found
+                    new_sigma = (maxes[p] - mins[p]) / np.sqrt(-np.log(eps))
+                elif jL_p is None:
+                    cR = terms[p][jR_p]['center']
+                    sigma_R_old = terms[p][jR_p]['sigma']
+                    left_sigma_R = np.sqrt(-1.0 * (np.power(cR - x[p], 2) / np.log(eps)))
+                    new_sigma = R_regulator(left_sigma_R, sigma_R_old)
+                    terms[p][jR_p]['sigma'] = new_sigma
+                elif jR_p is None:
+                    cL = terms[p][jL_p]['center']
+                    sigma_L_old = terms[p][jL_p]['sigma']
+                    right_sigma_L = np.sqrt(-1.0 * (np.power(cL - x[p], 2) / np.log(eps)))
+                    new_sigma = R_regulator(right_sigma_L, sigma_L_old)
+                    terms[p][jL_p]['sigma'] = new_sigma
                 else:
-                    # Find neighbors
-                    jL_p = None
-                    jR_p = None
-                    jL_dist = float('inf')
-                    jR_dist = float('inf')
+                    cR = terms[p][jR_p]['center']
+                    sigma_R_old = terms[p][jR_p]['sigma']
+                    left_sigma_R = np.sqrt(-1.0 * (np.power(cR - x[p], 2) / np.log(eps)))
+                    sigma_R = R_regulator(left_sigma_R, sigma_R_old)
                     
-                    for j, A_jp in enumerate(terms[p]):
-                        c_jp = A_jp['center']
-                        dist = np.abs(c_jp - x[p])
-                        if c_jp < x[p]:
-                            if dist < jL_dist:
-                                jL_dist = dist
-                                jL_p = j
-                        elif c_jp > x[p]:
-                            if dist < jR_dist:
-                                jR_dist = dist
-                                jR_p = j
+                    cL = terms[p][jL_p]['center']
+                    sigma_L_old = terms[p][jL_p]['sigma']
+                    right_sigma_L = np.sqrt(-1.0 * (np.power(cL - x[p], 2) / np.log(eps)))
+                    sigma_L = R_regulator(right_sigma_L, sigma_L_old)
                     
-                    new_c = x[p]
-                    new_sigma = None
-                    
-                    if jL_p is None and jR_p is None:
-                        continue # Should not happen with initial clusters
-                    
-                    if jL_p is None:
-                        cR = terms[p][jR_p]['center']
-                        sigma_R_old = terms[p][jR_p]['sigma']
-                        left_sigma_R = np.sqrt(-1.0 * (np.power(cR - x[p], 2) / np.log(eps)))
-                        new_sigma = R_regulator(left_sigma_R, sigma_R_old)
-                        terms[p][jR_p]['sigma'] = new_sigma
-                    elif jR_p is None:
-                        cL = terms[p][jL_p]['center']
-                        sigma_L_old = terms[p][jL_p]['sigma']
-                        right_sigma_L = np.sqrt(-1.0 * (np.power(cL - x[p], 2) / np.log(eps)))
-                        new_sigma = R_regulator(right_sigma_L, sigma_L_old)
-                        terms[p][jL_p]['sigma'] = new_sigma
-                    else:
-                        cR = terms[p][jR_p]['center']
-                        sigma_R_old = terms[p][jR_p]['sigma']
-                        left_sigma_R = np.sqrt(-1.0 * (np.power(cR - x[p], 2) / np.log(eps)))
-                        sigma_R = R_regulator(left_sigma_R, sigma_R_old)
-                        
-                        cL = terms[p][jL_p]['center']
-                        sigma_L_old = terms[p][jL_p]['sigma']
-                        right_sigma_L = np.sqrt(-1.0 * (np.power(cL - x[p], 2) / np.log(eps)))
-                        sigma_L = R_regulator(right_sigma_L, sigma_L_old)
-                        
-                        new_sigma = R_regulator(sigma_R, sigma_L)
-                        terms[p][jR_p]['sigma'] = terms[p][jL_p]['sigma'] = new_sigma
-                    
-                    terms[p].append({'center': new_c, 'sigma': new_sigma, 'support': 1})
+                    new_sigma = R_regulator(sigma_R, sigma_L)
+                    terms[p][jR_p]['sigma'] = terms[p][jL_p]['sigma'] = new_sigma
+                
+                terms[p].append({'center': new_c, 'sigma': new_sigma, 'support': 1})
     return terms
 
 class Cluster:
@@ -155,7 +159,6 @@ def rule_creation(X, antecedents, consistency_check=True):
             weights.append(1.0)
             
     if consistency_check:
-        # Simplified consistency check: keep the one with max weight for each unique antecedent
         unique_A = {}
         for r, w in zip(rules, weights):
             A_tuple = tuple(r['A'])
@@ -174,7 +177,7 @@ class GaussianLayer(nn.Module):
         return torch.exp(-1.0 * (torch.pow(x - self.centers, 2) / (torch.pow(self.sigmas, 2) + 1e-12)))
 
 class FLC(nn.Module):
-    def __init__(self, in_features, out_features, antecedents, rules, consequences=None):
+    def __init__(self, in_features, out_features, antecedents, rules, consequences=None, trainable_antecedents=False):
         super(FLC, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -198,7 +201,7 @@ class FLC(nn.Module):
         self.register_buffer('links', torch.tensor(links, dtype=torch.float32))
         self.register_buffer('links_mask', (self.links == 0).float())
         
-        self.input_terms = GaussianLayer(self.transformed_len, centers, sigmas)
+        self.input_terms = GaussianLayer(self.transformed_len, centers, sigmas, trainable=trainable_antecedents)
         
         if consequences is None:
             # Small random initialization instead of zeros to break symmetry
@@ -212,28 +215,28 @@ class FLC(nn.Module):
         if self.transformed_len == 0 or self.links.shape[1] == 0:
             return torch.zeros(X.shape[0], self.out_features, device=X.device)
         
-        # 1. Transform input
         X_trans = X.index_select(1, self.feature_map)
-        
-        # 2. Membership values
         mems = self.input_terms(X_trans)
         
-        # 3. Rule applicability (Product T-norm)
-        # mems: (B, T), links: (T, R), links_mask: (T, R)
-        # Using log-sum-exp trick for stability or just product with mask
-        # We'll use the original product logic
-        rules_act = (mems.unsqueeze(2) * self.links.unsqueeze(0) + self.links_mask.unsqueeze(0)).prod(dim=1)
+        # log(mems) is log-membership
+        log_mems = torch.log(mems + 1e-12)
         
-        # 4. Weighted Average Defuzzification
-        # rules_act: (B, R), consequences: (R, O)
+        # rules_log_act = sum_{terms in rule} log(mem_term)
+        rules_log_act = torch.matmul(log_mems, self.links)
+        
+        # Back to linear space
+        rules_act = torch.exp(rules_log_act)
+        
         num = torch.matmul(rules_act, self.consequences)
         den = rules_act.sum(dim=1, keepdim=True)
-        
-        if np.random.random() < 0.001:
-             active_rules = (rules_act > 0.01).float().sum(dim=1).mean().item()
-             print(f"DEBUG FLC: Active Rules Avg={active_rules:.2f} Max Act={rules_act.max().item():.4f}")
-             
         return num / torch.clamp(den, min=1e-12)
+
+    def get_rule_activations(self, X):
+        X_trans = X.index_select(1, self.feature_map)
+        mems = self.input_terms(X_trans)
+        log_mems = torch.log(mems + 1e-12)
+        rules_log_act = torch.matmul(log_mems, self.links)
+        return torch.exp(rules_log_act)
 
 class MultiFLC(nn.Module):
     def __init__(self, n_inputs, n_outputs, antecedents, rules, learning_rate=1e-3, cql_alpha=0.5):
@@ -260,19 +263,151 @@ class MultiFLC(nn.Module):
         return action, log_probs.gather(1, action.unsqueeze(1)).squeeze(1), ent, torch.max(q, dim=1)[0]
 
 def run_FYD(rules, X, antecedents, top_k=None):
-    if not rules: return rules
-    rule_supports = np.zeros(len(rules))
-    for x in X:
+    if not rules or not antecedents: return rules, antecedents
+    
+    # 1. Calculate Scalar Cardinality for each term
+    terms_sc = []
+    for p in range(len(antecedents)):
+        terms_sc.append([])
+        for ant in antecedents[p]:
+            sc = 0.0
+            for x in X:
+                sc += gaussian(x[p], ant['center'], ant['sigma'])
+            terms_sc[p].append(sc)
+    
+    all_sc = [sc for p_sc in terms_sc for sc in p_sc]
+    sc_min, sc_max = min(all_sc), max(all_sc)
+    norm_sc = [(sc - sc_min) / (sc_max - sc_min + 1e-12) for sc in all_sc]
+    
+    # 2. Build Bipartite Graph for Usage and Closeness
+    num_terms = sum(len(p_ants) for p_ants in antecedents)
+    num_rules = len(rules)
+    g = igraph.Graph()
+    g.add_vertices(num_terms + num_rules)
+    
+    term_global_idx = 0
+    term_map = [] # term_map[p][t_idx] = global_idx
+    for p in range(len(antecedents)):
+        term_map.append([])
+        for t_idx in range(len(antecedents[p])):
+            term_map[p].append(term_global_idx)
+            term_global_idx += 1
+            
+    for r_idx, rule in enumerate(rules):
+        for p_idx, t_idx in enumerate(rule['A']):
+            g.add_edge(term_map[p_idx][t_idx], num_terms + r_idx)
+            
+    usage = np.array(g.degree(range(num_terms))) / num_rules
+    closeness = np.array(g.closeness(range(num_terms)))
+    closeness = np.nan_to_num(closeness, nan=0.0)
+    
+    usage_closeness = usage * closeness
+    uc_min, uc_max = usage_closeness.min(), usage_closeness.max()
+    norm_uc = (usage_closeness - uc_min) / (uc_max - uc_min + 1e-12)
+    
+    heuristic = np.array(norm_sc) * (1.0 - norm_uc)
+    
+    # 3. Kneedle for Cutoff
+    valid_h = sorted([h for h in heuristic if h > 0])
+    if not valid_h: return rules, antecedents
+    
+    if top_k is not None:
+        cutoff = sorted(heuristic)[-top_k] if top_k < len(heuristic) else 0
+    else:
+        kneedle = KneeLocator(range(len(valid_h)), valid_h, curve="convex", direction="increasing")
+        cutoff = kneedle.knee_y if kneedle.knee_y is not None else np.median(heuristic)
+        
+    # 4. Filter Terms
+    term_global_idx = 0
+    new_antecedents = [[] for _ in range(len(antecedents))]
+    old_to_new_map = [{} for _ in range(len(antecedents))]
+    
+    for p in range(len(antecedents)):
+        for t_idx in range(len(antecedents[p])):
+            if heuristic[term_global_idx] >= cutoff:
+                old_to_new_map[p][t_idx] = len(new_antecedents[p])
+                new_antecedents[p].append(antecedents[p][t_idx])
+            term_global_idx += 1
+            
+    # Ensure at least one term per feature
+    for p in range(len(new_antecedents)):
+        if not new_antecedents[p]:
+            p_start = sum(len(antecedents[i]) for i in range(p))
+            p_end = p_start + len(antecedents[p])
+            best_t = np.argmax(heuristic[p_start:p_end])
+            old_to_new_map[p][best_t] = 0
+            new_antecedents[p].append(antecedents[p][best_t])
+            
+    # 5. Filter and Simplify Rules
+    new_rules = []
+    seen_A = set()
+    for rule in rules:
+        new_A = []
+        keep_rule = True
+        for p_idx, t_idx in enumerate(rule['A']):
+            if t_idx in old_to_new_map[p_idx]:
+                new_A.append(old_to_new_map[p_idx][t_idx])
+            else:
+                keep_rule = False
+                break
+        if keep_rule:
+            A_tuple = tuple(new_A)
+            if A_tuple not in seen_A:
+                new_rules.append({'A': new_A, 'CF': rule['CF']})
+                seen_A.add(A_tuple)
+                
+    return new_rules, new_antecedents
+
+class MamdaniAutoencoder(nn.Module):
+    def __init__(self, in_features, antecedents, rules):
+        super().__init__()
+        # MUST allow training the antecedents
+        self.flc = FLC(in_features, in_features, antecedents, rules, trainable_antecedents=True)
+        
+        consequences = np.zeros((len(rules), in_features))
         for r_idx, rule in enumerate(rules):
-            cf = 1.0
-            for p, t_idx in enumerate(rule['A']):
-                cf *= gaussian(x[p], antecedents[p][t_idx]['center'], antecedents[p][t_idx]['sigma'])
-            rule_supports[r_idx] += cf
-    disc = np.zeros(len(rules))
-    for i in range(len(rules)):
-        sim = sum(sum(1 for a1, a2 in zip(rules[i]['A'], rules[j]['A']) if a1 == a2) / len(rules[i]['A']) 
-                  for j in range(len(rules)) if i != j)
-        disc[i] = 1.0 / (1.0 + sim)
-    heuristic = rule_supports * disc
-    indices = np.argsort(heuristic)[-(top_k if top_k else int(np.mean(heuristic > np.mean(heuristic)))): ]
-    return [rules[i] for i in sorted(indices)]
+            for p_idx, t_idx in enumerate(rule['A']):
+                consequences[r_idx, p_idx] = antecedents[p_idx][t_idx]['center']
+        self.flc.consequences.data = torch.tensor(consequences, dtype=torch.float32)
+
+    def forward(self, x):
+        reconstruction = self.flc(x)
+        activations = self.flc.get_rule_activations(x)
+        return reconstruction, activations
+
+def stabilize_antecedents(obs, antecedents, rules, device, lr=1e-3, epochs=10, batch_size=32):
+    print(f"Stabilizing antecedents for {epochs} epochs...")
+    in_features = obs.shape[1]
+    model = MamdaniAutoencoder(in_features, antecedents, rules).to(device)
+    optimizer = optim.Adam(model.flc.input_terms.parameters(), lr=lr)
+    obs_tensor = torch.tensor(obs, dtype=torch.float32).to(device)
+    
+    with torch.no_grad():
+        _, target_activations = model(obs_tensor)
+    
+    for epoch in range(epochs):
+        perm = torch.randperm(obs_tensor.size(0))
+        for i in range(0, obs_tensor.size(0), batch_size):
+            indices = perm[i:i + batch_size]
+            batch_obs = obs_tensor[indices]
+            batch_target_act = target_activations[indices]
+            recon, act = model(batch_obs)
+            loss = F.mse_loss(recon, batch_obs) + 0.1 * F.mse_loss(act, batch_target_act)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            
+    trained_centers = model.flc.input_terms.centers.detach().cpu().numpy()
+    trained_sigmas = model.flc.input_terms.sigmas.detach().cpu().numpy()
+    
+    term_idx = 0
+    new_antecedents = [[] for _ in range(in_features)]
+    for p in range(in_features):
+        for ant in antecedents[p]:
+            new_ant = ant.copy()
+            new_ant['center'] = float(trained_centers[term_idx])
+            new_ant['sigma'] = float(trained_sigmas[term_idx])
+            new_antecedents[p].append(new_ant)
+            term_idx += 1
+            
+    return new_antecedents

@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - override /agent: cew
+  - override /agent: cew_fyd
   - override /mode: offline
 
 # Architecture
@@ -8,21 +8,29 @@ env:
   name: cartpole
   architecture: mlp
 
-# 1. Run PPO to generate data, then CEW to verify learning
-online_methods: [ppo/cp_tuned]
+# Use existing expert PPO data
+online_methods: []
 offline_methods: [cew]
-offline_datasets: [ppo/cp_tuned]
+offline_datasets: [ppo_cp_tuned]
 
 total_timesteps: 100000 
 intervals_count: 1      
 eval_episodes: 100
 
 agent:
-  epochs_per_interval: 1000 
-  eval_interval_epochs: 10  # Evaluate more frequently to see early progress
-  batch_size: 128
+  epochs_per_interval: 200 # Faster verification
+  eval_interval_epochs: 10  
+  batch_size: 64            
   lr: 3e-4                  
-  cql_alpha: 0.1            # Reduce CQL alpha to be less conservative for verification
+  cql_alpha: 0.1            
+  ecm_dthr: 0.1             
+  eps: 0.1                  
+  kappa: 0.6
+  # Let FYD use Kneedle by not setting fyd_top_k here
+  fyd_top_k: null
+
+mode:
+  dataset_path: results/datasets/ungrouped/cp_final/ppo_cp_tuned
 
 experiment_id: verify_cew
 group: verification
