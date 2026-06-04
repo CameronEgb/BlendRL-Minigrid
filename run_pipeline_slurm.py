@@ -274,7 +274,16 @@ def main():
         for jid in job_ids:
             if jid != "99999":
                 f.write(f"{jid}\n")
-    print(f"Saved {len(job_ids)} Job IDs to {ids_file}")
+    
+    print(f"\n" + "="*40)
+    print(f"SUBMISSION SUMMARY")
+    print(f"Config Name:   {args.experiment}")
+    print(f"Experiment ID: {cfg.experiment_id}")
+    print(f"Group:         {cfg.group}")
+    print(f"Job IDs Saved: {ids_file}")
+    print(f"To cancel this experiment, run:")
+    print(f"  ./cancel.sh {cfg.experiment_id}")
+    print("="*40)
 
     print(f"\n=== Submission Complete ===")
     sys.stdout.flush()
