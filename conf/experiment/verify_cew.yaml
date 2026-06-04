@@ -19,10 +19,10 @@ eval_episodes: 100
 
 agent:
   epochs_per_interval: 1000 
-  eval_interval_epochs: 50  
+  eval_interval_epochs: 10  # Evaluate more frequently to see early progress
   batch_size: 128
   lr: 3e-4                  
-  cql_alpha: 0.5            
+  cql_alpha: 0.1            # Reduce CQL alpha to be less conservative for verification
 
 experiment_id: verify_cew
 group: verification

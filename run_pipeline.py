@@ -35,15 +35,26 @@ def get_best_trial_id(storage_url, study_name):
         
         # Find trial with max value for this study
         # In Optuna 3.x/4.x values are in trial_values table
-        cursor.execute("""
-            SELECT t.number 
-            FROM trials t
-            JOIN trial_values tv ON t.trial_id = tv.trial_id
-            WHERE t.study_id = ? AND t.state = 'COMPLETE' 
-            ORDER BY tv.value DESC LIMIT 1
-        """, (study_id,))
+        # We try a few common ways Optuna stores this to be robust
+        try:
+            cursor.execute("""
+                SELECT t.number 
+                FROM trials t
+                JOIN trial_values tv ON t.trial_id = tv.trial_id
+                WHERE t.study_id = ? AND t.state = 'COMPLETE' 
+                ORDER BY tv.value DESC LIMIT 1
+            """, (study_id,))
+            result = cursor.fetchone()
+        except:
+            # Fallback for different Optuna schema versions
+            cursor.execute("""
+                SELECT t.number 
+                FROM trials t
+                WHERE t.study_id = ? AND t.state = 'COMPLETE' 
+                ORDER BY t.trial_id DESC LIMIT 1
+            """, (study_id,))
+            result = cursor.fetchone()
         
-        result = cursor.fetchone()
         conn.close()
         
         if result is not None:

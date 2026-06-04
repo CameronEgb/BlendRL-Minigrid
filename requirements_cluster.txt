@@ -2,8 +2,8 @@
 numpy>=1.20,<2.0.0
 captum
 ale-py
-optuna>=2.10.0,<3.0.0
-hydra-optuna-sweeper==1.2.0
+optuna>=4.0.0
+hydra-optuna-sweeper
 
 # General RL & Deep Learning
 torch==2.10.0

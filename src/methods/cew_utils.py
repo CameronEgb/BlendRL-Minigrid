@@ -201,7 +201,8 @@ class FLC(nn.Module):
         self.input_terms = GaussianLayer(self.transformed_len, centers, sigmas)
         
         if consequences is None:
-            self.consequences = Parameter(torch.zeros(len(rules), out_features))
+            # Small random initialization instead of zeros to break symmetry
+            self.consequences = Parameter(torch.randn(len(rules), out_features) * 0.01)
         else:
             self.consequences = Parameter(torch.tensor(consequences, dtype=torch.float32))
             
