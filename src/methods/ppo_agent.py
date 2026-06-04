@@ -103,6 +103,12 @@ class PPOAgent(L.LightningModule):
     def forward(self, x):
         return self.model(x)
 
+    def get_action_and_value(self, obs, action=None):
+        return self.model.get_action_and_value(obs, action)
+
+    def get_value(self, obs):
+        return self.model.get_value(obs)
+
     def on_train_epoch_start(self):
         # Collect rollout
         cfg = self.cfg

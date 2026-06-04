@@ -1,0 +1,8 @@
+- agent.ecm_dthr=0.42274779443392607
+- agent.cql_alpha=0.9236303844911439
+- agent.eps=0.7109462731546706
+- agent.lr=0.001
+- agent.batch_size=64
+- agent.epochs_per_interval=20
+- +experiment=tune_cew
+- local=True

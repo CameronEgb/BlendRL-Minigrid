@@ -15,7 +15,6 @@ class CEWAgent(IQLAgent):
         self.save_hyperparameters()
         self.cfg = cfg
         
-        # Extract algorithm name
         def get_algo_name(acfg):
             if isinstance(acfg, (dict, DictConfig)):
                 if "algorithm" in acfg: return acfg.algorithm
@@ -24,57 +23,60 @@ class CEWAgent(IQLAgent):
             return None
         self.algorithm = get_algo_name(cfg.agent)
         
-        # Initialize placeholders for the fuzzy model
         self.fuzzy_model = None
         self.target_fuzzy_model = None
         self.rules = None
         self.antecedents = None
         self.self_organized = False
-        
         self.automatic_optimization = False
+        
+        self.obs_min = None
+        self.obs_max = None
 
     def on_train_epoch_start(self):
-        # Base class handles datamodule reader limit
         super().on_train_epoch_start()
-        
         epochs_per_interval = self.cfg.agent.get("epochs_per_interval", 1)
         if self.current_epoch % epochs_per_interval == 0:
-            # Re-run self-organization at each interval boundary
             self.self_organize()
+
+    def normalize_obs(self, obs):
+        return obs # No normalization
 
     def self_organize(self):
         print(f"Self-organizing for interval at epoch {self.current_epoch}...")
         datamodule = self.trainer.datamodule
-        sample_size = min(len(datamodule.reader), 10000)
-        batch = datamodule.reader.sample(sample_size)
+        
+        # Use last 20k transitions for self-org
+        sample_size = min(len(datamodule.reader), 20000)
+        batch = datamodule.reader.sample(sample_size, last=True)
         obs = batch["obs"].cpu().numpy()
         
-        # 1. CLIP: Generate membership functions
-        mins = obs.min(axis=0)
-        maxes = obs.max(axis=0)
-        self.antecedents = run_CLIP(obs, mins, maxes)
+        # 1. CLIP
+        eps = self.cfg.agent.get("eps", 0.2)
+        kappa = self.cfg.agent.get("kappa", 0.6)
+        self.antecedents = run_CLIP(obs, obs.min(axis=0), obs.max(axis=0), eps=eps, kappa=kappa)
         
-        # 2. ECM: Generate rule candidates (reduced centers)
-        dthr = self.cfg.agent.get("ecm_dthr", 0.4)
+        # 2. ECM
+        dthr = self.cfg.agent.get("ecm_dthr", 0.1)
         clusters = run_ECM(obs, [], dthr)
         reduced_X = np.array([c.center for c in clusters])
         
-        # 3. WM: Generate rules
-        self.rules = rule_creation(reduced_X, self.antecedents)
+        # 3. WM
+        self.antecedents, self.rules = rule_creation(reduced_X, self.antecedents)
         
-        # 4. FYD (if applicable)
+        # 4. FYD
         if "fyd" in self.algorithm:
             top_k = self.cfg.agent.get("fyd_top_k", None)
             self.rules = run_FYD(self.rules, obs, self.antecedents, top_k=top_k)
             
-        # 5. Initialize/Re-initialize MIMO MultiFLC
+        # 5. Initialize MultiFLC
         self.fuzzy_model = MultiFLC(
             n_inputs=obs.shape[1],
             n_outputs=self.n_actions,
             antecedents=self.antecedents,
             rules=self.rules,
             learning_rate=self.cfg.agent.lr,
-            cql_alpha=self.cfg.agent.get("cql_alpha", 0.5)
+            cql_alpha=self.cfg.agent.get("cql_alpha", 1.0)
         ).to(self.device)
         
         self.target_fuzzy_model = MultiFLC(
@@ -90,29 +92,25 @@ class CEWAgent(IQLAgent):
         print(f"Self-organization complete. MIMO Rules: {len(self.rules)}")
 
     def training_step(self, batch, batch_idx):
-        if not self.self_organized:
-            return
+        if not self.self_organized: return
             
         datamodule = self.trainer.datamodule
-        cfg = self.cfg
-        
-        real_batch = datamodule.reader.sample(cfg.agent.batch_size)
-        obs = real_batch["obs"]
+        real_batch = datamodule.reader.sample(self.cfg.agent.batch_size)
+        obs = self.normalize_obs(real_batch["obs"])
         actions = real_batch["action"]
         rewards = real_batch["reward"]
-        next_obs = real_batch["next_obs"]
+        next_obs = self.normalize_obs(real_batch["next_obs"])
         dones = real_batch["done"]
         
-        # MIMO Forward pass (Batch, Actions)
         with torch.no_grad():
             next_q = self.target_fuzzy_model(next_obs)
             next_v = torch.max(next_q, dim=1)[0]
-            q_target = rewards + cfg.env.gamma * next_v * (1 - dones)
+            q_target = rewards + self.cfg.env.gamma * next_v * (1 - dones)
             
         all_q_values = self.fuzzy_model(obs)
+        q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
         
         logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
-        q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
         cql_loss = (logsumexp_qvalues - q_action).mean()
         bellman_loss = F.mse_loss(q_action, q_target)
         
@@ -121,27 +119,25 @@ class CEWAgent(IQLAgent):
         self.optimizer.zero_grad()
         self.manual_backward(loss)
         self.optimizer.step()
-        
         self._soft_update_fuzzy(self.fuzzy_model, self.target_fuzzy_model)
         
         # Calculate current transitions for logging
         epochs_per_interval = self.cfg.agent.get("epochs_per_interval", 1)
         current_interval = self.current_epoch // epochs_per_interval
-        interval_size = cfg.total_timesteps // cfg.intervals_count
+        interval_size = self.cfg.total_timesteps // self.cfg.intervals_count
         current_transitions = interval_size * (current_interval + 1)
 
         self.log_dict({
             "losses/total_loss": loss,
             "losses/bellman_loss": bellman_loss,
             "losses/cql_loss": cql_loss,
-            "stats/n_rules": float(len(self.rules)),
-            "stats/q_mean": all_q_values.mean(),
-            "stats/q_max": all_q_values.max(),
+            "train/q_mean": all_q_values.mean(),
+            "train/rules": float(len(self.rules))
         })
         self.log("transitions", float(current_transitions), logger=False, prog_bar=True)
         
         if batch_idx % 100 == 0:
-            print(f"Epoch {self.current_epoch} Batch {batch_idx}: Loss={loss.item():.4f} Rules={len(self.rules)}")
+            print(f"Epoch {self.current_epoch} Batch {batch_idx}: Loss={loss.item():.4f} Rules={len(self.rules)} Q_mean={all_q_values.mean().item():.4f}")
 
     def _soft_update_fuzzy(self, model, target_model):
         tau = self.cfg.agent.get("soft_target_tau", 0.005)
@@ -149,17 +145,13 @@ class CEWAgent(IQLAgent):
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
     def configure_optimizers(self):
-        # We handle optimizers manually, but Lightning needs something.
-        # We'll re-init in self_organize anyway.
         return optim.Adam([torch.zeros(1, requires_grad=True)], lr=1e-4)
 
     def get_action_and_value(self, obs, logic_obs=None):
         if self.fuzzy_model is None:
-            # Fallback for point 0 evaluation before first self-organize
             batch_size = obs.shape[0]
             return torch.zeros(batch_size, dtype=torch.long, device=self.device), \
                    torch.zeros(batch_size, device=self.device), \
                    torch.zeros(batch_size, device=self.device), \
                    torch.zeros(batch_size, device=self.device)
-                   
-        return self.fuzzy_model.get_action_and_value(obs)
+        return self.fuzzy_model.get_action_and_value(self.normalize_obs(obs))

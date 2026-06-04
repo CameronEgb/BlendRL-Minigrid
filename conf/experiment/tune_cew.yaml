@@ -1,0 +1,40 @@
+# @package _global_
+defaults:
+  - override /env: cartpole
+  - override /agent: cew
+  - override /mode: offline
+  - override /hydra/sweeper: optuna
+
+experiment_id: "tune_cew_v1"
+group: "cew_tuning"
+seed: 1
+total_timesteps: 250000
+intervals_count: 1
+eval_episodes: 100
+save_dataset: false
+
+# Force dataset path to the best PPO dataset
+mode:
+  dataset_path: results/datasets/ungrouped/cp_final/ppo_cp_tuned
+
+trainer:
+  limit_train_batches: 500
+
+hydra:
+  sweeper:
+    sampler:
+      _target_: optuna.samplers.TPESampler
+      seed: 123
+    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+    direction: maximize
+    storage: "sqlite:///optuna.db"
+    study_name: cew_tuning_v1
+    n_trials: 15
+    n_jobs: 1
+    params:
+      agent.epochs_per_interval: 20
+      agent.ecm_dthr: interval(0.01, 0.5)
+      agent.cql_alpha: interval(0.1, 10.0)
+      agent.eps: interval(0.1, 0.9)
+      agent.lr: choice(1e-4, 3e-4, 1e-3)
+      agent.batch_size: choice(32, 64)

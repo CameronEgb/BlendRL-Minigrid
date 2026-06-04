@@ -1,0 +1,40 @@
+agent:
+  name: cew
+  algorithm: cew
+  lr: 0.0003
+  batch_size: 64
+  epochs_per_interval: 20
+  ecm_dthr: 0.21434088340210378
+  eps: 0.80036547343614
+  cql_alpha: 6.844877581348687
+  soft_target_tau: 0.005
+env:
+  name: cartpole
+  env_id: CartPole-v1
+  num_envs: 4
+  num_steps: 500
+  gamma: 0.99
+  gae_lambda: 0.95
+  rules: default
+  reasoner: nsfr
+  architecture: mlp
+mode:
+  name: offline
+  type: offline
+  dataset_path: results/datasets/ungrouped/cp_final/ppo_cp_tuned
+  save_dataset: false
+experiment_id: tune_cew_v1
+group: cew_tuning
+seed: 1
+total_timesteps: 250000
+intervals_count: 1
+eval_episodes: 100
+save_dataset: false
+local: true
+recover: false
+results_dir: results
+experiment_dir: ${results_dir}/experiments/${experiment_id}
+dataset_root: ${results_dir}/datasets/${experiment_id}
+dataset_path: ${dataset_root}/${agent.name}/${hydra:job.num}
+trainer:
+  limit_train_batches: 500

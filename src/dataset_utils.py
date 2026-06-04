@@ -178,8 +178,13 @@ class DatasetReader:
             self.limit = new_limit
             print(f"Dataset limit set to {self.limit} transitions.")
 
-    def sample(self, batch_size):
-        idxs = torch.randint(0, self.limit, (batch_size,))
+    def sample(self, batch_size, last=False):
+        if last:
+            start = max(0, self.limit - batch_size)
+            idxs = torch.arange(start, self.limit)
+            # If batch_size > available transitions, we just take what we have
+        else:
+            idxs = torch.randint(0, self.limit, (batch_size,))
         
         # Cast to correct types on the fly during transfer to device
         batch = {

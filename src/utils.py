@@ -445,13 +445,19 @@ class EnvironmentEvaluatorCallback(L.Callback):
         
         while len(eval_total_rewards) < cfg.eval_episodes:
             with torch.no_grad():
+                # Call get_action_and_value on the pl_module (agent) directly
+                # Most agents now have this method either directly or inherited from PPOAgent
                 if is_hybrid:
-                    action, _, _, _, _ = pl_module.model.get_action_and_value(obs, logic_obs)
+                    res = pl_module.get_action_and_value(obs, logic_obs)
+                    action = res[0]
                 else:
-                    if hasattr(pl_module, "actor"):
-                        action, _, _, _ = pl_module.actor.get_action_and_value(obs)
-                    else:
-                        action, _, _, _ = pl_module.model.get_action_and_value(obs)
+                    # Non-hybrid agents might or might not take logic_obs
+                    # We check the signature or just try calling it
+                    try:
+                        res = pl_module.get_action_and_value(obs, logic_obs)
+                    except TypeError:
+                        res = pl_module.get_action_and_value(obs)
+                    action = res[0]
             
             (next_logic, next_obs), reward, terminations, truncations, infos = self.eval_env.step(action.cpu().numpy())
             obs = torch.Tensor(next_obs).to(pl_module.device)

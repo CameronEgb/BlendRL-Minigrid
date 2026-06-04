@@ -1,5 +1,10 @@
 import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.nn.parameter import Parameter
 from scipy.spatial.distance import minkowski
+import time
 
 def gaussian(x, center, sigma):
     return np.exp(-1.0 * (np.power(x - center, 2) / np.power(sigma, 2)))
@@ -8,17 +13,12 @@ def R_regulator(sigma_1, sigma_2):
     return (1/2) * (sigma_1 + sigma_2)
 
 def run_CLIP(X, mins, maxes, terms=None, eps=0.2, kappa=0.6, theta=1e-8):
-    if terms is None:
-        terms = []
-    
-    # Initialize terms list for each feature
+    if terms is None: terms = []
     if not terms:
-        for _ in range(X.shape[1]):
-            terms.append([])
+        for _ in range(X.shape[1]): terms.append([])
 
     for x in X:
         if not terms[0]:
-            # No fuzzy clusters yet, create the first fuzzy cluster for each feature
             for p in range(len(x)):
                 c_1p = x[p]
                 min_p = mins[p]
@@ -29,80 +29,60 @@ def run_CLIP(X, mins, maxes, terms=None, eps=0.2, kappa=0.6, theta=1e-8):
                 terms[p].append({'center': c_1p, 'sigma': sigma_1p, 'support': 1})
         else:
             for p in range(len(x)):
-                SM_jps = []
-                for j, A_jp in enumerate(terms[p]):
-                    SM_jp = gaussian(x[p], A_jp['center'], A_jp['sigma'])
-                    SM_jps.append(SM_jp)
-                
-                if not SM_jps:
-                    continue
-
+                SM_jps = [gaussian(x[p], A_jp['center'], A_jp['sigma']) for A_jp in terms[p]]
+                if not SM_jps: continue
                 j_star_p = np.argmax(SM_jps)
-
+                
                 if np.max(SM_jps) > kappa:
                     terms[p][j_star_p]['support'] += 1
                 else:
+                    # Find neighbors
                     jL_p = None
                     jR_p = None
-                    jL_p_differences = []
-                    jR_p_centers = []
-                    jL_p_centers = []
+                    jL_dist = float('inf')
+                    jR_dist = float('inf')
                     
                     for j, A_jp in enumerate(terms[p]):
                         c_jp = A_jp['center']
+                        dist = np.abs(c_jp - x[p])
                         if c_jp < x[p]:
-                            jL_p_differences.append(np.abs(c_jp - x[p]))
-                            jL_p_centers.append(j)
+                            if dist < jL_dist:
+                                jL_dist = dist
+                                jL_p = j
                         elif c_jp > x[p]:
-                            # Will handle R neighbor next
-                            pass
+                            if dist < jR_dist:
+                                jR_dist = dist
+                                jR_p = j
                     
-                    if jL_p_differences:
-                        jL_p = jL_p_centers[np.argmin(jL_p_differences)]
-
-                    jR_p_differences = []
-                    jR_p_centers = []
-                    for j, A_jp in enumerate(terms[p]):
-                        c_jp = A_jp['center']
-                        if c_jp > x[p]:
-                            jR_p_differences.append(np.abs(c_jp - x[p]))
-                            jR_p_centers.append(j)
-                    
-                    if jR_p_differences:
-                        jR_p = jR_p_centers[np.argmin(jR_p_differences)]
-
                     new_c = x[p]
                     new_sigma = None
-
+                    
                     if jL_p is None and jR_p is None:
-                        # Should not happen given initial setup but for safety
-                        continue
-
+                        continue # Should not happen with initial clusters
+                    
                     if jL_p is None:
-                        cR_jp = terms[p][jR_p]['center']
-                        sigma_R_jp = terms[p][jR_p]['sigma']
-                        left_sigma_R = np.sqrt(-1.0 * (np.power(cR_jp - x[p], 2) / np.log(eps)))
-                        sigma_R = R_regulator(left_sigma_R, sigma_R_jp)
-                        new_sigma = sigma_R
+                        cR = terms[p][jR_p]['center']
+                        sigma_R_old = terms[p][jR_p]['sigma']
+                        left_sigma_R = np.sqrt(-1.0 * (np.power(cR - x[p], 2) / np.log(eps)))
+                        new_sigma = R_regulator(left_sigma_R, sigma_R_old)
                         terms[p][jR_p]['sigma'] = new_sigma
                     elif jR_p is None:
-                        cL_jp = terms[p][jL_p]['center']
-                        sigma_L_jp = terms[p][jL_p]['sigma']
-                        left_sigma_L = np.sqrt(-1.0 * (np.power(cL_jp - x[p], 2) / np.log(eps)))
-                        sigma_L = R_regulator(left_sigma_L, sigma_L_jp)
-                        new_sigma = sigma_L
+                        cL = terms[p][jL_p]['center']
+                        sigma_L_old = terms[p][jL_p]['sigma']
+                        right_sigma_L = np.sqrt(-1.0 * (np.power(cL - x[p], 2) / np.log(eps)))
+                        new_sigma = R_regulator(right_sigma_L, sigma_L_old)
                         terms[p][jL_p]['sigma'] = new_sigma
                     else:
-                        cR_jp = terms[p][jR_p]['center']
-                        sigma_R_jp = terms[p][jR_p]['sigma']
-                        left_sigma_R = np.sqrt(-1.0 * (np.power(cR_jp - x[p], 2) / np.log(eps)))
-                        sigma_R = R_regulator(left_sigma_R, sigma_R_jp)
-
-                        cL_jp = terms[p][jL_p]['center']
-                        sigma_L_jp = terms[p][jL_p]['sigma']
-                        left_sigma_L = np.sqrt(-1.0 * (np.power(cL_jp - x[p], 2) / np.log(eps)))
-                        sigma_L = R_regulator(left_sigma_L, sigma_L_jp)
-
+                        cR = terms[p][jR_p]['center']
+                        sigma_R_old = terms[p][jR_p]['sigma']
+                        left_sigma_R = np.sqrt(-1.0 * (np.power(cR - x[p], 2) / np.log(eps)))
+                        sigma_R = R_regulator(left_sigma_R, sigma_R_old)
+                        
+                        cL = terms[p][jL_p]['center']
+                        sigma_L_old = terms[p][jL_p]['sigma']
+                        right_sigma_L = np.sqrt(-1.0 * (np.power(cL - x[p], 2) / np.log(eps)))
+                        sigma_L = R_regulator(right_sigma_L, sigma_L_old)
+                        
                         new_sigma = R_regulator(sigma_R, sigma_L)
                         terms[p][jR_p]['sigma'] = terms[p][jL_p]['sigma'] = new_sigma
                     
@@ -114,7 +94,6 @@ class Cluster:
         self.center = center
         self.radius = radius
         self.support = 1
-        
     def add_support(self):
         self.support += 1
 
@@ -125,258 +104,169 @@ def general_euclidean_distance(x, y):
 def run_ECM(X, Cs, Dthr):
     for x in X:
         if not Cs:
-            C = Cluster(center=x, radius=0)
-            Cs.append(C)
+            Cs.append(Cluster(center=x, radius=0))
             continue
         
-        D_i = []
+        D_i = [general_euclidean_distance(x, C.center) for C in Cs]
+        
+        match = False
         for j, C in enumerate(Cs):
-            dist = general_euclidean_distance(x, C.center)
-            D_i.append(dist)
-            
-        # Check if x belongs to any existing cluster
-        found = False
-        for j, C in enumerate(Cs):
-            if D_i[j] <= C.radius:
+            if D_i[j] < C.radius:
                 C.add_support()
-                found = True
+                match = True
                 break
+        if match: continue
         
-        if found:
-            continue
-        
-        # Find best cluster to update or create new
-        S_i = []
-        for j, C in enumerate(Cs):
-            S_i.append(D_i[j] + C.radius)
-        
+        S_i = [D_i[j] + C.radius for j in range(len(Cs))]
         a = np.argmin(S_i)
-        S_ia = S_i[a]
         
-        if S_ia > (2.0 * Dthr):
-            C = Cluster(center=x, radius=0)
-            Cs.append(C)
+        if S_i[a] > (2.0 * Dthr):
+            Cs.append(Cluster(center=x, radius=0))
         else:
             Ca = Cs[a]
-            Ca.radius = S_ia / 2.0
+            Ca.radius = S_i[a] / 2.0
             Ca.add_support()
             n = Ca.support
             Ca.center = ((n - 1) * Ca.center + x) / n
-            
     return Cs
 
-def rule_creation(X, antecedents):
+def rule_creation(X, antecedents, consistency_check=True):
     rules = []
+    weights = []
     for x in X:
-        CF = 1.0
         A_star_js = []
+        CF = 1.0
         for p in range(len(x)):
-            SM_jps = []
-            for j, A_jp in enumerate(antecedents[p]):
-                SM_jp = gaussian(x[p], A_jp['center'], A_jp['sigma'])
-                SM_jps.append(SM_jp)
-            
+            SM_jps = [gaussian(x[p], A_jp['center'], A_jp['sigma']) for A_jp in antecedents[p]]
             j_star_p = np.argmax(SM_jps)
-            CF *= SM_jps[j_star_p]
-            A_star_js.append(j_star_p)
-
-        # Check for duplicates
-        is_duplicate = False
-        for r in rules:
-            if r['A'] == A_star_js:
-                is_duplicate = True
-                break
+            CF *= np.max(SM_jps)
+            A_star_js.append(int(j_star_p))
         
-        if not is_duplicate:
+        # Check uniqueness
+        found = False
+        for k, rule in enumerate(rules):
+            if rule['A'] == A_star_js:
+                weights[k] += 1.0
+                rule['CF'] = min(rule['CF'], CF)
+                found = True
+                break
+        if not found:
             rules.append({'A': A_star_js, 'CF': CF})
+            weights.append(1.0)
             
-    return rules
+    if consistency_check:
+        # Simplified consistency check: keep the one with max weight for each unique antecedent
+        unique_A = {}
+        for r, w in zip(rules, weights):
+            A_tuple = tuple(r['A'])
+            if A_tuple not in unique_A or w > unique_A[A_tuple][1]:
+                unique_A[A_tuple] = (r, w)
+        rules = [val[0] for val in unique_A.values()]
+        
+    return antecedents, rules
 
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.nn.parameter import Parameter
-
-class Gaussian(nn.Module):
-    def __init__(self, in_features, centers=None, sigmas=None, trainable=True):
-        super(Gaussian, self).__init__()
-        self.in_features = in_features
-
-        # initialize centers
-        if centers is None:
-            self.centers = Parameter(torch.randn(self.in_features))
-        else:
-            self.centers = Parameter(torch.tensor(centers, dtype=torch.float32))
-
-        # initialize sigmas
-        if sigmas is None:
-            self.sigmas = Parameter(torch.abs(torch.randn(self.in_features)))
-        else:
-            self.sigmas = Parameter(torch.abs(torch.tensor(sigmas, dtype=torch.float32)))
-
-        self.centers.requires_grad = trainable
-        self.sigmas.requires_grad = trainable
-
+class GaussianLayer(nn.Module):
+    def __init__(self, in_features, centers, sigmas, trainable=True):
+        super(GaussianLayer, self).__init__()
+        self.centers = Parameter(torch.tensor(centers, dtype=torch.float32), requires_grad=trainable)
+        self.sigmas = Parameter(torch.tensor(sigmas, dtype=torch.float32), requires_grad=trainable)
     def forward(self, x):
-        return torch.exp(-1.0 * (torch.pow(x - self.centers, 2) / torch.pow(self.sigmas, 2)))
+        return torch.exp(-1.0 * (torch.pow(x - self.centers, 2) / (torch.pow(self.sigmas, 2) + 1e-12)))
 
 class FLC(nn.Module):
     def __init__(self, in_features, out_features, antecedents, rules, consequences=None):
         super(FLC, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-
-        num_of_antecedents = np.zeros(in_features).astype('int32')
-        unique_id = 0
-        gaussians = {'centers': [], 'sigmas': []}
-        self.input_variable_ids = []
         
-        # Build mapping from input features to fuzzy terms
-        if len(antecedents) == 0:
-            antecedents = [[] for _ in range(in_features)]
-            
-        for input_variable_idx in range(in_features):
-            num_of_antecedents[input_variable_idx] = len(antecedents[input_variable_idx])
+        unique_id = 0
+        centers = []; sigmas = []; self.input_variable_ids = []
+        for p in range(in_features):
             self.input_variable_ids.append([])
-            for term_idx, antecedent in enumerate(antecedents[input_variable_idx]):
-                gaussians['centers'].append(antecedent['center'])
-                gaussians['sigmas'].append(antecedent['sigma'] * 1.2) # Overlap multiplier
-                antecedent['id'] = unique_id
+            for ant in antecedents[p]:
+                centers.append(ant['center'])
+                sigmas.append(ant['sigma'])
+                ant['id'] = unique_id
                 self.input_variable_ids[-1].append(unique_id)
                 unique_id += 1
-        self.transformed_x_length = unique_id
-
-        # Rule base mapping
-        n_rules = len(rules)
-        links = np.zeros((self.transformed_x_length, n_rules))
-        for rule_idx, rule in enumerate(rules):
-            for input_variable_idx, term_idx in enumerate(rule['A']):
-                new_term_idx = antecedents[input_variable_idx][term_idx]['id']
-                links[new_term_idx, rule_idx] = 1
-
-        self.register_buffer('links', torch.tensor(links, dtype=torch.float32))
-        # Mask for Product T-norm: inactive terms set to 1.0
-        self.register_buffer('links_mask', (torch.tensor(links, dtype=torch.float32) == 0).float())
+        self.transformed_len = unique_id
         
-        self.input_terms = Gaussian(in_features=self.transformed_x_length, 
-                                    centers=gaussians['centers'],
-                                    sigmas=gaussians['sigmas'], 
-                                    trainable=False)
-
+        links = np.zeros((self.transformed_len, len(rules)))
+        for r_idx, rule in enumerate(rules):
+            for p, t_idx in enumerate(rule['A']):
+                links[antecedents[p][t_idx]['id'], r_idx] = 1
+        self.register_buffer('links', torch.tensor(links, dtype=torch.float32))
+        self.register_buffer('links_mask', (self.links == 0).float())
+        
+        self.input_terms = GaussianLayer(self.transformed_len, centers, sigmas)
+        
         if consequences is None:
-            # Multi-output consequences: (n_rules, out_features)
-            self.consequences = Parameter(torch.randn(n_rules, out_features) * 0.1)
+            self.consequences = Parameter(torch.zeros(len(rules), out_features))
         else:
             self.consequences = Parameter(torch.tensor(consequences, dtype=torch.float32))
-
-        # Flatten input variable IDs for faster gathering
-        self.register_buffer('gather_indices', torch.tensor(
-            [idx for feature_ids in self.input_variable_ids for idx in feature_ids], 
-            dtype=torch.long))
-        self.register_buffer('feature_map', torch.tensor(
-            [i for i, ids in enumerate(self.input_variable_ids) for _ in ids], 
-            dtype=torch.long))
+            
+        self.register_buffer('feature_map', torch.tensor([i for i, ids in enumerate(self.input_variable_ids) for _ in ids], dtype=torch.long))
 
     def forward(self, X):
-        if self.transformed_x_length == 0 or self.links.shape[1] == 0:
+        if self.transformed_len == 0 or self.links.shape[1] == 0:
             return torch.zeros(X.shape[0], self.out_features, device=X.device)
-            
-        # Fast vectorized transform
-        X_transformed = X.index_select(1, self.feature_map)
         
-        # Calculate Gaussian memberships
-        memberships = self.input_terms(X_transformed)
+        # 1. Transform input
+        X_trans = X.index_select(1, self.feature_map)
         
-        # Product T-norm for rules: (batch, terms, 1) * (1, terms, rules)
-        # We use the mask to set inactive memberships to 1.0 so they don't affect the product
-        terms_to_rules = memberships.unsqueeze(2) * self.links.unsqueeze(0)
-        terms_to_rules = terms_to_rules + self.links_mask.unsqueeze(0)
+        # 2. Membership values
+        mems = self.input_terms(X_trans)
         
-        rules_applicability = terms_to_rules.prod(dim=1)
+        # 3. Rule applicability (Product T-norm)
+        # mems: (B, T), links: (T, R), links_mask: (T, R)
+        # Using log-sum-exp trick for stability or just product with mask
+        # We'll use the original product logic
+        rules_act = (mems.unsqueeze(2) * self.links.unsqueeze(0) + self.links_mask.unsqueeze(0)).prod(dim=1)
         
-        # TSK-like weighted average: (batch, rules) @ (rules, out)
-        numerator = torch.matmul(rules_applicability, self.consequences)
-        denominator = rules_applicability.sum(dim=1, keepdim=True)
-        denominator = torch.clamp(denominator, min=1e-12)
-        
-        return numerator / denominator
+        # 4. Weighted Average Defuzzification
+        # rules_act: (B, R), consequences: (R, O)
+        num = torch.matmul(rules_act, self.consequences)
+        den = rules_act.sum(dim=1, keepdim=True)
+        return num / torch.clamp(den, min=1e-12)
 
 class MultiFLC(nn.Module):
-    def __init__(self, n_inputs, n_outputs, antecedents, rules, learning_rate=3e-4, cql_alpha=0.5):
+    def __init__(self, n_inputs, n_outputs, antecedents, rules, learning_rate=1e-3, cql_alpha=0.5):
         super(MultiFLC, self).__init__()
-        # Use a single MIMO FLC for efficiency
-        self.flc = FLC(n_inputs, n_outputs, antecedents, rules)
-        self.learning_rate = learning_rate
-        self.cql_alpha = cql_alpha
+        self.n_inputs = n_inputs
         self.n_outputs = n_outputs
+        self.cql_alpha = cql_alpha
+        
+        # Original code used multiple MISO FLCs
+        self.flcs = nn.ModuleList([FLC(n_inputs, 1, antecedents, rules) for _ in range(n_outputs)])
+        self.learning_rate = learning_rate
 
     def forward(self, X):
-        if len(X.shape) > 2:
-            X = X.reshape(X.shape[0], -1)
-        return self.flc(X)
-
-    def get_action_probs(self, X):
-        q_values = self.forward(X)
-        return torch.softmax(q_values, dim=1)
+        X_flat = X.reshape(X.shape[0], -1)
+        outputs = [flc(X_flat) for flc in self.flcs]
+        return torch.cat(outputs, dim=1)
 
     def get_action_and_value(self, X, action=None):
-        q_values = self.forward(X)
+        q = self.forward(X)
         if action is None:
-            action = torch.argmax(q_values, dim=1)
-        
-        log_probs = torch.log_softmax(q_values, dim=1)
-        action_logprob = log_probs.gather(1, action.unsqueeze(1)).squeeze(1)
-        probs = torch.softmax(q_values, dim=1)
-        entropy = -(probs * torch.log(probs + 1e-12)).sum(dim=1)
-        value = torch.max(q_values, dim=1)[0]
-        
-        return action, action_logprob, entropy, value
+            action = torch.argmax(q, dim=1)
+        log_probs = torch.log_softmax(q, dim=1)
+        ent = -(torch.softmax(q, dim=1) * log_probs).sum(dim=1)
+        return action, log_probs.gather(1, action.unsqueeze(1)).squeeze(1), ent, torch.max(q, dim=1)[0]
 
 def run_FYD(rules, X, antecedents, top_k=None):
-    """
-    Frequent-Yet-Discernible simplification.
-    1. Calculate support (frequency) for each rule.
-    2. Calculate discernibility (how unique/important the rule is).
-    3. Prune rules.
-    """
-    if not rules:
-        return rules
-        
+    if not rules: return rules
     rule_supports = np.zeros(len(rules))
-    # Calculate membership of each X in each rule
-    for i, x in enumerate(X):
-        memberships = []
+    for x in X:
         for r_idx, rule in enumerate(rules):
-            CF = 1.0
-            for p, term_idx in enumerate(rule['A']):
-                CF *= gaussian(x[p], antecedents[p][term_idx]['center'], antecedents[p][term_idx]['sigma'])
-            memberships.append(CF)
-        
-        # Support is cumulative membership
-        rule_supports += np.array(memberships)
-        
-    # Discernibility: how much does this rule stand out?
-    # One simple measure: 1 / (similarity to other rules)
-    discernibility = np.zeros(len(rules))
+            cf = 1.0
+            for p, t_idx in enumerate(rule['A']):
+                cf *= gaussian(x[p], antecedents[p][t_idx]['center'], antecedents[p][t_idx]['sigma'])
+            rule_supports[r_idx] += cf
+    disc = np.zeros(len(rules))
     for i in range(len(rules)):
-        sim_sum = 0
-        for j in range(len(rules)):
-            if i == j: continue
-            # Count matching antecedents
-            matches = sum(1 for a1, a2 in zip(rules[i]['A'], rules[j]['A']) if a1 == a2)
-            sim_sum += matches / len(rules[i]['A'])
-        discernibility[i] = 1.0 / (1.0 + sim_sum)
-        
-    # Heuristic: support * discernibility
-    heuristic = rule_supports * discernibility
-    
-    if top_k is None:
-        # Keep rules above average heuristic?
-        threshold = np.mean(heuristic)
-        indices = np.where(heuristic >= threshold)[0]
-    else:
-        indices = np.argsort(heuristic)[-top_k:]
-        
-    new_rules = [rules[i] for i in sorted(indices)]
-    print(f"FYD: Pruned {len(rules)} rules to {len(new_rules)}")
-    return new_rules
+        sim = sum(sum(1 for a1, a2 in zip(rules[i]['A'], rules[j]['A']) if a1 == a2) / len(rules[i]['A']) 
+                  for j in range(len(rules)) if i != j)
+        disc[i] = 1.0 / (1.0 + sim)
+    heuristic = rule_supports * disc
+    indices = np.argsort(heuristic)[-(top_k if top_k else int(np.mean(heuristic > np.mean(heuristic)))): ]
+    return [rules[i] for i in sorted(indices)]
