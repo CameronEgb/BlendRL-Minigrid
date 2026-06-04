@@ -136,7 +136,7 @@ def main():
     for agent_config in online_list:
         print(f"\n=== Preparing Slurm Job: Online Training ({agent_config}) ===")
         agent_name_internal = agent_config.replace("/", "_")
-        job_name = agent_name_internal
+        job_name = f"{agent_name_internal}_{cfg.experiment_id}"
         # For sweeps, we let the config handle trial-specific subdirectories
         dataset_path = f"results/datasets/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}"
         
@@ -177,7 +177,7 @@ def main():
         for agent_config in offline_list:
             print(f"\n=== Preparing Slurm Job: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
             agent_name_internal = agent_config.replace("/", "_")
-            job_name = f"{agent_name_internal}_{dataset_name_internal}"
+            job_name = f"{agent_name_internal}_{dataset_name_internal}_{cfg.experiment_id}"
             
             overrides = [
                 "train.py",
