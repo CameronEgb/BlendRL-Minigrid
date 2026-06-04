@@ -3,31 +3,25 @@ defaults:
   - override /agent: cew
   - override /mode: offline
 
-# Environment Settings
+# Architecture
 env:
   name: cartpole
   architecture: mlp
 
-# Training Settings
-online_methods: []
+# 1. Run PPO to generate data, then CEW to verify learning
+online_methods: [ppo]
 offline_methods: [cew]
-offline_datasets: [ppo_cp_tuned]
 
-total_timesteps: 500000 
-intervals_count: 1      # Train on the whole dataset at once
+total_timesteps: 100000 
+intervals_count: 1      
 eval_episodes: 100
 
-# CEW Specifics
 agent:
   epochs_per_interval: 1000 
-  eval_interval_epochs: 50  # Frequency of online evaluation (for convergence plotting)
+  eval_interval_epochs: 50  
   batch_size: 128
   lr: 3e-4                  
   cql_alpha: 0.5            
-
-# Path for the offline dataset
-mode:
-  dataset_path: results/datasets/ungrouped/cp_final/ppo_cp_tuned
 
 experiment_id: verify_cew
 group: verification
