@@ -152,6 +152,12 @@ class IQLAgent(PPOAgent):
         for param, target_param in zip(model.parameters(), target_model.parameters()):
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
+    def get_action_and_value(self, obs, logic_obs=None, action=None):
+        return self.actor.get_action_and_value(obs, action)
+
+    def get_value(self, obs):
+        return self.value_network(obs)
+
     def configure_optimizers(self):
         opt_q = optim.Adam(list(self.q_network.parameters()) + list(self.q_network2.parameters()), lr=self.cfg.agent.lr)
         opt_v = optim.Adam(self.value_network.parameters(), lr=self.cfg.agent.lr)

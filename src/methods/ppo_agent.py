@@ -103,7 +103,7 @@ class PPOAgent(L.LightningModule):
     def forward(self, x):
         return self.model(x)
 
-    def get_action_and_value(self, obs, action=None):
+    def get_action_and_value(self, obs, logic_obs=None, action=None):
         return self.model.get_action_and_value(obs, action)
 
     def get_value(self, obs):

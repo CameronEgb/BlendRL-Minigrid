@@ -58,6 +58,13 @@ class BlendRLIQLAgent(IQLAgent):
                 return self.cfg.agent.agent[key]
         return default
 
+    def get_action_and_value(self, obs, logic_obs=None, action=None):
+        return self.model.get_action_and_value(obs, logic_obs, action)
+
+    def get_value(self, obs, logic_obs=None):
+        # We don't have a hybrid value network in the model, but we can compute it
+        return self.value_network(obs)
+
     def on_train_epoch_start(self):
         super().on_train_epoch_start()
         

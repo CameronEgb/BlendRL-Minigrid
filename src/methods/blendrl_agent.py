@@ -86,6 +86,12 @@ class BlendRLAgent(PPOAgent):
         from src.methods.ppo_agent import PPOAgent
         return PPOAgent.get_cfg(self, key, default)
 
+    def get_action_and_value(self, obs, logic_obs=None, action=None):
+        return self.model.get_action_and_value(obs, logic_obs, action)
+
+    def get_value(self, obs, logic_obs=None):
+        return self.model.get_value(obs, logic_obs)
+
     def on_fit_start(self):
         self.model.to(self.device)
 

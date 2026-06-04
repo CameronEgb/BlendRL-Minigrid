@@ -147,7 +147,7 @@ class CEWAgent(IQLAgent):
     def configure_optimizers(self):
         return optim.Adam([torch.zeros(1, requires_grad=True)], lr=1e-4)
 
-    def get_action_and_value(self, obs, logic_obs=None):
+    def get_action_and_value(self, obs, logic_obs=None, action=None):
         if self.fuzzy_model is None:
             batch_size = obs.shape[0]
             return torch.zeros(batch_size, dtype=torch.long, device=self.device), \
