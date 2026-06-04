@@ -31,7 +31,6 @@ hydra:
       n_ei_candidates: 24
       multivariate: false
       warn_independent_sampling: true
-    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
     direction: maximize
     storage: "sqlite:///optuna.db"
     study_name: "cp_final_tune_${agent.name}"

@@ -167,7 +167,12 @@ def delete_optuna_study(storage_url, study_name):
 
 def run_experiment(overrides):
     env = os.environ.copy()
-    env["PYTHONPATH"] = os.path.abspath("src") + ":" + env.get("PYTHONPATH", "")
+    project_root = os.getcwd()
+    new_paths = [
+        os.path.abspath("src"),
+        os.path.join(project_root, "src", "fyd_repo", "src")
+    ]
+    env["PYTHONPATH"] = ":".join(new_paths) + ":" + env.get("PYTHONPATH", "")
     env["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
     
     venv_python = get_python_executable()

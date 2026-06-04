@@ -23,7 +23,7 @@ def generate_sbatch_script(job_name, cmd_args, log_dir, partition="rtx4060ti16g"
         
     script += f"\n"
     script += f"export PROJECT_ROOT={os.getcwd()}\n"
-    script += f"export PYTHONPATH=$PROJECT_ROOT/src:$PYTHONPATH\n"
+    script += f"export PYTHONPATH=\$PROJECT_ROOT:\$PROJECT_ROOT/src:\$PROJECT_ROOT/src/fyd_repo/src:\$PYTHONPATH\n"
     
     # Construct the python command with absolute venv path
     cmd_str = "$PROJECT_ROOT/venv/bin/python3 " + " ".join(cmd_args)
@@ -215,7 +215,7 @@ def main():
                 script_content += f"#SBATCH --error={log_dir}/%x_%j.err\n"
                 script_content += f"#SBATCH --dependency=afterok:{dependency_job_id}\n\n"
                 script_content += f"export PROJECT_ROOT={os.getcwd()}\n"
-                script_content += f"export PYTHONPATH=$PROJECT_ROOT/src:$PYTHONPATH\n"
+                script_content += f"export PYTHONPATH=\$PROJECT_ROOT:\$PROJECT_ROOT/src:\$PROJECT_ROOT/src/fyd_repo/src:\$PYTHONPATH\n"
                 script_content += f"{best_id_cmd}\n"
                 script_content += f"{dataset_path_cmd}\n"
                 script_content += f"echo \"Best Online Trial detected: $BEST_ID. Using dataset: $D_PATH\"\n"
