@@ -8,3 +8,4 @@ epochs_per_interval: 10
 # Placeholders for sweep compatibility
 ent_coef: 0.0
 clip_coef: 0.2
+num_steps: 256

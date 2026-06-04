@@ -283,7 +283,7 @@ def main():
     if not args.experiment and not args.sources:
         parser.error("At least one of 'experiment' or '--sources' must be provided.")
 
-    search_dirs = [Path("results/logs"), Path("results/experiments")]
+    search_dirs = [Path("results/logs"), Path("results/logs/slurm"), Path("results/experiments")]
     
     all_runs = []
     

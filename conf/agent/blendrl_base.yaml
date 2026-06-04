@@ -19,3 +19,8 @@ blend_function: softmax
 actor_mode: hybrid
 joint_training: false
 pretrained: false
+
+# Placeholders for sweep compatibility
+tau: 0.7
+beta: 3.0
+num_steps: 256

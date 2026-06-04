@@ -1,0 +1,54 @@
+# @package _global_
+defaults:
+  - override /env: cartpole
+  - override /hydra/sweeper: optuna
+
+# Tuning Configuration for CartPole Final Experiment
+experiment_id: cp_final_tune
+group: tuning
+total_timesteps: 100000
+eval_episodes: 100
+online_methods: ppo/cp_tuned,blendrl/cp_tuned
+offline_methods: iql/cp_tuned,blendrl_iql/cp_tuned
+offline_datasets: ppo/cp_tuned,blendrl/cp_tuned
+intervals_count: 10
+
+save_dataset: true
+seed: 1
+local: true
+recover: false
+
+hydra:
+  sweeper:
+    sampler:
+      _target_: optuna.samplers.TPESampler
+      seed: 123
+      consider_prior: true
+      prior_weight: 1.0
+      consider_magic_number: true
+      consider_endpoints: false
+      n_startup_trials: 10
+      n_ei_candidates: 24
+      multivariate: false
+      warn_independent_sampling: true
+    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+    direction: maximize
+    storage: "sqlite:///optuna.db"
+    study_name: "cp_final_tune_${agent.name}"
+    n_trials: 100
+    n_jobs: 1
+    params:
+      # PPO & General RL Params
+      agent.lr: interval(1e-4, 1e-2)
+      agent.ent_coef: interval(0.0, 0.05)
+      agent.clip_coef: interval(0.1, 0.3)
+      agent.num_steps: choice(128, 256, 512)
+      
+      # IQL Specific Params
+      agent.tau: interval(0.5, 0.95)
+      agent.beta: interval(1.0, 10.0)
+      
+      # BlendRL Specific Params
+      agent.logic_lr: interval(1e-4, 1e-2)
+      agent.blender_lr: interval(1e-4, 1e-2)
+      agent.blend_ent_coef: interval(0.0, 0.05)

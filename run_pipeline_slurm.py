@@ -120,27 +120,30 @@ def main():
     online_job_ids = {} # dataset_id -> job_id
     
     # 1. Online Training Phases
+    is_sweep = "--multirun" in sanitized_extra_args or "-m" in sanitized_extra_args
+    
     for agent_config in online_list:
         print(f"\n=== Preparing Slurm Job: Online Training ({agent_config}) ===")
         agent_name_internal = agent_config.replace("/", "_")
         job_name = agent_name_internal
+        # For sweeps, we let the config handle trial-specific subdirectories
         dataset_path = f"results/datasets/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}"
         
-        # Check if dataset already exists to skip training
-        if os.path.exists(dataset_path) and any(f.endswith(".pkl") for f in os.listdir(dataset_path) if os.path.isfile(os.path.join(dataset_path, f))):
-             print(f"Dataset already exists at {dataset_path}. Skipping online training.")
-             online_job_ids[agent_config] = None # No dependency
-             continue
-
         overrides = [
             "train.py",
             f"+experiment={args.experiment}",
             f"++local=false",
             f"mode=online",
             f"agent={agent_config}",
-            f"++agent.name={agent_name_internal}",
-            f"++dataset_path={dataset_path}"
-        ] + sanitized_extra_args
+            f"++agent.name={agent_name_internal}"
+        ]
+        
+        # If not a sweep, we can set a static dataset path. 
+        # If it IS a sweep, we let config/Hydra handle the trial subdirs.
+        if not is_sweep:
+            overrides.append(f"++dataset_path={dataset_path}")
+        
+        overrides += sanitized_extra_args
         
         script_content = generate_sbatch_script(
             job_name, overrides, log_dir=str(log_dir),
@@ -156,21 +159,15 @@ def main():
     for dataset_id in dataset_list:
         dataset_name_internal = dataset_id.replace("/", "_")
         is_online = dataset_id in online_list
-        dataset_path = Path("results/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
         
         # Dependency logic
         dependency_job_id = online_job_ids.get(dataset_id)
-        
-        if not is_online and not dataset_path.exists():
-            print(f"Error: Dataset '{dataset_id}' not found.")
-            sys.exit(1)
             
         for agent_config in offline_list:
             print(f"\n=== Preparing Slurm Job: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
             agent_name_internal = agent_config.replace("/", "_")
             job_name = f"{agent_name_internal}_{dataset_name_internal}"
             
-            dataset_path_override = any("mode.dataset_path=" in arg for arg in sanitized_extra_args)
             overrides = [
                 "train.py",
                 f"+experiment={args.experiment}",
@@ -179,15 +176,50 @@ def main():
                 f"agent={agent_config}",
                 f"++agent.name={agent_name_internal}"
             ]
-            if not dataset_path_override:
-                overrides.append(f"++mode.dataset_path={dataset_path}")
-            overrides += sanitized_extra_args
             
-            script_content = generate_sbatch_script(
-                job_name, overrides, log_dir=str(log_dir),
-                partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes,
-                dependency=dependency_job_id
-            )
+            # DYNAMIC DATASET RESOLUTION FOR SWEEPS
+            # If the dataset comes from an online sweep, we need a wrapper to find the best trial
+            if is_online and is_sweep:
+                # We inject a small python snippet to find the best trial ID before running train.py
+                storage_url = f"sqlite:///optuna.db"
+                study_name = f"{cfg.experiment_id}_{dataset_name_internal}"
+                
+                # We modify the command to: 
+                # 1. Query best trial 2. Set dataset_path 3. Run train.py
+                best_id_cmd = f"BEST_ID=$($PROJECT_ROOT/venv/bin/python3 -c \"import sys; sys.path.append('$PROJECT_ROOT'); from run_pipeline import get_best_trial_id; print(get_best_trial_id('{storage_url}', '{study_name}'))\")"
+                dataset_path_cmd = f"D_PATH=results/datasets/{cfg.group}/{cfg.experiment_id}/{dataset_name_internal}/$BEST_ID"
+                
+                # Replace train.py in overrides with the dynamic one
+                cmd_args = overrides + sanitized_extra_args
+                # We'll handle the assembly in the sbatch script generation or by wrapping it
+                train_cmd = " ".join(cmd_args)
+                
+                # Create a custom script content
+                script_content = f"#!/bin/bash\n"
+                script_content += f"#SBATCH --job-name={job_name}\n"
+                script_content += f"#SBATCH --partition={args.partition}\n"
+                script_content += f"#SBATCH --ntasks-per-node={args.cores}\n"
+                script_content += f"#SBATCH --nodes={args.nodes}\n"
+                script_content += f"#SBATCH --output={log_dir}/%x_%j.out\n"
+                script_content += f"#SBATCH --error={log_dir}/%x_%j.err\n"
+                script_content += f"#SBATCH --dependency=afterok:{dependency_job_id}\n\n"
+                script_content += f"export PROJECT_ROOT={os.getcwd()}\n"
+                script_content += f"export PYTHONPATH=$PROJECT_ROOT/src:$PYTHONPATH\n"
+                script_content += f"{best_id_cmd}\n"
+                script_content += f"{dataset_path_cmd}\n"
+                script_content += f"echo \"Best Online Trial detected: $BEST_ID. Using dataset: $D_PATH\"\n"
+                script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} ++mode.dataset_path=$D_PATH\n"
+            else:
+                # Standard non-sweep or external dataset logic
+                dataset_path = Path("results/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
+                overrides.append(f"++mode.dataset_path={dataset_path}")
+                overrides += sanitized_extra_args
+                script_content = generate_sbatch_script(
+                    job_name, overrides, log_dir=str(log_dir),
+                    partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes,
+                    dependency=dependency_job_id
+                )
+            
             job_id = submit_sbatch(script_content)
             
             if job_id:

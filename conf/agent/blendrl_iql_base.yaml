@@ -11,3 +11,8 @@ blend_ent_coef: 0.01
 blender_mode: logic
 blend_function: softmax
 actor_mode: hybrid
+
+# Placeholders for sweep compatibility
+ent_coef: 0.01
+clip_coef: 0.2
+num_steps: 256
