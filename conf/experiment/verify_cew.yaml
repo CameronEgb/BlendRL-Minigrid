@@ -9,9 +9,9 @@ env:
   architecture: mlp
 
 # 1. Run PPO to generate data, then CEW to verify learning
-online_methods: [ppo]
+online_methods: [ppo/cp_tuned]
 offline_methods: [cew]
-offline_datasets: [ppo]
+offline_datasets: [ppo/cp_tuned]
 
 total_timesteps: 100000 
 intervals_count: 1      
