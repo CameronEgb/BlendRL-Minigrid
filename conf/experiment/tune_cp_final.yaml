@@ -1,7 +1,6 @@
 # @package _global_
 defaults:
   - override /env: cartpole
-  - override /hydra/sweeper: optuna
 
 # Tuning Configuration for CartPole Final Experiment
 experiment_id: cp_final_tune
@@ -20,6 +19,7 @@ recover: false
 
 hydra:
   sweeper:
+    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
     sampler:
       _target_: optuna.samplers.TPESampler
       seed: 123
