@@ -23,14 +23,7 @@ hydra:
     sampler:
       _target_: optuna.samplers.TPESampler
       seed: 123
-      consider_prior: true
-      prior_weight: 1.0
-      consider_magic_number: true
-      consider_endpoints: false
       n_startup_trials: 10
-      n_ei_candidates: 24
-      multivariate: false
-      warn_independent_sampling: true
     direction: maximize
     storage: "sqlite:///optuna.db"
     study_name: "cp_final_tune_${agent.name}"
