@@ -1,0 +1,28 @@
+# @package _global_
+defaults:
+  - override /agent: cew
+  - override /mode: offline
+
+# Environment Settings
+env:
+  name: cartpole
+  architecture: mlp
+
+# Training Settings
+total_timesteps: 500000 
+intervals_count: 1      
+eval_episodes: 100
+
+# CEW Specifics
+agent:
+  epochs_per_interval: 1000 # Long run to ensure convergence on the full dataset
+  batch_size: 128
+  lr: 3e-4                  
+  cql_alpha: 0.5            
+
+# Path for the offline dataset
+mode:
+  dataset_path: results/datasets/ungrouped/cp_final/ppo_cp_tuned
+
+experiment_id: verify_cew
+group: verification
