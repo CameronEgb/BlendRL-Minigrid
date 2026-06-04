@@ -228,6 +228,11 @@ class FLC(nn.Module):
         # rules_act: (B, R), consequences: (R, O)
         num = torch.matmul(rules_act, self.consequences)
         den = rules_act.sum(dim=1, keepdim=True)
+        
+        if np.random.random() < 0.001:
+             active_rules = (rules_act > 0.01).float().sum(dim=1).mean().item()
+             print(f"DEBUG FLC: Active Rules Avg={active_rules:.2f} Max Act={rules_act.max().item():.4f}")
+             
         return num / torch.clamp(den, min=1e-12)
 
 class MultiFLC(nn.Module):

@@ -154,4 +154,8 @@ class CEWAgent(IQLAgent):
                    torch.zeros(batch_size, device=self.device), \
                    torch.zeros(batch_size, device=self.device), \
                    torch.zeros(batch_size, device=self.device)
-        return self.fuzzy_model.get_action_and_value(self.normalize_obs(obs))
+        
+        act, log_p, ent, val = self.fuzzy_model.get_action_and_value(self.normalize_obs(obs))
+        if np.random.random() < 0.01: # Print 1% of steps
+             print(f"DEBUG: Actions={act[:5].tolist()} Q-Values Mean={val.mean().item():.4f}")
+        return act, log_p, ent, val
