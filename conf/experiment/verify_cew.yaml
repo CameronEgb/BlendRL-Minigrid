@@ -9,13 +9,18 @@ env:
   architecture: mlp
 
 # Training Settings
+online_methods: []
+offline_methods: [cew]
+offline_datasets: [ppo_cp_tuned]
+
 total_timesteps: 500000 
-intervals_count: 1      
+intervals_count: 1      # Train on the whole dataset at once
 eval_episodes: 100
 
 # CEW Specifics
 agent:
-  epochs_per_interval: 1000 # Long run to ensure convergence on the full dataset
+  epochs_per_interval: 1000 
+  eval_interval_epochs: 50  # Frequency of online evaluation (for convergence plotting)
   batch_size: 128
   lr: 3e-4                  
   cql_alpha: 0.5            

@@ -496,7 +496,20 @@ def main():
         filename_tmpl = p_def.get("filename", f"{metric.replace('/', '_')}.png")
         window = p_def.get("window", 1)
         x_axis = p_def.get("x_axis", "transitions")
-        xlabel = p_def.get("xlabel", "Transitions (Dataset Size)" if x_axis == "transitions" else "Steps")
+        
+        # Automatic X-axis detection for evaluation plots in single-interval runs
+        if metric == "eval/reward" and x_axis == "transitions":
+            all_transition_vals = []
+            for r in all_runs:
+                if metric in r["data"]:
+                    all_transition_vals.extend(r["data"][metric].get("transitions", []))
+            
+            # If we have multiple points but they all have the same transition value
+            if len(all_transition_vals) > 2 and len(set(all_transition_vals)) <= 2:
+                print(f"  Detected degenerate transitions for {metric}. Falling back to 'epoch' X-axis.")
+                x_axis = "epoch"
+
+        xlabel = p_def.get("xlabel", "Transitions (Dataset Size)" if x_axis == "transitions" else "Epoch" if x_axis == "epoch" else "Steps")
         split_by = p_def.get("split_by")
 
         if split_by:

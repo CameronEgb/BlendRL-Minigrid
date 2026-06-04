@@ -346,26 +346,45 @@ class EnvironmentEvaluatorCallback(L.Callback):
 
     def on_train_epoch_end(self, trainer, pl_module):
         interval_size = max(1, pl_module.cfg.total_timesteps // pl_module.cfg.intervals_count)
+        eval_interval_epochs = pl_module.cfg.agent.get("eval_interval_epochs")
         
+        should_eval = False
+        target_transitions = 0
+
         if pl_module.cfg.mode.type == "online":
             current_transitions = pl_module.global_step_count
+            # Check all possible intervals up to the current progress
+            for i in range(1, pl_module.cfg.intervals_count + 1):
+                target_transitions = i * interval_size
+                if current_transitions >= target_transitions and i not in self.logged_intervals:
+                    if i == pl_module.cfg.intervals_count:
+                        target_transitions = pl_module.cfg.total_timesteps
+                    should_eval = True
+                    self.logged_intervals.add(i)
+                    break
         else:
-            # Offline: Calculate transitions based on how much data we've "seen" in epochs
+            # Offline Mode
             epochs_per_interval = pl_module.cfg.agent.get("epochs_per_interval", 1)
-            current_interval = (pl_module.current_epoch + 1) // epochs_per_interval
-            current_transitions = interval_size * current_interval
+            current_epoch = pl_module.current_epoch + 1
+            
+            # 1. Standard Interval Evaluation (Dataset Scaling)
+            current_interval = current_epoch // epochs_per_interval
+            target_transitions = interval_size * current_interval
+            
+            if current_interval > 0 and current_interval not in self.logged_intervals:
+                should_eval = True
+                self.logged_intervals.add(current_interval)
+            
+            # 2. High-Frequency Evaluation (Convergence Verification)
+            # If we are in a verification run (e.g. intervals_count=1)
+            if eval_interval_epochs and current_epoch % eval_interval_epochs == 0:
+                should_eval = True
+                # We use a unique key for frequent evals to not conflict with standard intervals
+                # and use current transitions (which might be the full dataset size)
+                target_transitions = interval_size * max(1, current_interval)
 
-        # Check all possible intervals up to the current progress
-        for i in range(1, pl_module.cfg.intervals_count + 1):
-            target_transitions = i * interval_size
-            # If we've reached or passed an interval boundary and haven't logged it yet
-            if current_transitions >= target_transitions and i not in self.logged_intervals:
-                # Cap at total_timesteps for the final point
-                if i == pl_module.cfg.intervals_count:
-                    target_transitions = pl_module.cfg.total_timesteps
-                
-                self.evaluate_and_log(trainer, pl_module, transitions=target_transitions)
-                self.logged_intervals.add(i)
+        if should_eval:
+            self.evaluate_and_log(trainer, pl_module, transitions=target_transitions)
 
     def on_validation_epoch_end(self, trainer, pl_module):
         # Validation is now redundant since we handle everything in on_train_epoch_end
