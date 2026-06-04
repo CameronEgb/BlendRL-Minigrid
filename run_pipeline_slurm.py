@@ -23,7 +23,7 @@ def generate_sbatch_script(job_name, cmd_args, log_dir, partition="rtx4060ti16g"
         
     script += f"\n"
     script += f"export PROJECT_ROOT={os.getcwd()}\n"
-    script += f"export PYTHONPATH=\$PROJECT_ROOT:\$PROJECT_ROOT/src:\$PROJECT_ROOT/src/fyd_repo/src:\$PYTHONPATH\n"
+    script += f"export PYTHONPATH=\$PROJECT_ROOT:\$PROJECT_ROOT/src:\$PROJECT_ROOT/src/nsfr:\$PROJECT_ROOT/src/nudge:\$PROJECT_ROOT/src/neumann:\$PROJECT_ROOT/src/fyd_repo/src:\$PYTHONPATH\n"
     
     # Construct the python command with absolute venv path
     cmd_str = "$PROJECT_ROOT/venv/bin/python3 " + " ".join(cmd_args)

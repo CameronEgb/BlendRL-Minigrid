@@ -5,8 +5,8 @@ import lightning as L
 import numpy as np
 import os
 from typing import Any, Dict, Optional
-from src.methods.ppo_agent import PPOAgent
-from src.blendrl.agents.blender_agent import BlenderActorCritic
+from methods.ppo_agent import PPOAgent
+from blendrl.agents.blender_agent import BlenderActorCritic
 
 class BlendRLAgent(PPOAgent):
     def __init__(self, cfg: Dict[str, Any]):
@@ -38,7 +38,7 @@ class BlendRLAgent(PPOAgent):
         self.norm_adv = self.get_cfg("norm_adv", True)
         self.clip_vloss = self.get_cfg("clip_vloss", True)
         
-        from src.blendrl.env_vectorized import VectorizedNudgeBaseEnv
+        from blendrl.env_vectorized import VectorizedNudgeBaseEnv
         self.env = VectorizedNudgeBaseEnv.from_name(
             cfg.env.name, 
             n_envs=self.num_envs, 
@@ -83,7 +83,7 @@ class BlendRLAgent(PPOAgent):
         self.global_step_count = 0
 
     def get_cfg(self, key, default=None):
-        from src.methods.ppo_agent import PPOAgent
+        from methods.ppo_agent import PPOAgent
         return PPOAgent.get_cfg(self, key, default)
 
     def get_action_and_value(self, obs, logic_obs=None, action=None):

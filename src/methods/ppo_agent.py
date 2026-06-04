@@ -6,7 +6,7 @@ import numpy as np
 import os
 from omegaconf import DictConfig
 from typing import Any, Dict, Optional
-from src.blendrl.env_vectorized import VectorizedNudgeBaseEnv
+from blendrl.env_vectorized import VectorizedNudgeBaseEnv
 
 class PPOAgent(L.LightningModule):
     def __init__(self, cfg: Dict[str, Any]):
@@ -34,7 +34,7 @@ class PPOAgent(L.LightningModule):
         self.clip_vloss = self.get_cfg("clip_vloss", True)
 
         # We'll initialize the model and environments in setup() or __init__
-        from src.blendrl.env_vectorized import VectorizedNudgeBaseEnv
+        from blendrl.env_vectorized import VectorizedNudgeBaseEnv
         self.env = VectorizedNudgeBaseEnv.from_name(
             cfg.env.name, 
             n_envs=self.num_envs, 

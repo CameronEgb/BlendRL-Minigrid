@@ -5,7 +5,7 @@ import torch.optim as optim
 import lightning as L
 import numpy as np
 from typing import Any, Dict, Optional
-from src.methods.ppo_agent import PPOAgent
+from methods.ppo_agent import PPOAgent
 
 class IQLAgent(PPOAgent):
     def __init__(self, cfg: Dict[str, Any]):
@@ -17,7 +17,7 @@ class IQLAgent(PPOAgent):
         algorithm = self.get_cfg("algorithm", self.get_cfg("name", cfg.env.name))
 
         # In offline mode, env is only for evaluation
-        from src.blendrl.env_vectorized import VectorizedNudgeBaseEnv
+        from blendrl.env_vectorized import VectorizedNudgeBaseEnv
         self.env = VectorizedNudgeBaseEnv.from_name(
             cfg.env.name, 
             n_envs=1, 

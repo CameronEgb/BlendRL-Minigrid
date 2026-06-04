@@ -6,7 +6,7 @@ import lightning as L
 import numpy as np
 from typing import Any, Dict, Optional
 from omegaconf import DictConfig
-from src.methods.cew_utils import run_CLIP, run_ECM, rule_creation, run_FYD, MultiFLC, stabilize_antecedents
+from methods.cew_utils import run_CLIP, run_ECM, rule_creation, run_FYD, MultiFLC, stabilize_antecedents
 
 class CEWAgent(L.LightningModule):
     def __init__(self, cfg: Dict[str, Any]):
@@ -27,7 +27,7 @@ class CEWAgent(L.LightningModule):
         self.automatic_optimization = False # We handle optimization manually
         
         # Setup for evaluation
-        from src.blendrl.env_vectorized import VectorizedNudgeBaseEnv
+        from blendrl.env_vectorized import VectorizedNudgeBaseEnv
         self.eval_env = VectorizedNudgeBaseEnv.from_name(
             cfg.env.name, 
             n_envs=1, 

@@ -23,7 +23,7 @@ from nsfr.common import get_nsfr_model
 from src.utils import get_blender, load_cleanrl_agent, get_neural_agent
 from nudge.utils import print_program
 
-from src.methods.cew_utils import run_CLIP, run_ECM, rule_creation, run_FYD, MultiFLC
+from methods.cew_utils import run_CLIP, run_ECM, rule_creation, run_FYD, MultiFLC
 
 from captum.attr import (
     GradientShap,
@@ -392,7 +392,7 @@ class BlenderActorCritic(nn.Module):
                     rules = run_FYD(rules, obs, antecedents, top_k=top_k)
                 
                 # Re-initialize MultiFLC in place
-                from src.methods.cew_utils import MultiFLC
+                from methods.cew_utils import MultiFLC
                 n_in = np.prod(obs.shape[1:])
                 # Determine current device from existing parameters
                 current_device = next(self.parameters()).device

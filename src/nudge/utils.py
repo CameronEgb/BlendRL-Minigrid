@@ -10,7 +10,7 @@ import re
 from .agents.logic_agent import NsfrActorCritic
 from .agents.neural_agent import ActorCritic
 from nudge.env import NudgeBaseEnv
-from src.blendrl.env_vectorized import VectorizedNudgeBaseEnv
+from blendrl.env_vectorized import VectorizedNudgeBaseEnv
 from functools import reduce
 from nsfr.utils.torch import softor
 
@@ -81,7 +81,7 @@ def load_model(model_dir,
                steps = None,
                device=torch.device('cuda:0'),
                explain=False):
-    from src.blendrl.agents.blender_agent import BlenderActorCritic
+    from blendrl.agents.blender_agent import BlenderActorCritic
     # Determine all relevant paths
     model_dir = Path(model_dir)
     config_path = model_dir / "config.yaml"
@@ -157,7 +157,7 @@ def load_model_train(model_dir,
                      n_envs,
                device=torch.device('cuda:0'),
                steps = None):
-    from src.blendrl.agents.blender_agent import BlenderActorCritic
+    from blendrl.agents.blender_agent import BlenderActorCritic
     # Determine all relevant paths
     model_dir = Path(model_dir)
     config_path = model_dir / "config.yaml"
