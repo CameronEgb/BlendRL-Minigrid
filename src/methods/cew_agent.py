@@ -121,6 +121,10 @@ class CEWAgent(IQLAgent):
         self.optimizer.step()
         self._soft_update_fuzzy(self.fuzzy_model, self.target_fuzzy_model)
         
+        if batch_idx % 10 == 0:
+            weight_norm = torch.cat([p.flatten() for p in self.fuzzy_model.parameters()]).norm().item()
+            print(f"Epoch {self.current_epoch} Batch {batch_idx}: Loss={loss.item():.4f} Q_mean={all_q_values.mean().item():.4f} W_norm={weight_norm:.4f}")
+        
         # Calculate current transitions for logging
         epochs_per_interval = self.cfg.agent.get("epochs_per_interval", 1)
         current_interval = self.current_epoch // epochs_per_interval

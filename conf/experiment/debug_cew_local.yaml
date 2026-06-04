@@ -20,7 +20,10 @@ agent:
   eval_interval_epochs: 1 
   batch_size: 32
   lr: 1e-3                  
-  cql_alpha: 0.1            
+  cql_alpha: 0.1
+  ecm_dthr: 0.1 # Create more rules
+  eps: 0.1     # Make memberships narrower
+  kappa: 0.6
 
 mode:
   dataset_path: results/datasets/ungrouped/cp_final/ppo_cp_tuned
