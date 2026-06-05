@@ -5,7 +5,7 @@ import torch.optim as optim
 import lightning as L
 import numpy as np
 from typing import Any, Dict, Optional
-from methods.iql_agent import IQLAgent
+from src.methods.iql_agent import IQLAgent
 from blendrl.agents.blender_agent import BlenderActorCritic
 
 class BlendRLIQLAgent(IQLAgent):

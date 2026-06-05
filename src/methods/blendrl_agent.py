@@ -5,7 +5,7 @@ import lightning as L
 import numpy as np
 import os
 from typing import Any, Dict, Optional
-from methods.ppo_agent import PPOAgent
+from src.methods.ppo_agent import PPOAgent
 from blendrl.agents.blender_agent import BlenderActorCritic
 
 class BlendRLAgent(PPOAgent):
@@ -83,7 +83,7 @@ class BlendRLAgent(PPOAgent):
         self.global_step_count = 0
 
     def get_cfg(self, key, default=None):
-        from methods.ppo_agent import PPOAgent
+        from src.methods.ppo_agent import PPOAgent
         return PPOAgent.get_cfg(self, key, default)
 
     def get_action_and_value(self, obs, logic_obs=None, action=None):

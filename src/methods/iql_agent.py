@@ -5,7 +5,7 @@ import torch.optim as optim
 import lightning as L
 import numpy as np
 from typing import Any, Dict, Optional
-from methods.ppo_agent import PPOAgent
+from src.methods.ppo_agent import PPOAgent
 
 class IQLAgent(PPOAgent):
     def __init__(self, cfg: Dict[str, Any]):

@@ -23,7 +23,7 @@ from nsfr.common import get_nsfr_model
 from src.utils import get_blender, load_cleanrl_agent, get_neural_agent
 from nudge.utils import print_program
 
-from methods.cew_utils import run_CLIP, run_ECM, rule_creation, run_FYD, MultiFLC
+from src.methods.cew_utils import run_CLIP, run_ECM, rule_creation, run_FYD, MultiFLC
 
 from captum.attr import (
     GradientShap,
@@ -392,7 +392,7 @@ class BlenderActorCritic(nn.Module):
                     rules = run_FYD(rules, obs, antecedents, top_k=top_k)
                 
                 # Re-initialize MultiFLC in place
-                from methods.cew_utils import MultiFLC
+                from src.methods.cew_utils import MultiFLC
                 n_in = np.prod(obs.shape[1:])
                 # Determine current device from existing parameters
                 current_device = next(self.parameters()).device
@@ -417,6 +417,14 @@ class BlenderActorCritic(nn.Module):
             action = dist.sample()
         logprob = dist.log_prob(action)
 
+        blended_value = self.get_value(neural_state, logic_state, blending_weights=blending_weights)
+
+        return action, logprob, dist.entropy(), blend_dist.entropy(), blended_value
+
+    def get_value(self, neural_state, logic_state, blending_weights=None):
+        if blending_weights is None:
+            _, blending_weights = self.actor(neural_state, logic_state)
+            
         neural_value = self.get_neural_value(neural_state).squeeze(1)
         logic_value = self.get_logic_value(logic_state).squeeze(1)
         
@@ -434,8 +442,7 @@ class BlenderActorCritic(nn.Module):
             neural_weight_sum * neural_value
             + logic_weight_sum * logic_value
         ).unsqueeze(1)
-
-        return action, logprob, dist.entropy(), blend_dist.entropy(), blended_value
+        return blended_value
 
     def get_neural_value(self, neural_state):
         # Find the first neural module to use its critic
