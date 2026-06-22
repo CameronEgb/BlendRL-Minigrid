@@ -233,12 +233,12 @@ def main():
                 script_content += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n"
                 script_content += f"{best_id_cmd}\n"
                 script_content += f"{dataset_path_cmd}\n"
-                script_content += f"if [ ! -d \"$D_PATH\" ] || [ -z \"\$(ls \$D_PATH/*.pkl 2>/dev/null)\" ]; then\n"
-                script_content += f"    echo \"Best trial dataset not found at \$D_PATH. Falling back to parent directory.\"\n"
+                script_content += f"if [ ! -d \"$D_PATH\" ] || [ -z \"$(ls $D_PATH/*.pkl 2>/dev/null)\" ]; then\n"
+                script_content += f"    echo \"Best trial dataset not found at $D_PATH. Falling back to parent directory.\"\n"
                 script_content += f"    D_PATH=results/datasets/{cfg.experiment_id}/{dataset_name_internal}\n"
                 script_content += f"fi\n"
-                script_content += f"echo \"Using dataset: \$D_PATH\"\n"
-                script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} ++mode.dataset_path=\$D_PATH\n"
+                script_content += f"echo \"Using dataset: $D_PATH\"\n"
+                script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} ++mode.dataset_path=$D_PATH\n"
             else:
                 # Standard non-sweep or external dataset logic
                 dataset_path = Path("results/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
