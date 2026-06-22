@@ -192,6 +192,25 @@ def run_plotting(experiment, style=None):
     print(f"\n=== Generating Plots for experiment: {experiment} ===")
     subprocess.run(cmd, check=True, env=env)
 
+def find_dataset_globally(agent_name_internal):
+    datasets_root = Path("results/datasets")
+    if not datasets_root.exists():
+        return None
+        
+    matches = []
+    for root, dirs, files in os.walk(datasets_root):
+        if any(f.endswith(".pkl") for f in files):
+            parts = Path(root).parts
+            if agent_name_internal in parts:
+                matches.append(root)
+                
+    if not matches:
+        return None
+        
+    # Sort matches by path depth (fewer parts first) to prefer shallowest path
+    matches.sort(key=lambda p: len(Path(p).parts))
+    return matches[0]
+
 def main():
     parser = argparse.ArgumentParser(description="NeSyRL Experiment Pipeline")
     parser.add_argument("experiment", type=str, help="Experiment name from conf/experiment/")
@@ -295,7 +314,27 @@ def main():
             dataset_path = f"results/datasets/{cfg.group}/{args.experiment}/{agent_name_internal}"
             
             # Check if dataset already exists to skip training
-            if os.path.exists(dataset_path) and any(f.endswith(".pkl") for f in os.listdir(dataset_path) if os.path.isfile(os.path.join(dataset_path, f))):
+            has_pkl = False
+            if os.path.exists(dataset_path):
+                has_pkl = any(f.endswith(".pkl") for f in os.listdir(dataset_path) if os.path.isfile(os.path.join(dataset_path, f)))
+                
+            if not has_pkl:
+                found_path = find_dataset_globally(agent_name_internal)
+                if found_path:
+                    print(f"Dataset found globally at {found_path}. Symlinking to expected path {dataset_path}...")
+                    os.makedirs(os.path.dirname(dataset_path), exist_ok=True)
+                    if os.path.lexists(dataset_path):
+                        if os.path.isdir(dataset_path) and not os.path.islink(dataset_path):
+                            import shutil
+                            shutil.rmtree(dataset_path)
+                        else:
+                            os.unlink(dataset_path)
+                    # Use relative symlink to ensure compatibility on cluster nodes
+                    rel_source = os.path.relpath(os.path.abspath(found_path), start=os.path.dirname(os.path.abspath(dataset_path)))
+                    os.symlink(rel_source, dataset_path)
+                    has_pkl = True
+
+            if has_pkl:
                  print(f"Dataset already exists at {dataset_path}. Skipping online training.")
                  best_online_trial_ids[agent_config] = "0"
                  continue

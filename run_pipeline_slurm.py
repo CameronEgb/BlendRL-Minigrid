@@ -58,6 +58,25 @@ def submit_sbatch(script_content):
         print("Error: 'sbatch' command not found. Are you on the Slurm cluster?")
         return "99999"
 
+def find_dataset_globally(agent_name_internal):
+    datasets_root = Path("results/datasets")
+    if not datasets_root.exists():
+        return None
+        
+    matches = []
+    for root, dirs, files in os.walk(datasets_root):
+        if any(f.endswith(".pkl") for f in files):
+            parts = Path(root).parts
+            if agent_name_internal in parts:
+                matches.append(root)
+                
+    if not matches:
+        return None
+        
+    # Sort matches by path depth (fewer parts first) to prefer shallowest path
+    matches.sort(key=lambda p: len(Path(p).parts))
+    return matches[0]
+
 def main():
     parser = argparse.ArgumentParser(description="NeSyRL Slurm Pipeline")
     parser.add_argument("experiment", type=str, help="Experiment name from conf/experiment/")
@@ -66,6 +85,8 @@ def main():
     parser.add_argument("--cores", type=int, default=16, help="Number of CPU cores per job")
     parser.add_argument("--nodes", type=int, default=1, help="Number of nodes per job")
     parser.add_argument("--plot-style", type=str, default=None, help="Style config for plotter")
+    parser.add_argument("--no-online", action="store_true", help="Skip online training phase")
+    parser.add_argument("--no-offline", action="store_true", help="Skip offline training phase")
     args, extra_args = parser.parse_known_args()
     
     # Prepare extra_args: 
@@ -133,53 +154,73 @@ def main():
     # 1. Online Training Phases
     is_sweep = "--multirun" in sanitized_extra_args or "-m" in sanitized_extra_args
     
-    for agent_config in online_list:
-        print(f"\n=== Preparing Slurm Job: Online Training ({agent_config}) ===")
-        agent_name_internal = agent_config.replace("/", "_")
-        job_name = f"{agent_name_internal}_{cfg.experiment_id}"
-        # For sweeps, we let the config handle trial-specific subdirectories
-        if is_sweep:
-            dataset_path = f"results/datasets/{cfg.experiment_id}/{agent_name_internal}"
-        else:
-            dataset_path = f"results/datasets/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}"
-        
-        # Check if dataset already exists to skip training (either in parent or in any subdirectories)
-        has_pkl = False
-        if os.path.exists(dataset_path):
-            for root, dirs, files in os.walk(dataset_path):
-                if any(f.endswith(".pkl") for f in files):
+    if not args.no_online:
+        for agent_config in online_list:
+            print(f"\n=== Preparing Slurm Job: Online Training ({agent_config}) ===")
+            agent_name_internal = agent_config.replace("/", "_")
+            job_name = f"{agent_name_internal}_{cfg.experiment_id}"
+            # For sweeps, we let the config handle trial-specific subdirectories
+            if is_sweep:
+                dataset_path = f"results/datasets/{cfg.experiment_id}/{agent_name_internal}"
+            else:
+                dataset_path = f"results/datasets/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}"
+            
+            # Check if dataset already exists to skip training (either in parent or in any subdirectories)
+            has_pkl = False
+            if os.path.exists(dataset_path):
+                for root, dirs, files in os.walk(dataset_path):
+                    if any(f.endswith(".pkl") for f in files):
+                        has_pkl = True
+                        break
+            
+            if not has_pkl:
+                found_path = find_dataset_globally(agent_name_internal)
+                if found_path:
+                    print(f"Dataset found globally at {found_path}. Symlinking to expected path {dataset_path}...")
+                    os.makedirs(os.path.dirname(dataset_path), exist_ok=True)
+                    if os.path.lexists(dataset_path):
+                        if os.path.isdir(dataset_path) and not os.path.islink(dataset_path):
+                            import shutil
+                            shutil.rmtree(dataset_path)
+                        else:
+                            os.unlink(dataset_path)
+                    # Use relative symlink to ensure compatibility on cluster nodes
+                    rel_source = os.path.relpath(os.path.abspath(found_path), start=os.path.dirname(os.path.abspath(dataset_path)))
+                    os.symlink(rel_source, dataset_path)
                     has_pkl = True
-                    break
-        if has_pkl:
-             print(f"Dataset already exists at {dataset_path}. Skipping online training job.")
-             online_job_ids[agent_config] = None
-             continue
-        
-        overrides = [
-            "train.py",
-            f"+experiment={args.experiment}",
-            f"++local=false",
-            f"mode=online",
-            f"agent={agent_config}",
-            f"++agent.name={agent_name_internal}"
-        ]
-        
-        # If not a sweep, we can set a static dataset path. 
-        # If it IS a sweep, we let config/Hydra handle the trial subdirs.
-        if not is_sweep:
-            overrides.append(f"++dataset_path={dataset_path}")
-        
-        overrides += sanitized_extra_args
-        
-        script_content = generate_sbatch_script(
-            job_name, overrides, log_dir=str(log_dir),
-            partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes
-        )
-        job_id = submit_sbatch(script_content)
-        
-        if job_id:
-            job_ids.append(job_id)
-            online_job_ids[agent_config] = job_id
+
+            if has_pkl:
+                 print(f"Dataset already exists at {dataset_path}. Skipping online training job.")
+                 online_job_ids[agent_config] = None
+                 continue
+            
+            overrides = [
+                "train.py",
+                f"+experiment={args.experiment}",
+                f"++local=false",
+                f"mode=online",
+                f"agent={agent_config}",
+                f"++agent.name={agent_name_internal}"
+            ]
+            
+            # If not a sweep, we can set a static dataset path. 
+            # If it IS a sweep, we let config/Hydra handle the trial subdirs.
+            if not is_sweep:
+                overrides.append(f"++dataset_path={dataset_path}")
+            
+            overrides += sanitized_extra_args
+            
+            script_content = generate_sbatch_script(
+                job_name, overrides, log_dir=str(log_dir),
+                partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes
+            )
+            job_id = submit_sbatch(script_content)
+            
+            if job_id:
+                job_ids.append(job_id)
+                online_job_ids[agent_config] = job_id
+    else:
+        print("\n=== Skipping Online Training Phase ===")
             
     # 2. Offline Training Phases
     for dataset_id in dataset_list:
@@ -228,7 +269,9 @@ def main():
                 script_content += f"#SBATCH --nodes={args.nodes}\n"
                 script_content += f"#SBATCH --output={log_dir}/%x_%j.out\n"
                 script_content += f"#SBATCH --error={log_dir}/%x_%j.err\n"
-                script_content += f"#SBATCH --dependency=afterok:{dependency_job_id}\n\n"
+                if dependency_job_id:
+                    script_content += f"#SBATCH --dependency=afterok:{dependency_job_id}\n"
+                script_content += f"\n"
                 script_content += f"export PROJECT_ROOT={os.getcwd()}\n"
                 script_content += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n"
                 script_content += f"{best_id_cmd}\n"
@@ -236,6 +279,9 @@ def main():
                 script_content += f"if [ ! -d \"$D_PATH\" ] || [ -z \"$(ls $D_PATH/*.pkl 2>/dev/null)\" ]; then\n"
                 script_content += f"    echo \"Best trial dataset not found at $D_PATH. Falling back to parent directory.\"\n"
                 script_content += f"    D_PATH=results/datasets/{cfg.experiment_id}/{dataset_name_internal}\n"
+                script_content += f"    if [ ! -d \"$D_PATH\" ] || [ -z \"$(ls $D_PATH/*.pkl 2>/dev/null)\" ]; then\n"
+                script_content += f"        D_PATH=results/datasets/{cfg.group}/{cfg.experiment_id}/{dataset_name_internal}\n"
+                script_content += f"    fi\n"
                 script_content += f"fi\n"
                 script_content += f"echo \"Using dataset: $D_PATH\"\n"
                 script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} ++mode.dataset_path=$D_PATH\n"
