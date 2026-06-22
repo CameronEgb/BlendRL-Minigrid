@@ -219,11 +219,11 @@ def main():
                 script_content += f"{best_id_cmd}\n"
                 script_content += f"{dataset_path_cmd}\n"
                 script_content += f"echo \"Best Online Trial detected: \$BEST_ID. Using dataset: \$D_PATH\"\n"
-                script_content += f"\$PROJECT_ROOT/venv/bin/python3 {train_cmd} ++dataset_path=\$D_PATH\n"
+                script_content += f"\$PROJECT_ROOT/venv/bin/python3 {train_cmd} ++mode.dataset_path=\$D_PATH\n"
             else:
                 # Standard non-sweep or external dataset logic
                 dataset_path = Path("results/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
-                overrides.append(f"++dataset_path={dataset_path}")
+                overrides.append(f"++mode.dataset_path={dataset_path}")
                 overrides += sanitized_extra_args
                 script_content = generate_sbatch_script(
                     job_name, overrides, log_dir=str(log_dir),
