@@ -39,11 +39,11 @@ hydra:
     n_jobs: 1
     params:
       # Tuning the Offline-specific Logic
-      agent.tau: interval(0.5, 0.95)
-      agent.beta: interval(1.0, 10.0)
-      agent.lr: interval(1e-4, 5e-3)
+      ++agent.tau: interval(0.5, 0.95)
+      ++agent.beta: interval(1.0, 10.0)
+      ++agent.lr: interval(1e-4, 5e-3)
       
       # Architecture exploration for multi_arch runs
       # (Placeholders allow these to be safely passed even if not used by all)
-      agent.logic_lr: interval(1e-4, 5e-3)
-      agent.blend_ent_coef: interval(0.0, 0.05)
+      ++agent.logic_lr: interval(1e-4, 5e-3)
+      ++agent.blend_ent_coef: interval(0.0, 0.05)
