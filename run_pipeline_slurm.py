@@ -140,9 +140,14 @@ def main():
         # For sweeps, we let the config handle trial-specific subdirectories
         dataset_path = f"results/datasets/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}"
         
-        # Check if dataset already exists to skip training
-        print(f"DEBUG: agent_config={agent_config}, dataset_path={dataset_path}, exists={os.path.exists(dataset_path)}, is_sweep={is_sweep}")
-        if not is_sweep and os.path.exists(dataset_path) and any(f.endswith(".pkl") for f in os.listdir(dataset_path) if os.path.isfile(os.path.join(dataset_path, f))):
+        # Check if dataset already exists to skip training (either in parent or in any subdirectories)
+        has_pkl = False
+        if os.path.exists(dataset_path):
+            for root, dirs, files in os.walk(dataset_path):
+                if any(f.endswith(".pkl") for f in files):
+                    has_pkl = True
+                    break
+        if has_pkl:
              print(f"Dataset already exists at {dataset_path}. Skipping online training job.")
              online_job_ids[agent_config] = None
              continue
@@ -225,8 +230,12 @@ def main():
                 script_content += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n"
                 script_content += f"{best_id_cmd}\n"
                 script_content += f"{dataset_path_cmd}\n"
-                script_content += f"echo \"Best Online Trial detected: $BEST_ID. Using dataset: $D_PATH\"\n"
-                script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} ++mode.dataset_path=$D_PATH\n"
+                script_content += f"if [ ! -d \"$D_PATH\" ] || [ -z \"\$(ls \$D_PATH/*.pkl 2>/dev/null)\" ]; then\n"
+                script_content += f"    echo \"Best trial dataset not found at \$D_PATH. Falling back to parent directory.\"\n"
+                script_content += f"    D_PATH=results/datasets/{cfg.group}/{cfg.experiment_id}/{dataset_name_internal}\n"
+                script_content += f"fi\n"
+                script_content += f"echo \"Using dataset: \$D_PATH\"\n"
+                script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} ++mode.dataset_path=\$D_PATH\n"
             else:
                 # Standard non-sweep or external dataset logic
                 dataset_path = Path("results/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
