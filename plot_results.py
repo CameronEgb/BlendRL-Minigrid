@@ -19,7 +19,32 @@ def get_style_info(label):
     if "blendrl-iql" in l: return "#d62728", "-", "s"
     if "blendrl" in l and "iql" not in l and "(on" not in l: return "#2ca02c", "-", "^"
     if "iql" in l and "blendrl" not in l: return "#1f77b4", "-", "d"
+    
+    # Specialized colors for CEW/FYD architectures
+    if "fyd" in l: return "#9467bd", "-", "p" # Purple
+    if "cew" in l: return "#ff7f0e", "-", "h" # Orange
+    
     return None, "-", "o"
+
+def clean_label(label):
+    """Cleans up technical folder names into readable legend labels."""
+    l = label
+    # Remove common technical prefixes
+    l = l.replace("multi_arch_", "")
+    
+    # Format BlendRL variants
+    if "blendrl_cql" in l.lower():
+        suffix = l.lower().split("blendrl_cql_")[-1]
+        l = f"BlendRL-CQL ({suffix.replace('_', '+').upper()})"
+    elif "blendrl_iql" in l.lower():
+        suffix = l.lower().split("blendrl_iql_")[-1]
+        l = f"BlendRL-IQL ({suffix.replace('_', '+').upper()})"
+    
+    # Specific common replacements
+    l = l.replace("CEW_ONLY", "CEW")
+    l = l.replace("HUMAN+CEW", "Human+CEW")
+    l = l.replace("HUMAN+NEURAL", "Human+Neural")
+    return l
 
 def moving_average(a, n=5):
     if len(a) == 0: return np.array([])

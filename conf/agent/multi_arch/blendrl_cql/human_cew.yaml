@@ -1,0 +1,20 @@
+name: blendrl_cql
+algorithm: blendrl_cql
+actor_mode: hybrid
+blender_mode: neural
+blend_function: softmax
+lr: 3e-4
+batch_size: 256
+epochs_per_interval: 10
+cql_alpha: 1.0
+soft_target_tau: 0.005
+gamma: 0.99
+ecm_dthr: 0.1
+fyd: true
+fyd_top_k: 50
+
+modules:
+  - type: nsfr
+    rules: default
+  - type: cew
+    fyd: true

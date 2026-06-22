@@ -197,6 +197,8 @@ def main():
     parser.add_argument("experiment", type=str, help="Experiment name from conf/experiment/")
     parser.add_argument("--local", action="store_true", default=True)
     parser.add_argument("--no-plot", action="store_true", help="Skip automatic plotting")
+    parser.add_argument("--no-online", action="store_true", help="Skip online training phase")
+    parser.add_argument("--no-offline", action="store_true", help="Skip offline training phase")
     parser.add_argument("--plot-style", type=str, default=None, help="Style config for plotter")
     parser.add_argument("--no-dash", action="store_true", help="Disable the automatic dashboard")
     parser.add_argument("--dash-only", action="store_true", help="Launch the persistent dashboard and exit")
@@ -283,90 +285,96 @@ def main():
     best_online_trial_ids = {}
 
     # 1. Online Training Phases
-    for agent_config in online_list:
-        print(f"\n=== Phase: Online Training ({agent_config}) ===")
-        # Standardize agent name by replacing / with _ for the internal agent.name field
-        # this ensures loggers create manageable folder structures or names.
-        agent_name_internal = agent_config.replace("/", "_")
-        study_name = f"{args.experiment}_{agent_name_internal}"
-        dataset_path = f"results/datasets/{cfg.group}/{args.experiment}/{agent_name_internal}"
-        
-        # Check if dataset already exists to skip training
-        if os.path.exists(dataset_path) and any(f.endswith(".pkl") for f in os.listdir(dataset_path) if os.path.isfile(os.path.join(dataset_path, f))):
-             print(f"Dataset already exists at {dataset_path}. Skipping online training.")
-             best_online_trial_ids[agent_config] = "0"
-             continue
-
-        overrides = [
-            f"+experiment={args.experiment}",
-            f"++local={str(args.local).lower()}",
-            f"mode=online",
-            f"agent={agent_config}",
-            f"++agent.name={agent_name_internal}",
-            f"++dataset_path={dataset_path}",
-            f"++hydra.sweeper.study_name={study_name}"
-        ] + sanitized_extra_args
-        
-        if is_sweep:
-            delete_optuna_study(storage_url, study_name)
-            
-        run_experiment(overrides)
-        
-        # After training, find the best trial ID if we were sweeping
-        if is_sweep:
-            best_id = get_best_trial_id(storage_url, study_name)
-            best_online_trial_ids[agent_config] = best_id
-            print(f"Best trial for {agent_config} was ID: {best_id}")
-        else:
-            best_online_trial_ids[agent_config] = "0"
-
-    # 2. Offline Training Phases (Many-to-Many)
-    for dataset_id in dataset_list:
-        # Standardize dataset name as well
-        dataset_name_internal = dataset_id.replace("/", "_")
-        
-        # Determine the correct dataset path, favoring the best trial if found
-        best_id = best_online_trial_ids.get(dataset_id, "0")
-        dataset_path = Path("results/datasets") / cfg.group / args.experiment / dataset_name_internal / best_id
-        
-        # Fallback for datasets that might exist but weren't part of this run's online methods
-        if not dataset_path.exists():
-            # Check if there's a non-trial version (legacy or non-sweep)
-            alt_path = Path("results/datasets") / cfg.group / args.experiment / dataset_name_internal
-            if alt_path.exists() and any(alt_path.glob("*.pkl")):
-                 dataset_path = alt_path
-            else:
-                print(f"Error: Dataset '{dataset_id}' not found at {dataset_path} or {alt_path}")
-                sys.exit(1)
-
-        print(f"Using dataset from: {dataset_path}")
-
-        for agent_config in offline_list:
+    if not args.no_online:
+        for agent_config in online_list:
+            print(f"\n=== Phase: Online Training ({agent_config}) ===")
+            # Standardize agent name by replacing / with _ for the internal agent.name field
+            # this ensures loggers create manageable folder structures or names.
             agent_name_internal = agent_config.replace("/", "_")
-            print(f"\n=== Phase: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
+            study_name = f"{args.experiment}_{agent_name_internal}"
+            dataset_path = f"results/datasets/{cfg.group}/{args.experiment}/{agent_name_internal}"
             
-            # Check if a custom dataset path is already in extra_args or config
-            dataset_path_override = any("mode.dataset_path=" in arg for arg in sanitized_extra_args)
-            
-            study_name = f"{args.experiment}_{agent_name_internal}_{dataset_name_internal}"
+            # Check if dataset already exists to skip training
+            if os.path.exists(dataset_path) and any(f.endswith(".pkl") for f in os.listdir(dataset_path) if os.path.isfile(os.path.join(dataset_path, f))):
+                 print(f"Dataset already exists at {dataset_path}. Skipping online training.")
+                 best_online_trial_ids[agent_config] = "0"
+                 continue
+
             overrides = [
                 f"+experiment={args.experiment}",
                 f"++local={str(args.local).lower()}",
-                f"mode=offline",
+                f"mode=online",
                 f"agent={agent_config}",
                 f"++agent.name={agent_name_internal}",
+                f"++dataset_path={dataset_path}",
                 f"++hydra.sweeper.study_name={study_name}"
-            ]
-            
-            if not dataset_path_override:
-                overrides.append(f"++mode.dataset_path={dataset_path}")
-                
-            overrides += sanitized_extra_args
+            ] + sanitized_extra_args
             
             if is_sweep:
                 delete_optuna_study(storage_url, study_name)
                 
             run_experiment(overrides)
+            
+            # After training, find the best trial ID if we were sweeping
+            if is_sweep:
+                best_id = get_best_trial_id(storage_url, study_name)
+                best_online_trial_ids[agent_config] = best_id
+                print(f"Best trial for {agent_config} was ID: {best_id}")
+            else:
+                best_online_trial_ids[agent_config] = "0"
+    else:
+        print("\n=== Skipping Online Training Phase ===")
+
+    # 2. Offline Training Phases (Many-to-Many)
+    if not args.no_offline:
+        for dataset_id in dataset_list:
+            # Standardize dataset name as well
+            dataset_name_internal = dataset_id.replace("/", "_")
+            
+            # Determine the correct dataset path, favoring the best trial if found
+            best_id = best_online_trial_ids.get(dataset_id, "0")
+            dataset_path = Path("results/datasets") / cfg.group / args.experiment / dataset_name_internal / best_id
+            
+            # Fallback for datasets that might exist but weren't part of this run's online methods
+            if not dataset_path.exists():
+                # Check if there's a non-trial version (legacy or non-sweep)
+                alt_path = Path("results/datasets") / cfg.group / args.experiment / dataset_name_internal
+                if alt_path.exists() and any(alt_path.glob("*.pkl")):
+                     dataset_path = alt_path
+                else:
+                    print(f"Error: Dataset '{dataset_id}' not found at {dataset_path} or {alt_path}")
+                    sys.exit(1)
+
+            print(f"Using dataset from: {dataset_path}")
+
+            for agent_config in offline_list:
+                agent_name_internal = agent_config.replace("/", "_")
+                print(f"\n=== Phase: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
+                
+                # Check if a custom dataset path is already in extra_args or config
+                dataset_path_override = any("mode.dataset_path=" in arg for arg in sanitized_extra_args)
+                
+                study_name = f"{args.experiment}_{agent_name_internal}_{dataset_name_internal}"
+                overrides = [
+                    f"+experiment={args.experiment}",
+                    f"++local={str(args.local).lower()}",
+                    f"mode=offline",
+                    f"agent={agent_config}",
+                    f"++agent.name={agent_name_internal}",
+                    f"++hydra.sweeper.study_name={study_name}"
+                ]
+                
+                if not dataset_path_override:
+                    overrides.append(f"++mode.dataset_path={dataset_path}")
+                    
+                overrides += sanitized_extra_args
+                
+                if is_sweep:
+                    delete_optuna_study(storage_url, study_name)
+                    
+                run_experiment(overrides)
+    else:
+        print("\n=== Skipping Offline Training Phase ===")
 
     # 4. Plotting
     if not args.no_plot:

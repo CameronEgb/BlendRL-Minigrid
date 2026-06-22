@@ -77,7 +77,7 @@ class CEWAgent(L.LightningModule):
         # 1. CLIP: Categorical Learning Induced Partitioning
         eps = self.get_cfg("eps", 0.1)
         kappa = self.get_cfg("kappa", 0.6)
-        self.antecedents = run_CLIP(obs, obs.min(axis=0), obs.max(axis=0), eps=eps, kappa=kappa)
+        new_antecedents = run_CLIP(obs, obs.min(axis=0), obs.max(axis=0), eps=eps, kappa=kappa)
         
         # 2. ECM: Evolving Clustering Method
         dthr = self.get_cfg("ecm_dthr", 0.1)
@@ -85,12 +85,12 @@ class CEWAgent(L.LightningModule):
         reduced_X = np.array([c.center for c in clusters])
         
         # 3. WM: Wang-Mendel Rule Creation
-        self.antecedents, self.rules = rule_creation(reduced_X, self.antecedents)
+        new_antecedents, new_rules = rule_creation(reduced_X, new_antecedents)
         
         # 4. Stabilization: Mamdani Autoencoder (Refining fuzzy sets)
         if self.get_cfg("stabilize", True):
-            self.antecedents = stabilize_antecedents(
-                obs, self.antecedents, self.rules, "cpu",
+            new_antecedents = stabilize_antecedents(
+                obs, new_antecedents, new_rules, "cpu",
                 lr=self.get_cfg("stabilize_lr", 1e-3),
                 epochs=self.get_cfg("stabilize_epochs", 10)
             )
@@ -98,8 +98,21 @@ class CEWAgent(L.LightningModule):
         # 5. FYD: Frequent-Yet-Discernible (Pruning)
         if "fyd" in self.algorithm:
             top_k = self.get_cfg("fyd_top_k", None)
-            self.rules, self.antecedents = run_FYD(self.rules, obs, self.antecedents, top_k=top_k)
+            new_rules, new_antecedents = run_FYD(new_rules, obs, new_antecedents, top_k=top_k)
             
+        # Check if architecture changed before resetting weights
+        if self.fuzzy_model is not None:
+            # Check rule count and antecedent count
+            if len(new_rules) == len(self.rules):
+                current_ant_count = sum(len(p_ants) for p_ants in self.antecedents)
+                new_ant_count = sum(len(p_ants) for p_ants in new_antecedents)
+                if current_ant_count == new_ant_count:
+                    print(f"CEW architecture stable ({len(new_rules)} rules). Skipping reset.")
+                    return
+
+        self.rules = new_rules
+        self.antecedents = new_antecedents
+
         # 6. Initialize MultiFLC (MIMO architecture: one FLC per action)
         self.fuzzy_model = MultiFLC(
             n_inputs=obs.shape[1],
@@ -120,7 +133,7 @@ class CEWAgent(L.LightningModule):
         
         self.opt_fuzzy = optim.Adam(self.fuzzy_model.parameters(), lr=self.lr)
         self.self_organized = True
-        print(f"Self-organization complete. MIMO Rules: {len(self.rules)}")
+        print(f"Self-organization complete. MIMO Rules: {len(self.rules)}. Weights reset.")
 
     def training_step(self, batch, batch_idx):
         if not self.self_organized: return

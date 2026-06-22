@@ -182,6 +182,9 @@ class FLC(nn.Module):
         self.in_features = in_features
         self.out_features = out_features
         
+        if not antecedents:
+            antecedents = [[] for _ in range(in_features)]
+            
         unique_id = 0
         centers = []; sigmas = []; self.input_variable_ids = []
         for p in range(in_features):
@@ -231,6 +234,9 @@ class FLC(nn.Module):
         den = rules_act.sum(dim=1, keepdim=True)
         return num / torch.clamp(den, min=1e-12)
 
+    def get_q_values(self, X):
+        return self.forward(X)
+
     def get_rule_activations(self, X):
         X_trans = X.index_select(1, self.feature_map)
         mems = self.input_terms(X_trans)
@@ -245,6 +251,9 @@ class MultiFLC(nn.Module):
         self.n_outputs = n_outputs
         self.cql_alpha = cql_alpha
         
+        if not antecedents:
+            antecedents = [[] for _ in range(n_inputs)]
+            
         # Original code used multiple MISO FLCs
         self.flcs = nn.ModuleList([FLC(n_inputs, 1, antecedents, rules) for _ in range(n_outputs)])
         self.learning_rate = learning_rate
@@ -254,8 +263,11 @@ class MultiFLC(nn.Module):
         outputs = [flc(X_flat) for flc in self.flcs]
         return torch.cat(outputs, dim=1)
 
-    def get_action_and_value(self, X, action=None):
-        q = self.forward(X)
+    def get_q_values(self, X):
+        return self.forward(X)
+
+    def get_action_and_value(self, obs, action=None):
+        q = self.forward(obs)
         if action is None:
             action = torch.argmax(q, dim=1)
         log_probs = torch.log_softmax(q, dim=1)

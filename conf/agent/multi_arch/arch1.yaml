@@ -1,0 +1,7 @@
+defaults:
+  - /agent: blendrl_iql_base
+  - _self_
+
+blender_mode: logic
+actor_mode: hybrid
+# Standard configuration

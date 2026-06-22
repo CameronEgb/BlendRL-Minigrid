@@ -52,6 +52,9 @@ def main(cfg: DictConfig):
     elif base_algo_name.startswith("blendrl_iql"):
         from src.methods.blendrl_iql_agent import BlendRLIQLAgent
         model = BlendRLIQLAgent(cfg)
+    elif base_algo_name.startswith("blendrl_cql"):
+        from src.methods.blendrl_cql_agent import BlendRLCQLAgent
+        model = BlendRLCQLAgent(cfg)
     elif base_algo_name.startswith("blendrl"):
         from src.methods.blendrl_agent import BlendRLAgent
         model = BlendRLAgent(cfg)

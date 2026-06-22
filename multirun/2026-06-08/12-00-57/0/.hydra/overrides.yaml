@@ -1,0 +1,10 @@
+- agent.lr=0.006995044937418831
+- agent.cql_alpha=1.5020827412568596
+- agent.ecm_dthr=0.12115721224645952
+- agent.soft_target_tau=0.05558016213920623
+- +experiment=tune_human_cew_poc
+- ++local=True
+- mode=offline
+- agent=multi_arch/blendrl_cql/human_cew
+- ++agent.name=multi_arch_blendrl_cql_human_cew
+- ++mode.dataset_path=results/datasets/tuning/tune_human_cew_poc/ppo_cp_tuned

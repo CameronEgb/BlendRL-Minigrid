@@ -237,6 +237,39 @@ class BlenderActor(nn.Module):
         else:
             return self.compute_action_probs_neural(neural_state)
 
+    def get_q_values(self, neural_state, logic_state):
+        """Compute Q-values by blending Q-values from all modules."""
+        batch_size = neural_state.size(0)
+        module_q_values = []
+        
+        for i, module in enumerate(self.policy_modules):
+            m_type = self.module_types[i]
+            if m_type == "neural":
+                if hasattr(module, "get_q_values"):
+                    q = module.get_q_values(neural_state)
+                elif hasattr(module, "forward"):
+                    q = module(neural_state) # Assuming forward returns Q-values for Q-networks
+                else:
+                    q = torch.zeros(batch_size, self.env.n_actions, device=neural_state.device)
+            else:
+                # logic or cew
+                if hasattr(module, "get_q_values"):
+                    q = module.get_q_values(logic_state)
+                elif m_type == "cew":
+                    q = module(logic_state) # MultiFLC forward returns Q-values
+                else:
+                    # Logic modules usually return probs, treat as Q-values [0, 1]
+                    q = module.get_action_probs(logic_state)
+            module_q_values.append(q)
+            
+        weights = self.to_blender_policy_distribution(neural_state, logic_state)
+        
+        q_values = torch.zeros(batch_size, self.env.n_actions, device=neural_state.device)
+        for i, m_q in enumerate(module_q_values):
+            q_values += weights[:, i].unsqueeze(1) * m_q.to(neural_state.device)
+            
+        return q_values
+
 
 class BlenderActorCritic(nn.Module):
     """
@@ -364,8 +397,19 @@ class BlenderActorCritic(nn.Module):
             device=device,
         )
 
+    def get_cfg(self, key, default=None):
+        """Helper to get a config value from either cfg or cfg.agent."""
+        if self.cfg is None: return default
+        if key in self.cfg: return self.cfg[key]
+        if "agent" in self.cfg and key in self.cfg["agent"]:
+            return self.cfg["agent"][key]
+        return default
+
     def self_organize_cew_modules(self, dataset_sample_obs):
-        """Triggers self-organization for any CEW modules in the architecture."""
+        """Triggers self-organization for any CEW modules in the architecture.
+        Returns True if any module was physically replaced (architecture changed).
+        """
+        any_changed = False
         for i, m in enumerate(self.policy_modules):
             if self.module_types[i] == "cew":
                 print(f"Self-organizing CEW module {i}...")
@@ -380,17 +424,25 @@ class BlenderActorCritic(nn.Module):
                 # CLIP
                 antecedents = run_CLIP(obs, mins, maxes)
                 # ECM
-                dthr = self.cfg.agent.get("ecm_dthr", 0.05)
+                dthr = self.get_cfg("ecm_dthr", 0.05)
                 clusters = run_ECM(obs, [], dthr)
                 reduced_X = np.array([c.center for c in clusters])
                 # WM
-                rules = rule_creation(reduced_X, antecedents)
+                antecedents, rules = rule_creation(reduced_X, antecedents)
                 
                 # FYD (optional)
-                if self.cfg.agent.get("fyd", False):
-                    top_k = self.cfg.agent.get("fyd_top_k", None)
-                    rules = run_FYD(rules, obs, antecedents, top_k=top_k)
+                if self.get_cfg("fyd", False):
+                    top_k = self.get_cfg("fyd_top_k", None)
+                    rules, antecedents = run_FYD(rules, obs, antecedents, top_k=top_k)
                 
+                # Check if architecture changed
+                current_rules = getattr(m.flcs[0], "links", None)
+                if current_rules is not None and current_rules.shape[1] == len(rules):
+                    # Simple heuristic: if rule count is same, check if antecedents count is same
+                    if m.flcs[0].transformed_len == sum(len(p_ants) for p_ants in antecedents):
+                        print(f"CEW module {i} architecture stable ({len(rules)} rules). Skipping reset.")
+                        continue
+
                 # Re-initialize MultiFLC in place
                 from src.methods.cew_utils import MultiFLC
                 n_in = np.prod(obs.shape[1:])
@@ -407,7 +459,9 @@ class BlenderActorCritic(nn.Module):
                 self.policy_modules[i] = new_m
                 # Also update the actor's reference
                 self.actor.policy_modules[i] = new_m
-                print(f"CEW module {i} self-organized with {len(rules)} rules.")
+                print(f"CEW module {i} self-organized with {len(rules)} rules. Weights reset.")
+                any_changed = True
+        return any_changed
 
     def get_action_and_value(self, neural_state, logic_state, action=None):
         action_probs, blending_weights = self.actor(neural_state, logic_state)
@@ -420,6 +474,9 @@ class BlenderActorCritic(nn.Module):
         blended_value = self.get_value(neural_state, logic_state, blending_weights=blending_weights)
 
         return action, logprob, dist.entropy(), blend_dist.entropy(), blended_value
+
+    def get_q_values(self, neural_state, logic_state):
+        return self.actor.get_q_values(neural_state, logic_state)
 
     def get_value(self, neural_state, logic_state, blending_weights=None):
         if blending_weights is None:

@@ -116,6 +116,10 @@ class CNNActor(nn.Module):
         probs = Categorical(logits=logits)
         return probs.probs
 
+    def get_q_values(self, x):
+        hidden = self.network(x / 255.0)
+        return self.actor(hidden)
+
 
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.orthogonal_(layer.weight, std)
@@ -156,6 +160,9 @@ class MLPQNetwork(nn.Module):
 
     def forward(self, x):
         return self.network(x.float())
+
+    def get_q_values(self, x):
+        return self.forward(x)
 
 
 class MLPValueNetwork(nn.Module):

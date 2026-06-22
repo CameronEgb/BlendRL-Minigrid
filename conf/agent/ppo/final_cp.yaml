@@ -1,0 +1,16 @@
+defaults:
+  - /agent: ppo_base
+  - _self_
+
+# Best parameters found from 100-trial sweep
+lr: 0.00727
+ent_coef: 0.0305
+clip_coef: 0.244
+num_steps: 256
+num_envs: 10
+num_minibatches: 4
+update_epochs: 10
+
+# Placeholders
+tau: 0.7
+beta: 3.0
