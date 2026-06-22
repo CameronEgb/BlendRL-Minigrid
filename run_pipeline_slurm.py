@@ -138,7 +138,10 @@ def main():
         agent_name_internal = agent_config.replace("/", "_")
         job_name = f"{agent_name_internal}_{cfg.experiment_id}"
         # For sweeps, we let the config handle trial-specific subdirectories
-        dataset_path = f"results/datasets/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}"
+        if is_sweep:
+            dataset_path = f"results/datasets/{cfg.experiment_id}/{agent_name_internal}"
+        else:
+            dataset_path = f"results/datasets/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}"
         
         # Check if dataset already exists to skip training (either in parent or in any subdirectories)
         has_pkl = False
@@ -210,7 +213,7 @@ def main():
                 # We modify the command to: 
                 # 1. Query best trial 2. Set dataset_path 3. Run train.py
                 best_id_cmd = f"BEST_ID=$($PROJECT_ROOT/venv/bin/python3 -c \"import sys; sys.path.append('$PROJECT_ROOT'); from run_pipeline import get_best_trial_id; print(get_best_trial_id('{storage_url}', '{study_name}'))\")"
-                dataset_path_cmd = f"D_PATH=results/datasets/{cfg.group}/{cfg.experiment_id}/{dataset_name_internal}/$BEST_ID"
+                dataset_path_cmd = f"D_PATH=results/datasets/{cfg.experiment_id}/{dataset_name_internal}/$BEST_ID"
                 
                 # Replace train.py in overrides with the dynamic one
                 cmd_args = overrides + sanitized_extra_args
@@ -232,7 +235,7 @@ def main():
                 script_content += f"{dataset_path_cmd}\n"
                 script_content += f"if [ ! -d \"$D_PATH\" ] || [ -z \"\$(ls \$D_PATH/*.pkl 2>/dev/null)\" ]; then\n"
                 script_content += f"    echo \"Best trial dataset not found at \$D_PATH. Falling back to parent directory.\"\n"
-                script_content += f"    D_PATH=results/datasets/{cfg.group}/{cfg.experiment_id}/{dataset_name_internal}\n"
+                script_content += f"    D_PATH=results/datasets/{cfg.experiment_id}/{dataset_name_internal}\n"
                 script_content += f"fi\n"
                 script_content += f"echo \"Using dataset: \$D_PATH\"\n"
                 script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} ++mode.dataset_path=\$D_PATH\n"
