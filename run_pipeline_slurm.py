@@ -141,6 +141,7 @@ def main():
         dataset_path = f"results/datasets/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}"
         
         # Check if dataset already exists to skip training
+        print(f"DEBUG: agent_config={agent_config}, dataset_path={dataset_path}, exists={os.path.exists(dataset_path)}, is_sweep={is_sweep}")
         if not is_sweep and os.path.exists(dataset_path) and any(f.endswith(".pkl") for f in os.listdir(dataset_path) if os.path.isfile(os.path.join(dataset_path, f))):
              print(f"Dataset already exists at {dataset_path}. Skipping online training job.")
              online_job_ids[agent_config] = None
