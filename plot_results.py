@@ -17,12 +17,24 @@ def get_style_info(label):
     # Check for the main algorithm name in the label for standard baselines
     if "ppo" in l and "(on" not in l: return "black", "--", "o"
     if "blendrl-iql" in l: return "#d62728", "-", "s"
-    if "blendrl" in l and "iql" not in l and "(on" not in l: return "#2ca02c", "-", "^"
-    if "iql" in l and "blendrl" not in l: return "#1f77b4", "-", "d"
     
     # Specialized colors for CEW/FYD architectures
-    if "fyd" in l: return "#9467bd", "-", "p" # Purple
-    if "cew" in l: return "#ff7f0e", "-", "h" # Orange
+    if "fyd" in l: 
+        if "human" in l:
+            return "#9467bd", "--", "p" # Purple dashed
+        return "#9467bd", "-", "p" # Purple solid
+    if "cew" in l: 
+        if "human" in l:
+            return "#ff7f0e", "--", "x" # Orange dashed, 'x' marker
+        return "#ff7f0e", "-", "h" # Orange solid, hexagon marker
+        
+    # Generic BlendRL (non-IQL)
+    if "blendrl" in l and "iql" not in l:
+        if "human" in l:
+            return "#2ca02c", "--", "^" # Green dashed
+        return "#2ca02c", "-", "^" # Green solid
+        
+    if "iql" in l and "blendrl" not in l: return "#1f77b4", "-", "d"
     
     return None, "-", "o"
 
@@ -42,8 +54,17 @@ def clean_label(label):
     
     # Specific common replacements
     l = l.replace("CEW_ONLY", "CEW")
+    l = l.replace("CEW+ONLY", "CEW")
     l = l.replace("HUMAN+CEW", "Human+CEW")
     l = l.replace("HUMAN+NEURAL", "Human+Neural")
+    
+    # Clean other common patterns
+    l = l.replace("ppo_cp_tuned", "PPO")
+    l = l.replace("ppo_tuned", "PPO")
+    l = l.replace("ppo_final_cp", "PPO")
+    l = l.replace("blendrl_cp_tuned", "BlendRL")
+    l = l.replace("iql_cp_tuned", "IQL")
+    l = l.replace("blendrl_iql_cp_tuned", "BlendRL-IQL")
     return l
 
 def moving_average(a, n=5):
@@ -117,9 +138,9 @@ def load_run_data(run_folder, args):
     
     # Use the specific folder name if it's more descriptive than just the base algorithm
     if folder_label.lower() != agent_name.lower() and folder_label.lower() != name_map.get(agent_name, "").lower():
-        agent_display_name = folder_label
+        agent_display_name = clean_label(folder_label)
     else:
-        agent_display_name = name_map.get(agent_name, agent_name)
+        agent_display_name = clean_label(name_map.get(agent_name, agent_name))
     
     source = "ONLINE"
     mode = config.get("mode", {}).get("type") if config else "unknown"
