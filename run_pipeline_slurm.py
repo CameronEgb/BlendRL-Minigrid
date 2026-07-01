@@ -100,13 +100,16 @@ def main():
     
     for arg in extra_args:
         if "=" in arg:
-            if not (arg.startswith("+") or arg.startswith("++")):
+            # If it has a slash, it is a config group (e.g. hydra/sweeper=optuna), do not prepend ++
+            if not (arg.startswith("+") or arg.startswith("++") or "/" in arg.split("=")[0]):
                 sanitized_arg = "++" + arg
             else:
                 sanitized_arg = arg
             sanitized_extra_args.append(sanitized_arg)
-            # Exclude sweep parameters from compose configuration overrides
-            if not any(sw in sanitized_arg for sw in ["interval(", "choice(", "range("]):
+            # Exclude sweep parameters and hydra internal configs from compose configuration overrides
+            is_sweep = any(sw in sanitized_arg for sw in ["interval(", "choice(", "range("])
+            is_hydra = sanitized_arg.startswith("hydra/") or sanitized_arg.startswith("++hydra/") or sanitized_arg.startswith("hydra.") or sanitized_arg.startswith("++hydra.")
+            if not (is_sweep or is_hydra):
                 overrides_for_compose.append(sanitized_arg)
         else:
             # Flags like --multirun or -m should be passed to subprocess but NOT to compose
