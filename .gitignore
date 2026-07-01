@@ -26,3 +26,6 @@ outputs/
 # Databases / Optuna
 optuna.db
 *.db
+
+# Antigravity/Agent customizations
+.agents/

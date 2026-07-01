@@ -55,6 +55,9 @@ def main(cfg: DictConfig):
     elif base_algo_name.startswith("blendrl_cql"):
         from src.methods.blendrl_cql_agent import BlendRLCQLAgent
         model = BlendRLCQLAgent(cfg)
+    elif base_algo_name.startswith("cql"):
+        from src.methods.cql_agent import CQLAgent
+        model = CQLAgent(cfg)
     elif base_algo_name.startswith("blendrl"):
         from src.methods.blendrl_agent import BlendRLAgent
         model = BlendRLAgent(cfg)
@@ -87,10 +90,16 @@ def main(cfg: DictConfig):
     # Loggers
     log_dir = os.path.join("results/logs", cfg.group, cfg.experiment_id)
     tb_dir = os.path.join("results/tensorboard", cfg.group, cfg.experiment_id)
-    loggers = [
-        CSVLogger(log_dir, name=cfg.agent.name),
-        TensorBoardLogger(tb_dir, name=cfg.agent.name, default_hp_metric=False)
-    ]
+    
+    loggers = [CSVLogger(log_dir, name=cfg.agent.name)]
+    try:
+        tb_logger = TensorBoardLogger(tb_dir, name=cfg.agent.name, default_hp_metric=False)
+        # Access self.experiment to force the import of tensorboard and catch failures early
+        _ = tb_logger.experiment
+        loggers.append(tb_logger)
+    except Exception as e:
+        print(f"\n[Warning] TensorBoardLogger failed to load due to environment dependency issues: {e}")
+        print("[Warning] Falling back to CSVLogger only. (Your plots will still work as they read from CSV logs).\n")
     
     # Callbacks
     from src.utils import EnvironmentEvaluatorCallback

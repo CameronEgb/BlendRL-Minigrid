@@ -30,8 +30,10 @@ class DatasetWriter:
             if isinstance(x, torch.Tensor):
                 x = x.detach().cpu().numpy()
             if is_obs and x is not None:
-                # Cast to uint8 for storage (0-255)
-                return x.astype(np.uint8)
+                # Use float32 for vector environments, uint8 only for images (>= 2D)
+                if len(x.shape) >= 2:
+                    return x.astype(np.uint8)
+                return x.astype(np.float32)
             return x
 
         transition = {

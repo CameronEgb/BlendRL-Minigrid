@@ -173,6 +173,10 @@ def load_run_data(run_folder, args):
         
         source = name_map.get(source_key, source_key)
     
+    if getattr(args, "show_versions", False):
+        version_num = run_folder.name.split('_')[1] if run_folder.name.startswith("version_") else "latest"
+        label = f"{label} (v{version_num})"
+    
     exp_id = "UNKNOWN"
     group = "ungrouped"
     if config:
@@ -324,7 +328,11 @@ def main():
     parser.add_argument("--version", type=str, default=None, help="Specific version (e.g., 0), 'all' to aggregate, or latest by default.")
     parser.add_argument("--style", type=str, default=None, help="Path to a YAML config file defining plot styles and groupings.")
     parser.add_argument("--sources", type=str, default=None, help="Path to a YAML file defining specific run paths to plot together.")
+    parser.add_argument("--show-versions", action="store_true", help="Plot each version as a separate line instead of aggregating them.")
     args = parser.parse_args()
+
+    if getattr(args, "show_versions", False) and args.version is None:
+        args.version = "all"
 
     if not args.experiment and not args.sources:
         parser.error("At least one of 'experiment' or '--sources' must be provided.")
@@ -351,26 +359,47 @@ def main():
         
         for run_def in sources_cfg.get("runs", []):
             run_path = Path(run_def["path"])
-            # If path points to version folder, use it. Else find version_0
-            target_folder = run_path
-            if not (run_path / "metrics.csv").exists():
-                # Check for version_0, etc.
-                versions = sorted(list(run_path.glob("version_*")))
-                if versions:
-                    target_folder = versions[-1] # Default to latest version
+            v_spec = run_def.get("version", None)
             
-            if not (target_folder / "metrics.csv").exists():
-                print(f"Warning: No metrics.csv found at {target_folder}, skipping.")
-                continue
+            # Determine versions to load
+            if v_spec is not None:
+                if isinstance(v_spec, list):
+                    versions_to_load = v_spec
+                else:
+                    versions_to_load = [v_spec]
+            else:
+                versions_to_load = [None]
                 
-            run_data = load_run_data(target_folder, args)
-            # Override with synthesized labels and grouping
-            if "label" in run_def:
-                run_data["label"] = run_def["label"]
-            
-            run_data["group"] = "synthesized"
-            run_data["exp_id"] = synthesized_name
-            all_runs.append(run_data)
+            for v in versions_to_load:
+                if v is not None:
+                    target_folder = run_path / f"version_{v}"
+                else:
+                    target_folder = run_path
+                    if not (run_path / "metrics.csv").exists():
+                        # Default to latest version if it exists
+                        versions = sorted(list(run_path.glob("version_*")))
+                        if versions:
+                            target_folder = versions[-1]
+                
+                if not (target_folder / "metrics.csv").exists():
+                    print(f"Warning: No metrics.csv found at {target_folder}, skipping.")
+                    continue
+                    
+                run_data = load_run_data(target_folder, args)
+                
+                # Override with synthesized labels and grouping
+                if "label" in run_def:
+                    if v_spec is not None:
+                        run_data["label"] = f"{run_def['label']} (v{v})"
+                    else:
+                        run_data["label"] = run_def["label"]
+                else:
+                    if v_spec is not None:
+                        run_data["label"] = f"{run_data['label']} (v{v})"
+                
+                run_data["group"] = "synthesized"
+                run_data["exp_id"] = synthesized_name
+                all_runs.append(run_data)
             
         experiment_name_for_save = synthesized_name
     else:
@@ -578,6 +607,12 @@ def main():
                 create_plot(current_groups, metric, title, ylabel, save_dir / filename, 
                            window=window, use_simple_labels=use_simple_labels, 
                            x_axis_col=x_axis, xlabel=xlabel)
+                
+                # Generate an extra all_plots.png for easy version comparison
+                if metric == "eval/reward" and getattr(args, "show_versions", False):
+                    create_plot(current_groups, metric, title, ylabel, save_dir / "all_plots.png", 
+                               window=window, use_simple_labels=use_simple_labels, 
+                               x_axis_col=x_axis, xlabel=xlabel)
         else:
             # Standard combined plot
             current_groups = defaultdict(list)
@@ -590,6 +625,12 @@ def main():
             create_plot(current_groups, metric, title, ylabel, save_dir / filename, 
                        window=window, use_simple_labels=use_simple_labels, 
                        x_axis_col=x_axis, xlabel=xlabel)
+            
+            # Generate an extra all_plots.png for easy version comparison
+            if metric == "eval/reward" and getattr(args, "show_versions", False):
+                create_plot(current_groups, metric, title, ylabel, save_dir / "all_plots.png", 
+                           window=window, use_simple_labels=use_simple_labels, 
+                           x_axis_col=x_axis, xlabel=xlabel)
 
     generate_time_table(all_runs, save_dir)
     generate_hyperparam_report(all_runs, save_dir)

@@ -148,15 +148,16 @@ class ValueNetwork(nn.Module):
 
 
 class MLPQNetwork(nn.Module):
-    def __init__(self, n_actions, num_in_features=4):
+    def __init__(self, n_actions, num_in_features=4, hidden_sizes=[64, 64]):
         super().__init__()
-        self.network = nn.Sequential(
-            layer_init(nn.Linear(num_in_features, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, n_actions), std=1.0),
-        )
+        layers = []
+        last_size = num_in_features
+        for size in hidden_sizes:
+            layers.append(layer_init(nn.Linear(last_size, size)))
+            layers.append(nn.Tanh())
+            last_size = size
+        layers.append(layer_init(nn.Linear(last_size, n_actions), std=1.0))
+        self.network = nn.Sequential(*layers)
 
     def forward(self, x):
         return self.network(x.float())
@@ -166,18 +167,20 @@ class MLPQNetwork(nn.Module):
 
 
 class MLPValueNetwork(nn.Module):
-    def __init__(self, num_in_features=4):
+    def __init__(self, num_in_features=4, hidden_sizes=[64, 64]):
         super().__init__()
-        self.network = nn.Sequential(
-            layer_init(nn.Linear(num_in_features, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 1), std=1.0),
-        )
+        layers = []
+        last_size = num_in_features
+        for size in hidden_sizes:
+            layers.append(layer_init(nn.Linear(last_size, size)))
+            layers.append(nn.Tanh())
+            last_size = size
+        layers.append(layer_init(nn.Linear(last_size, 1), std=1.0))
+        self.network = nn.Sequential(*layers)
 
     def forward(self, x):
         return self.network(x.float())
+
 
 
 class QNetwork(nn.Module):

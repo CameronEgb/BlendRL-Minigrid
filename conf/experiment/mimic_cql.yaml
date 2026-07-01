@@ -1,0 +1,30 @@
+# @package _global_
+defaults:
+  - override /agent: cql_base
+  - override /mode: offline
+
+# Architecture
+env:
+  name: mimic
+  architecture: mlp
+
+online_methods: []
+offline_methods: [cql]
+offline_datasets: [mimic]
+
+total_timesteps: 9732
+intervals_count: 1
+eval_episodes: 100
+
+agent:
+  epochs_per_interval: 50
+  eval_interval_epochs: 10
+  batch_size: 64
+  lr: 3e-4
+  cql_alpha: 1.0
+
+mode:
+  dataset_path: results/datasets/sepsis/mimic/cql
+
+experiment_id: mimic_cql
+group: sepsis

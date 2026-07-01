@@ -1,10 +1,10 @@
-name: iql
-algorithm: iql
+name: cql
+algorithm: cql
 lr: 3e-4
-tau: 0.7
-beta: 3.0
 batch_size: 256
 epochs_per_interval: 10
+cql_alpha: 1.0
+soft_target_tau: 0.005
 hidden_sizes: [64, 64]
 # Placeholders for sweep compatibility
 ent_coef: 0.0

@@ -17,6 +17,9 @@ def generate_sbatch_script(job_name, cmd_args, log_dir, partition="rtx4060ti16g"
     script += f"#SBATCH --nodes={nodes}\n"
     script += f"#SBATCH --output={log_dir}/%x_%j.out\n"
     script += f"#SBATCH --error={log_dir}/%x_%j.err\n"
+    script += f"#SBATCH --mail-type=END,FAIL\n"
+    script += f"#SBATCH --mail-user=cegbert@ncsu.edu\n"
+
     
     if dependency:
         script += f"#SBATCH --dependency=afterok:{dependency}\n"
@@ -269,6 +272,9 @@ def main():
                 script_content += f"#SBATCH --nodes={args.nodes}\n"
                 script_content += f"#SBATCH --output={log_dir}/%x_%j.out\n"
                 script_content += f"#SBATCH --error={log_dir}/%x_%j.err\n"
+                script_content += f"#SBATCH --mail-type=END,FAIL\n"
+                script_content += f"#SBATCH --mail-user=cegbert@ncsu.edu\n"
+
                 if dependency_job_id:
                     script_content += f"#SBATCH --dependency=afterok:{dependency_job_id}\n"
                 script_content += f"\n"
@@ -321,6 +327,9 @@ def main():
         final_script += f"#SBATCH --nodes=1\n"
         final_script += f"#SBATCH --output={log_dir}/%x_%j.out\n"
         final_script += f"#SBATCH --error={log_dir}/%x_%j.err\n"
+        final_script += f"#SBATCH --mail-type=END,FAIL\n"
+        final_script += f"#SBATCH --mail-user=cegbert@ncsu.edu\n"
+
         if all_dependencies:
             final_script += f"#SBATCH --dependency=afterany:{all_dependencies}\n"
         final_script += f"\nexport PROJECT_ROOT={project_root}\n"
@@ -353,6 +362,8 @@ def main():
     print(f"\n=== Submission Complete ===")
     sys.stdout.flush()
     sys.exit(0)
+
+
 
 if __name__ == "__main__":
     main()
