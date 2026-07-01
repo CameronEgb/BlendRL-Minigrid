@@ -17,6 +17,7 @@ offline_dataset/
 *.h5
 *.pkl
 *.pth
+*.npz
 
 # OS Specific
 .DS_Store

@@ -29,6 +29,9 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
             # Resolve relative to env_vectorized.py location (../../../../datasets/MIMIC 2)
             mimic_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../datasets/MIMIC 2"))
         if not os.path.exists(mimic_dir):
+            # Check cluster mount directory
+            mimic_dir = "/mnt/beegfs/cegbert/MIMIC 2"
+        if not os.path.exists(mimic_dir):
             # Resolve relative to current working directory (../datasets/MIMIC 2)
             mimic_dir = os.path.abspath(os.path.join(os.getcwd(), "../datasets/MIMIC 2"))
             
