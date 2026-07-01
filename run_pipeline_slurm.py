@@ -113,7 +113,7 @@ def main():
             sanitized_extra_args.append(sanitized_arg)
             # Exclude sweep parameters and hydra internal configs from compose configuration overrides
             is_sweep = any(sw in sanitized_arg for sw in ["interval(", "choice(", "range("])
-            is_hydra = sanitized_arg.startswith("hydra/") or sanitized_arg.startswith("++hydra/") or sanitized_arg.startswith("hydra.") or sanitized_arg.startswith("++hydra.")
+            is_hydra = "hydra/" in sanitized_arg or "hydra." in sanitized_arg
             if not (is_sweep or is_hydra):
                 overrides_for_compose.append(sanitized_arg)
         else:
