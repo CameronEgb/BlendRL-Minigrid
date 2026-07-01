@@ -31,8 +31,9 @@ def generate_sbatch_script(job_name, cmd_args, log_dir, partition="rtx4060ti16g"
     # Construct the python command with absolute venv path
     import shlex
     cmd_str = "$PROJECT_ROOT/venv/bin/python3 " + " ".join(shlex.quote(arg) for arg in cmd_args)
-    script += f"echo 'Running: {cmd_str}'\n"
+    script += f"echo \"Running: {cmd_str}\"\n"
     script += f"{cmd_str}\n"
+
 
     
     return script
@@ -319,7 +320,8 @@ def main():
     # 3. Final Dependent Job: Plotting and Syncing
     if job_ids:
         actual_exp_id = cfg.experiment_id
-        print(f"\n=== Preparing Final Job: Plotting and Syncing ({actual_exp_id}) ===")
+        print(f"\n=== Preparing Final Job: Plotting ({actual_exp_id}) ===")
+
         job_name = f"final_{actual_exp_id}"
         
         all_dependencies = ":".join(jid for jid in job_ids if jid != "99999")
