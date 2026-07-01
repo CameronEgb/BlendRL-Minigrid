@@ -23,7 +23,15 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
         self.seed = seed if seed is not None else 42
         
         # Load dataset
+        # Try local absolute path, fallback to relative path from project root
         mimic_dir = "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2"
+        if not os.path.exists(mimic_dir):
+            # Resolve relative to env_vectorized.py location (../../../../datasets/MIMIC 2)
+            mimic_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../datasets/MIMIC 2"))
+        if not os.path.exists(mimic_dir):
+            # Resolve relative to current working directory (../datasets/MIMIC 2)
+            mimic_dir = os.path.abspath(os.path.join(os.getcwd(), "../datasets/MIMIC 2"))
+            
         path = os.path.join(mimic_dir, dataset_name)
         if not os.path.exists(path):
             raise FileNotFoundError(f"MIMIC dataset not found at {path}")
