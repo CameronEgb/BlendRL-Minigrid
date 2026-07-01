@@ -104,7 +104,9 @@ def main():
     for arg in extra_args:
         if "=" in arg:
             # If it has a slash, it is a config group (e.g. hydra/sweeper=optuna), do not prepend ++
-            if not (arg.startswith("+") or arg.startswith("++") or "/" in arg.split("=")[0]):
+            # Also, do not prepend ++ to sweep parameters (containing interval, choice, or range)
+            is_sweep_param = any(sw in arg for sw in ["interval(", "choice(", "range("])
+            if not (arg.startswith("+") or arg.startswith("++") or "/" in arg.split("=")[0] or is_sweep_param):
                 sanitized_arg = "++" + arg
             else:
                 sanitized_arg = arg
