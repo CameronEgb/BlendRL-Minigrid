@@ -105,7 +105,9 @@ def main():
             else:
                 sanitized_arg = arg
             sanitized_extra_args.append(sanitized_arg)
-            overrides_for_compose.append(sanitized_arg)
+            # Exclude sweep parameters from compose configuration overrides
+            if not any(sw in sanitized_arg for sw in ["interval(", "choice(", "range("]):
+                overrides_for_compose.append(sanitized_arg)
         else:
             # Flags like --multirun or -m should be passed to subprocess but NOT to compose
             sanitized_extra_args.append(arg)
