@@ -29,9 +29,11 @@ def generate_sbatch_script(job_name, cmd_args, log_dir, partition="rtx4060ti16g"
     script += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/nsfr:$PROJECT_ROOT/src/nudge:$PROJECT_ROOT/src/neumann:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n"
     
     # Construct the python command with absolute venv path
-    cmd_str = "$PROJECT_ROOT/venv/bin/python3 " + " ".join(cmd_args)
+    import shlex
+    cmd_str = "$PROJECT_ROOT/venv/bin/python3 " + " ".join(shlex.quote(arg) for arg in cmd_args)
     script += f"echo 'Running: {cmd_str}'\n"
     script += f"{cmd_str}\n"
+
     
     return script
 
@@ -267,7 +269,9 @@ def main():
                 # Replace train.py in overrides with the dynamic one
                 cmd_args = overrides + sanitized_extra_args
                 # We'll handle the assembly in the sbatch script generation or by wrapping it
-                train_cmd = " ".join(cmd_args)
+                import shlex
+                train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
+
                 
                 # Create a custom script content
                 script_content = f"#!/bin/bash\n"
