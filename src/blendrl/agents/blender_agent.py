@@ -103,6 +103,18 @@ class BlenderActor(nn.Module):
                         blender_id_to_pred_indices[i].append(j)
         return blender_id_to_pred_indices
 
+    def _map_logic_output(self, q, module):
+        if not hasattr(module, "prednames") or q.size(1) == self.env.n_actions:
+            return q
+            
+        action_names = self.env.get_action_meanings()
+        mapped_q = torch.zeros(q.size(0), len(action_names), device=q.device)
+        for idx, action_name in enumerate(action_names):
+            if action_name in module.prednames:
+                pred_idx = module.prednames.index(action_name)
+                mapped_q[:, idx] = q[:, pred_idx]
+        return mapped_q
+
     def get_explanation(self, neural_state, logic_state, action):
         """
         Get the explanation of the blending weights.
@@ -123,7 +135,7 @@ class BlenderActor(nn.Module):
                 probs = module.get_action_probs(neural_state)
             else:
                 # logic or cew
-                probs = module.get_action_probs(logic_state)
+                probs = self._map_logic_output(module.get_action_probs(logic_state), module)
             module_probs.append(probs)
             
         # weights size: B * N_modules
@@ -162,7 +174,7 @@ class BlenderActor(nn.Module):
         action_probs = torch.zeros(logic_state.size(0), self.env.n_actions, device=logic_state.device)
         for i, module in enumerate(self.policy_modules):
             if self.module_types[i] != "neural":
-                probs = module.get_action_probs(logic_state)
+                probs = self._map_logic_output(module.get_action_probs(logic_state), module)
                 action_probs += weights[:, i].unsqueeze(1) * probs
             
         return action_probs, weights
@@ -259,7 +271,7 @@ class BlenderActor(nn.Module):
                     q = module(logic_state) # MultiFLC forward returns Q-values
                 else:
                     # Logic modules usually return probs, treat as Q-values [0, 1]
-                    q = module.get_action_probs(logic_state)
+                    q = self._map_logic_output(module.get_action_probs(logic_state), module)
             module_q_values.append(q)
             
         weights = self.to_blender_policy_distribution(neural_state, logic_state)

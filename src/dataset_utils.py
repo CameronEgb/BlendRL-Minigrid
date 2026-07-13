@@ -25,13 +25,12 @@ class DatasetWriter:
         next_logic_obs: tensor or array (can be None)
         done: bool or tensor
         """
-        # Convert to cpu numpy/scalar for storage to save VRAM/RAM
         def to_cpu(x, is_obs=False):
             if isinstance(x, torch.Tensor):
                 x = x.detach().cpu().numpy()
             if is_obs and x is not None:
-                # Use float32 for vector environments, uint8 only for images (>= 2D)
-                if len(x.shape) >= 2:
+                # Use float32 for vector environments, uint8 only for images (> 2D)
+                if len(x.shape) > 2:
                     return x.astype(np.uint8)
                 return x.astype(np.float32)
             return x
@@ -162,6 +161,41 @@ class DatasetReader:
             self.rewards = torch.tensor(np.concatenate(rewards_list, axis=0))
             self.next_obs = torch.tensor(np.concatenate(next_obs_list, axis=0))
             self.dones = torch.tensor(np.concatenate(dones_list, axis=0))
+            
+            # If MIMIC_REWARD_TYPE is set to "outcome", recompute rewards in the loaded dataset
+            import os
+            if os.environ.get("MIMIC_REWARD_TYPE") == "outcome" and self.obs.shape[-1] == 46:
+                print("MIMIC_REWARD_TYPE=outcome detected! Recomputing offline dataset rewards in memory...")
+                n_transitions = len(self.obs)
+                new_rewards = self.rewards.clone().float()
+                
+                start_idx = 0
+                for idx in range(n_transitions):
+                    if self.dones[idx] == 1.0 or idx == n_transitions - 1:
+                        # Trajectory goes from start_idx to idx (inclusive)
+                        # Determine outcome: if original reward at the end is negative, the patient died (1)
+                        outcome = 1.0 if self.rewards[idx] < 0.0 else 0.0
+                        
+                        # Recompute rewards for this trajectory
+                        for step_idx in range(start_idx, idx + 1):
+                            obs_t = self.obs[step_idx]
+                            
+                            map_penalty = max(0.0, -obs_t[15].item())
+                            lactate_penalty = max(0.0, obs_t[10].item())
+                            renal_penalty = max(0.0, obs_t[12].item())
+                            hepatic_penalty = max(0.0, obs_t[13].item())
+                            coagulation_penalty = max(0.0, -obs_t[11].item())
+                            
+                            penalty = -(map_penalty + lactate_penalty + renal_penalty + hepatic_penalty + coagulation_penalty)
+                            reward_t = 0.1 * penalty
+                            
+                            if step_idx == idx:
+                                reward_t += 15.0 if outcome == 0.0 else -15.0
+                                
+                            new_rewards[step_idx] = reward_t
+                        
+                        start_idx = idx + 1
+                self.rewards = new_rewards
             
             if has_logic:
                 self.logic_obs = torch.tensor(np.concatenate(logic_obs_list, axis=0))

@@ -19,6 +19,10 @@ import os
 def main(cfg: DictConfig):
     print(OmegaConf.to_yaml(cfg))
     
+    # Propagate reward type to environment variable
+    if "env" in cfg and "reward_type" in cfg.env:
+        os.environ["MIMIC_REWARD_TYPE"] = str(cfg.env.reward_type)
+    
     # Set seed
     agent_seed = cfg.agent.get("seed", cfg.seed)
     if isinstance(agent_seed, DictConfig): # Handle potential nesting

@@ -1,0 +1,9 @@
+septic_shock(X):-low_bp(X),high_lactate(X).
+organ_failure(X):-high_creatinine(X).
+organ_failure(X):-high_bilirubin(X).
+organ_failure(X):-low_platelets(X).
+clinically_stable(X):-normal_bp(X),normal_lactate(X),normal_organs(X).
+administer(X):-septic_shock(X).
+administer(X):-organ_failure(X).
+withhold(X):-clinically_stable(X).
+withhold(X):-true(E).

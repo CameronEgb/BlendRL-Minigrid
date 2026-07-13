@@ -98,11 +98,20 @@ class BlendRLCQLAgent(L.LightningModule):
         real_batch = datamodule.reader.sample(batch_size)
         
         obs = real_batch["obs"].to(self.device)
-        logic_obs = real_batch["logic_obs"].to(self.device)
+        if real_batch["logic_obs"] is not None:
+            logic_obs = real_batch["logic_obs"].to(self.device)
+        else:
+            logic_obs = torch.stack([self.env.extract_logic_state(o.cpu().numpy()) for o in obs]).to(self.device)
+            
         actions = real_batch["action"].to(self.device)
         rewards = real_batch["reward"].to(self.device)
         next_obs = real_batch["next_obs"].to(self.device)
-        next_logic_obs = real_batch["next_logic_obs"].to(self.device)
+        
+        if real_batch["next_logic_obs"] is not None:
+            next_logic_obs = real_batch["next_logic_obs"].to(self.device)
+        else:
+            next_logic_obs = torch.stack([self.env.extract_logic_state(o.cpu().numpy()) for o in next_obs]).to(self.device)
+            
         dones = real_batch["done"].to(self.device)
         
         # Use self.opt directly to ensure we use the updated optimizer after re-org

@@ -7,7 +7,7 @@ defaults:
 
 experiment_id: "tune_mimic_cql"
 group: "mimic"
-total_timesteps: 9732
+total_timesteps: 99142
 intervals_count: 5  # Sweep across 5 data-efficiency intervals (20%, 40%, 60%, 80%, 100%)
 eval_episodes: 100
 

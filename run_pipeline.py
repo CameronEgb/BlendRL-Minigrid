@@ -5,6 +5,7 @@ import sys
 import webbrowser
 import time
 import threading
+import re
 from omegaconf import OmegaConf
 import hydra
 from hydra import compose, initialize
@@ -71,7 +72,7 @@ def get_python_executable():
     project_root = os.getcwd()
     venv_python = os.path.join(project_root, "venv", "bin", "python3")
     
-    # Check if we should use python3.13 specifically if it exists (since all dependencies are there)
+    # Check if we should use python3.13 specifically if it exists
     venv_python_13 = os.path.join(project_root, "venv", "bin", "python3.13")
     if os.path.exists(venv_python_13):
         return venv_python_13
@@ -147,7 +148,6 @@ def launch_optuna_dashboard(storage_url):
         print(f"Warning: optuna-dashboard could not be started: {e}")
         print("Please ensure 'optuna-dashboard' is installed in your environment.")
 
-
 def delete_optuna_study(storage_url, study_name):
     """Deletes an existing study from the Optuna database to start fresh."""
     if not storage_url or not storage_url.startswith("sqlite:///"):
@@ -211,30 +211,107 @@ def find_dataset_globally(agent_name_internal):
     matches.sort(key=lambda p: len(Path(p).parts))
     return matches[0]
 
+def generate_sbatch_script(job_name, cmd_args, log_dir, partition="rtx4060ti16g", gpus=1, cores=16, nodes=1, dependency=None):
+    script = f"#!/bin/bash\n"
+    script += f"#SBATCH --job-name={job_name}\n"
+    script += f"#SBATCH --partition={partition}\n"
+    script += f"#SBATCH --ntasks-per-node={cores}\n"
+    script += f"#SBATCH --nodes={nodes}\n"
+    script += f"#SBATCH --output={log_dir}/%x_%j.out\n"
+    script += f"#SBATCH --error={log_dir}/%x_%j.err\n"
+    script += f"#SBATCH --mail-type=END,FAIL\n"
+    script += f"#SBATCH --mail-user=cegbert@ncsu.edu\n"
+
+    if dependency:
+        script += f"#SBATCH --dependency=afterok:{dependency}\n"
+        
+    script += f"\n"
+    script += f"export PROJECT_ROOT={os.getcwd()}\n"
+    script += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/nsfr:$PROJECT_ROOT/src/nudge:$PROJECT_ROOT/src/neumann:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n"
+    
+    # Construct the python command with absolute venv path
+    import shlex
+    cmd_str = "$PROJECT_ROOT/venv/bin/python3 " + " ".join(shlex.quote(arg) for arg in cmd_args)
+    script += f"echo \"Running: {cmd_str}\"\n"
+    script += f"{cmd_str}\n"
+    
+    return script
+
+def submit_sbatch(script_content):
+    print(f"Submitting Slurm job via stdin...")
+    try:
+        # Pipe script_content directly to sbatch stdin
+        result = subprocess.run(
+            ["sbatch"], 
+            input=script_content, 
+            capture_output=True, 
+            text=True, 
+            check=True
+        )
+        match = re.search(r"Submitted batch job (\d+)", result.stdout)
+        if match:
+            job_id = match.group(1)
+            print(f"-> Job ID: {job_id}")
+            return job_id
+        else:
+            print(f"Could not parse job ID from: {result.stdout}")
+            return None
+    except subprocess.CalledProcessError as e:
+        print(f"Error submitting job: {e.stderr}")
+        return None
+    except FileNotFoundError:
+        print("Error: 'sbatch' command not found. Are you on the Slurm cluster?")
+        return "99999"
+
+def run_early_prediction_eval(checkpoint_path):
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.path.abspath("src") + ":" + env.get("PYTHONPATH", "")
+    
+    venv_python = get_python_executable()
+    cmd = [
+        venv_python, "src/early_prediction_eval.py",
+        "--checkpoint", str(checkpoint_path)
+    ]
+    print(f"\n=== Running Early Prediction Evaluation for checkpoint: {checkpoint_path} ===")
+    subprocess.run(cmd, check=True, env=env)
+
 def main():
-    parser = argparse.ArgumentParser(description="NeSyRL Experiment Pipeline")
+    parser = argparse.ArgumentParser(description="NeSyRL Unified Experiment Pipeline")
     parser.add_argument("experiment", type=str, help="Experiment name from conf/experiment/")
-    parser.add_argument("--local", action="store_true", default=True)
+    parser.add_argument("--local", type=str, default=None, help="Force local run (true/false)")
+    parser.add_argument("--partition", type=str, default="rtx4060ti16g", help="Slurm partition")
+    parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs per job")
+    parser.add_argument("--cores", type=int, default=16, help="Number of CPU cores per job")
+    parser.add_argument("--nodes", type=int, default=1, help="Number of nodes per job")
+    parser.add_argument("--plot-style", type=str, default=None, help="Style config for plotter")
     parser.add_argument("--no-plot", action="store_true", help="Skip automatic plotting")
     parser.add_argument("--no-online", action="store_true", help="Skip online training phase")
     parser.add_argument("--no-offline", action="store_true", help="Skip offline training phase")
-    parser.add_argument("--plot-style", type=str, default=None, help="Style config for plotter")
     parser.add_argument("--no-dash", action="store_true", help="Disable the automatic dashboard")
     parser.add_argument("--dash-only", action="store_true", help="Launch the persistent dashboard and exit")
     args, extra_args = parser.parse_known_args()
 
-    # Prepare extra_args for subprocesses and compose call by ensuring they use ++ for robust overrides
+    # Prepare extra_args:
+    # sanitized_extra_args -> passed to train.py
+    # overrides_for_compose -> passed to hydra.compose to read the config
     sanitized_extra_args = []
     overrides_for_compose = [f"+experiment={args.experiment}"]
     
     for arg in extra_args:
         if "=" in arg:
-            if not (arg.startswith("+") or arg.startswith("++")):
+            # If it has a slash, it is a config group (e.g. hydra/sweeper=optuna), do not prepend ++
+            # Also, do not prepend ++ to sweep parameters (containing interval, choice, or range)
+            is_sweep_param = any(sw in arg for sw in ["interval(", "choice(", "range("])
+            if not (arg.startswith("+") or arg.startswith("++") or "/" in arg.split("=")[0] or is_sweep_param):
                 sanitized_arg = "++" + arg
             else:
                 sanitized_arg = arg
             sanitized_extra_args.append(sanitized_arg)
-            overrides_for_compose.append(sanitized_arg)
+            # Exclude sweep parameters and hydra internal configs from compose configuration overrides
+            is_sweep = any(sw in sanitized_arg for sw in ["interval(", "choice(", "range("])
+            is_hydra = "hydra/" in sanitized_arg or "hydra." in sanitized_arg
+            if not (is_sweep or is_hydra):
+                overrides_for_compose.append(sanitized_arg)
         else:
             # Flags like --multirun or -m should be passed to subprocess but NOT to compose
             sanitized_extra_args.append(arg)
@@ -245,31 +322,37 @@ def main():
         initialize(version_base=None, config_path="conf")
         # return_hydra_config=True is REQUIRED to see the hydra.sweeper node
         cfg = compose(config_name="config", overrides=overrides_for_compose, return_hydra_config=True)
-        
-        # Check for Optuna storage in the config
-        storage_url = None
-        is_sweep = "--multirun" in sanitized_extra_args or "-m" in sanitized_extra_args
-        
-        if "hydra" in cfg and "sweeper" in cfg.hydra and "storage" in cfg.hydra.sweeper:
-            storage_url = cfg.hydra.sweeper.storage
-            
-        if storage_url and (is_sweep or not args.no_dash):
-            # Resolve interpolation if any
-            storage_url = storage_url.replace("${experiment_id}", args.experiment)
-            launch_optuna_dashboard(storage_url)
-            
-            if args.dash_only:
-                print("Dashboard running in persistent mode. Press Ctrl+C to exit.")
-                try:
-                    while True:
-                        time.sleep(1)
-                except KeyboardInterrupt:
-                    sys.exit(0)
-                    
     except Exception as e:
         print(f"Error loading configuration: {e}")
         sys.exit(1)
+
+    # Determine execution mode (local vs slurm cluster)
+    local_val = cfg.get("local", True)
+    if args.local is not None:
+        local_val = args.local.lower() in ("true", "1", "yes")
+
+    print(f"Execution Mode: {'Local' if local_val else 'Slurm Cluster'}")
+
+    # Check for Optuna storage in the config
+    storage_url = None
+    is_sweep = "--multirun" in sanitized_extra_args or "-m" in sanitized_extra_args
+    
+    if "hydra" in cfg and "sweeper" in cfg.hydra and "storage" in cfg.hydra.sweeper:
+        storage_url = cfg.hydra.sweeper.storage
         
+    if local_val and storage_url and (is_sweep or not args.no_dash):
+        # Resolve interpolation if any
+        storage_url = storage_url.replace("${experiment_id}", args.experiment)
+        launch_optuna_dashboard(storage_url)
+        
+        if args.dash_only:
+            print("Dashboard running in persistent mode. Press Ctrl+C to exit.")
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                sys.exit(0)
+                
     if args.dash_only:
         print("Error: Could not find Optuna storage URL in configuration.")
         sys.exit(1)
@@ -278,11 +361,10 @@ def main():
     offline_methods = cfg.get("offline_methods", "")
     offline_datasets = cfg.get("offline_datasets", "")
 
-    # Helper to parse comma-separated lists or OmegaConf lists
+    # Helper to parse lists
     def parse_list(val):
         if not val: return []
         if isinstance(val, (list, tuple)): return list(val)
-        # Handle OmegaConf ListConfig/DictConfig
         if hasattr(val, "__iter__") and not isinstance(val, str):
             return list(val)
         return [item.strip() for item in str(val).split(",") if item.strip()]
@@ -300,23 +382,46 @@ def main():
     
     print(f"Using Datasets for Offline Training: {dataset_list}")
 
-    # Track the best trial ID for each online method to use its dataset later
+    # Slurm log setup
+    job_ids = []
+    online_job_ids = {} # dataset_id -> job_id
+    log_dir = None
+    if not local_val:
+        log_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
+        if log_dir.exists():
+            print(f"Clearing old logs in {log_dir}...")
+            for log_file in log_dir.glob("*"):
+                if log_file.is_file():
+                    log_file.unlink()
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+    # Track the best trial ID for each online method to use its dataset later (Local only)
     best_online_trial_ids = {}
 
     # 1. Online Training Phases
     if not args.no_online:
         for agent_config in online_list:
-            print(f"\n=== Phase: Online Training ({agent_config}) ===")
-            # Standardize agent name by replacing / with _ for the internal agent.name field
-            # this ensures loggers create manageable folder structures or names.
             agent_name_internal = agent_config.replace("/", "_")
-            study_name = f"{args.experiment}_{agent_name_internal}"
-            dataset_path = f"results/datasets/{cfg.group}/{args.experiment}/{agent_name_internal}"
+            study_name = f"{cfg.experiment_id}_{agent_name_internal}"
+            
+            if local_val:
+                dataset_path = f"results/datasets/{cfg.group}/{args.experiment}/{agent_name_internal}"
+            else:
+                if is_sweep:
+                    dataset_path = f"results/datasets/{cfg.experiment_id}/{agent_name_internal}"
+                else:
+                    dataset_path = f"results/datasets/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}"
             
             # Check if dataset already exists to skip training
             has_pkl = False
             if os.path.exists(dataset_path):
-                has_pkl = any(f.endswith(".pkl") for f in os.listdir(dataset_path) if os.path.isfile(os.path.join(dataset_path, f)))
+                if not local_val:
+                    for root, dirs, files in os.walk(dataset_path):
+                        if any(f.endswith(".pkl") for f in files):
+                            has_pkl = True
+                            break
+                else:
+                    has_pkl = any(f.endswith(".pkl") for f in os.listdir(dataset_path) if os.path.isfile(os.path.join(dataset_path, f)))
                 
             if not has_pkl:
                 found_path = find_dataset_globally(agent_name_internal)
@@ -336,88 +441,290 @@ def main():
 
             if has_pkl:
                  print(f"Dataset already exists at {dataset_path}. Skipping online training.")
-                 best_online_trial_ids[agent_config] = "0"
+                 if local_val:
+                     best_online_trial_ids[agent_config] = "0"
+                 else:
+                     online_job_ids[agent_config] = None
                  continue
 
-            overrides = [
-                f"+experiment={args.experiment}",
-                f"++local={str(args.local).lower()}",
-                f"mode=online",
-                f"agent={agent_config}",
-                f"++agent.name={agent_name_internal}",
-                f"++dataset_path={dataset_path}",
-                f"++hydra.sweeper.study_name={study_name}"
-            ] + sanitized_extra_args
-            
-            if is_sweep:
-                delete_optuna_study(storage_url, study_name)
-                
-            run_experiment(overrides)
-            
-            # After training, find the best trial ID if we were sweeping
-            if is_sweep:
-                best_id = get_best_trial_id(storage_url, study_name)
-                best_online_trial_ids[agent_config] = best_id
-                print(f"Best trial for {agent_config} was ID: {best_id}")
-            else:
-                best_online_trial_ids[agent_config] = "0"
-    else:
-        print("\n=== Skipping Online Training Phase ===")
-
-    # 2. Offline Training Phases (Many-to-Many)
-    if not args.no_offline:
-        for dataset_id in dataset_list:
-            # Standardize dataset name as well
-            dataset_name_internal = dataset_id.replace("/", "_")
-            
-            # Determine the correct dataset path, favoring the best trial if found
-            best_id = best_online_trial_ids.get(dataset_id, "0")
-            dataset_path = Path("results/datasets") / cfg.group / args.experiment / dataset_name_internal / best_id
-            
-            # Fallback for datasets that might exist but weren't part of this run's online methods
-            if not dataset_path.exists():
-                # Check if there's a non-trial version (legacy or non-sweep)
-                alt_path = Path("results/datasets") / cfg.group / args.experiment / dataset_name_internal
-                if alt_path.exists() and any(alt_path.glob("*.pkl")):
-                     dataset_path = alt_path
-                else:
-                    print(f"Error: Dataset '{dataset_id}' not found at {dataset_path} or {alt_path}")
-                    sys.exit(1)
-
-            print(f"Using dataset from: {dataset_path}")
-
-            for agent_config in offline_list:
-                agent_name_internal = agent_config.replace("/", "_")
-                print(f"\n=== Phase: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
-                
-                # Check if a custom dataset path is already in extra_args or config
-                dataset_path_override = any("mode.dataset_path=" in arg for arg in sanitized_extra_args)
-                
-                study_name = f"{args.experiment}_{agent_name_internal}_{dataset_name_internal}"
+            if local_val:
+                print(f"\n=== Phase: Online Training ({agent_config}) ===")
                 overrides = [
                     f"+experiment={args.experiment}",
-                    f"++local={str(args.local).lower()}",
-                    f"mode=offline",
+                    f"++local=true",
+                    f"mode=online",
                     f"agent={agent_config}",
                     f"++agent.name={agent_name_internal}",
+                    f"++dataset_path={dataset_path}",
                     f"++hydra.sweeper.study_name={study_name}"
-                ]
-                
-                if not dataset_path_override:
-                    overrides.append(f"++mode.dataset_path={dataset_path}")
-                    
-                overrides += sanitized_extra_args
+                ] + sanitized_extra_args
                 
                 if is_sweep:
                     delete_optuna_study(storage_url, study_name)
                     
                 run_experiment(overrides)
+                
+                # After training, find the best trial ID if we were sweeping
+                if is_sweep:
+                    best_id = get_best_trial_id(storage_url, study_name)
+                    best_online_trial_ids[agent_config] = best_id
+                    print(f"Best trial for {agent_config} was ID: {best_id}")
+                else:
+                    best_online_trial_ids[agent_config] = "0"
+            else:
+                print(f"\n=== Preparing Slurm Job: Online Training ({agent_config}) ===")
+                job_name = f"{agent_name_internal}_{cfg.experiment_id}"
+                overrides_slurm = [
+                    "train.py",
+                    f"+experiment={args.experiment}",
+                    f"++local=false",
+                    f"mode=online",
+                    f"agent={agent_config}",
+                    f"++agent.name={agent_name_internal}"
+                ]
+                if not is_sweep:
+                    overrides_slurm.append(f"++dataset_path={dataset_path}")
+                overrides_slurm += sanitized_extra_args
+                
+                script_content = generate_sbatch_script(
+                    job_name, overrides_slurm, log_dir=str(log_dir),
+                    partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes
+                )
+                job_id = submit_sbatch(script_content)
+                if job_id:
+                    job_ids.append(job_id)
+                    online_job_ids[agent_config] = job_id
+    else:
+        print("\n=== Skipping Online Training Phase ===")
+
+    # 2. Offline Training Phases (Many-to-Many)
+    eval_job_ids = []
+    if not args.no_offline:
+        for dataset_id in dataset_list:
+            dataset_name_internal = dataset_id.replace("/", "_")
+            is_online = dataset_id in online_list
+            dependency_job_id = online_job_ids.get(dataset_id) if not local_val else None
+            
+            if local_val:
+                best_id = best_online_trial_ids.get(dataset_id, "0")
+                dataset_path = Path("results/datasets") / cfg.group / args.experiment / dataset_name_internal / best_id
+                if not dataset_path.exists():
+                    alt_path = Path("results/datasets") / cfg.group / args.experiment / dataset_name_internal
+                    if alt_path.exists() and any(alt_path.glob("*.pkl")):
+                         dataset_path = alt_path
+                    else:
+                        print(f"Error: Dataset '{dataset_id}' not found at {dataset_path} or {alt_path}")
+                        sys.exit(1)
+                print(f"Using dataset from: {dataset_path}")
+
+            for agent_config in offline_list:
+                agent_name_internal = agent_config.replace("/", "_")
+                study_name = f"{args.experiment}_{agent_name_internal}_{dataset_name_internal}"
+                
+                if local_val:
+                    print(f"\n=== Phase: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
+                    dataset_path_override = any("mode.dataset_path=" in arg for arg in sanitized_extra_args)
+                    overrides = [
+                        f"+experiment={args.experiment}",
+                        f"++local=true",
+                        f"mode=offline",
+                        f"agent={agent_config}",
+                        f"++agent.name={agent_name_internal}",
+                        f"++hydra.sweeper.study_name={study_name}"
+                    ]
+                    if not dataset_path_override:
+                        overrides.append(f"++mode.dataset_path={dataset_path}")
+                    overrides += sanitized_extra_args
+                    
+                    if is_sweep:
+                        delete_optuna_study(storage_url, study_name)
+                        
+                    run_experiment(overrides)
+                else:
+                    print(f"\n=== Preparing Slurm Job: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
+                    job_name = f"{agent_name_internal}_{dataset_name_internal}_{cfg.experiment_id}"
+                    overrides_slurm = [
+                        "train.py",
+                        f"+experiment={args.experiment}",
+                        f"++local=false",
+                        f"mode=offline",
+                        f"agent={agent_config}",
+                        f"++agent.name={agent_name_internal}"
+                    ]
+                    
+                    if is_online and is_sweep:
+                        storage_url_slurm = f"sqlite:///optuna.db"
+                        study_name_slurm = f"{cfg.experiment_id}_{dataset_name_internal}"
+                        best_id_cmd = f"BEST_ID=$($PROJECT_ROOT/venv/bin/python3 -c \"import sys; sys.path.append('$PROJECT_ROOT'); from run_pipeline import get_best_trial_id; print(get_best_trial_id('{storage_url_slurm}', '{study_name_slurm}'))\")"
+                        dataset_path_cmd = f"D_PATH=results/datasets/{cfg.experiment_id}/{dataset_name_internal}/$BEST_ID"
+                        
+                        cmd_args = overrides_slurm + sanitized_extra_args
+                        import shlex
+                        train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
+                        
+                        script_content = f"#!/bin/bash\n"
+                        script_content += f"#SBATCH --job-name={job_name}\n"
+                        script_content += f"#SBATCH --partition={args.partition}\n"
+                        script_content += f"#SBATCH --ntasks-per-node={args.cores}\n"
+                        script_content += f"#SBATCH --nodes={args.nodes}\n"
+                        script_content += f"#SBATCH --output={log_dir}/%x_%j.out\n"
+                        script_content += f"#SBATCH --error={log_dir}/%x_%j.err\n"
+                        script_content += f"#SBATCH --mail-type=END,FAIL\n"
+                        script_content += f"#SBATCH --mail-user=cegbert@ncsu.edu\n"
+                        if dependency_job_id:
+                            script_content += f"#SBATCH --dependency=afterok:{dependency_job_id}\n"
+                        script_content += f"\n"
+                        script_content += f"export PROJECT_ROOT={os.getcwd()}\n"
+                        script_content += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n"
+                        script_content += f"{best_id_cmd}\n"
+                        script_content += f"{dataset_path_cmd}\n"
+                        script_content += f"if [ ! -d \"$D_PATH\" ] || [ -z \"$(ls $D_PATH/*.pkl 2>/dev/null)\" ]; then\n"
+                        script_content += f"    echo \"Best trial dataset not found at $D_PATH. Falling back to parent directory.\"\n"
+                        script_content += f"    D_PATH=results/datasets/{cfg.experiment_id}/{dataset_name_internal}\n"
+                        script_content += f"    if [ ! -d \"$D_PATH\" ] || [ -z \"$(ls $D_PATH/*.pkl 2>/dev/null)\" ]; then\n"
+                        script_content += f"        D_PATH=results/datasets/{cfg.group}/{cfg.experiment_id}/{dataset_name_internal}\n"
+                        script_content += f"    fi\n"
+                        script_content += f"fi\n"
+                        script_content += f"echo \"Using dataset: $D_PATH\"\n"
+                        script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} ++mode.dataset_path=$D_PATH\n"
+                    else:
+                        dataset_path = Path("results/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
+                        overrides_slurm.append(f"++mode.dataset_path={dataset_path}")
+                        overrides_slurm += sanitized_extra_args
+                        script_content = generate_sbatch_script(
+                            job_name, overrides_slurm, log_dir=str(log_dir),
+                            partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes,
+                            dependency=dependency_job_id
+                        )
+                    
+                    job_id = submit_sbatch(script_content)
+                    if job_id:
+                        job_ids.append(job_id)
+                        
+                        # Pipeline Integration: MIMIC early prediction evaluator for Slurm
+                        if cfg.env.name == "mimic":
+                            eval_job_name = f"eval_{agent_name_internal}_{dataset_name_internal}_{cfg.experiment_id}"
+                            if is_online and is_sweep:
+                                storage_url_slurm = f"sqlite:///optuna.db"
+                                study_name_slurm = f"{cfg.experiment_id}_{dataset_name_internal}"
+                                eval_cmd = (
+                                    f"BEST_ID=$($PROJECT_ROOT/venv/bin/python3 -c \"import sys; sys.path.append('$PROJECT_ROOT'); from run_pipeline import get_best_trial_id; print(get_best_trial_id('{storage_url_slurm}', '{study_name_slurm}'))\")\n"
+                                    f"CKPT_PATH=results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/$BEST_ID/best_model.ckpt\n"
+                                    f"if [ -f \"$CKPT_PATH\" ]; then\n"
+                                    f"    echo \"Running evaluation on $CKPT_PATH\"\n"
+                                    f"    $PROJECT_ROOT/venv/bin/python3 src/early_prediction_eval.py --checkpoint $CKPT_PATH\n"
+                                    f"else\n"
+                                    f"    echo \"Checkpoint not found at $CKPT_PATH\"\n"
+                                    f"fi"
+                                )
+                            else:
+                                ckpt_path = f"results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/0/best_model.ckpt"
+                                eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction_eval.py --checkpoint {ckpt_path}"
+                                
+                            eval_script = f"#!/bin/bash\n"
+                            eval_script += f"#SBATCH --job-name={eval_job_name}\n"
+                            eval_script += f"#SBATCH --partition={args.partition}\n"
+                            eval_script += f"#SBATCH --ntasks-per-node=1\n"
+                            eval_script += f"#SBATCH --nodes=1\n"
+                            eval_script += f"#SBATCH --output={log_dir}/%x_%j.out\n"
+                            eval_script += f"#SBATCH --error={log_dir}/%x_%j.err\n"
+                            eval_script += f"#SBATCH --mail-type=END,FAIL\n"
+                            eval_script += f"#SBATCH --mail-user=cegbert@ncsu.edu\n"
+                            eval_script += f"#SBATCH --dependency=afterok:{job_id}\n\n"
+                            eval_script += f"export PROJECT_ROOT={os.getcwd()}\n"
+                            eval_script += f"export PYTHONPATH=$PROJECT_ROOT/src:$PYTHONPATH\n\n"
+                            eval_script += eval_cmd + "\n"
+                            
+                            eval_job_id = submit_sbatch(eval_script)
+                            if eval_job_id:
+                                eval_job_ids.append(eval_job_id)
     else:
         print("\n=== Skipping Offline Training Phase ===")
 
+    # Add evaluation job IDs to dependency list so that final plotting waits for them
+    job_ids.extend(eval_job_ids)
+
+    # 3. Pipeline Integration: Local early prediction evaluation
+    if local_val and cfg.env.name == "mimic":
+        print("\n=== Phase: Local Early Prediction Evaluation ===")
+        ckpt_dir_root = Path("results/checkpoints") / cfg.group / cfg.experiment_id
+        if ckpt_dir_root.exists():
+            checkpoint_files = []
+            for path_dir in ckpt_dir_root.glob("**/"):
+                if path_dir.is_dir():
+                    candidates = list(path_dir.glob("best_model*.ckpt"))
+                    if candidates:
+                        candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                        checkpoint_files.append(candidates[0])
+            
+            if checkpoint_files:
+                for ckpt_file in checkpoint_files:
+                    run_early_prediction_eval(ckpt_file)
+            else:
+                print(f"Warning: No best_model*.ckpt files found under {ckpt_dir_root} for evaluation.")
+        else:
+            print(f"Warning: Checkpoint root directory {ckpt_dir_root} does not exist.")
+
     # 4. Plotting
     if not args.no_plot:
-        run_plotting(args.experiment, style=args.plot_style)
+        if local_val:
+            run_plotting(args.experiment, style=args.plot_style)
+        else:
+            if job_ids:
+                actual_exp_id = cfg.experiment_id
+                print(f"\n=== Preparing Final Job: Plotting ({actual_exp_id}) ===")
+
+                job_name = f"final_{actual_exp_id}"
+                
+                all_dependencies = ":".join(jid for jid in job_ids if jid != "99999")
+                
+                project_root = os.getcwd()
+                plot_cmd = f"{project_root}/venv/bin/python3 plot_results.py {actual_exp_id}"
+                if args.plot_style:
+                    plot_cmd += f" --style {args.plot_style}"
+                    
+                final_script = f"#!/bin/bash\n"
+                final_script += f"#SBATCH --job-name={job_name}\n"
+                final_script += f"#SBATCH --partition={args.partition}\n"
+                final_script += f"#SBATCH --ntasks-per-node=1\n"
+                final_script += f"#SBATCH --nodes=1\n"
+                final_script += f"#SBATCH --output={log_dir}/%x_%j.out\n"
+                final_script += f"#SBATCH --error={log_dir}/%x_%j.err\n"
+                final_script += f"#SBATCH --mail-type=END,FAIL\n"
+                final_script += f"#SBATCH --mail-user=cegbert@ncsu.edu\n"
+
+                if all_dependencies:
+                    final_script += f"#SBATCH --dependency=afterany:{all_dependencies}\n"
+                final_script += f"\nexport PROJECT_ROOT={project_root}\n"
+                final_script += f"export PYTHONPATH=$PROJECT_ROOT/src:$PYTHONPATH\n\n"
+                final_script += f"echo 'Generating final plots for {actual_exp_id}...'\n"
+                final_script += f"{plot_cmd}\n"
+                
+                job_id = submit_sbatch(final_script)
+                if job_id:
+                    job_ids.append(job_id)
+                        
+            # Save Job IDs to a file for easy cancellation
+            ids_file = Path("results/slurm_ids") / f"{cfg.experiment_id}.txt"
+            ids_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(ids_file, "w") as f:
+                for jid in job_ids:
+                    if jid != "99999":
+                        f.write(f"{jid}\n")
+            
+            print(f"\n" + "="*40)
+            print(f"SUBMISSION SUMMARY")
+            print(f"Config Name:   {args.experiment}")
+            print(f"Experiment ID: {cfg.experiment_id}")
+            print(f"Group:         {cfg.group}")
+            print(f"Job IDs Saved: {ids_file}")
+            print(f"To cancel this experiment, run:")
+            print(f"  ./cancel.sh {cfg.experiment_id}")
+            print("="*40)
+
+            print(f"\n=== Submission Complete ===")
+            sys.stdout.flush()
+            sys.exit(0)
 
 if __name__ == "__main__":
     main()

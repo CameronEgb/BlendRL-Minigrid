@@ -97,15 +97,22 @@ class CQLAgent(PPOAgent):
         self.manual_backward(q_loss)
         opt_q.step()
         
-        # 2. Update Actor (policy extraction from Q)
-        _, log_probs, entropy, _ = self.actor.get_action_and_value(obs, actions)
-        
-        # Standard Q-learning policy gradient actor update
-        with torch.no_grad():
-            q_vals = self.q_network(obs)
-            q_val_act = q_vals.gather(1, actions.unsqueeze(1)).squeeze(1)
+        # 2. Update Actor (expected Q maximization policy extraction)
+        if hasattr(self.actor, "network") and hasattr(self.actor, "actor"):
+            logits = self.actor.actor(self.actor.network(obs.float().reshape(obs.shape[0], -1)))
+            probs = torch.softmax(logits, dim=-1)
+            log_probs = torch.log_softmax(logits, dim=-1)
             
-        actor_loss = -(q_val_act * log_probs).mean() - 0.01 * entropy.mean()
+            with torch.no_grad():
+                q_vals = self.q_network(obs)
+                
+            actor_loss = (probs * (0.01 * log_probs - q_vals)).sum(dim=-1).mean()
+        else:
+            _, log_probs, entropy, _ = self.actor.get_action_and_value(obs, actions)
+            with torch.no_grad():
+                q_vals = self.q_network(obs)
+                q_val_act = q_vals.gather(1, actions.unsqueeze(1)).squeeze(1)
+            actor_loss = -(q_val_act * log_probs).mean() - 0.01 * entropy.mean()
         
         opt_a.zero_grad()
         self.manual_backward(actor_loss)

@@ -106,33 +106,66 @@ def general_euclidean_distance(x, y):
     return minkowski(x, y, p=2) / np.power(q, 0.5)
 
 def run_ECM(X, Cs, Dthr):
-    for x in X:
-        if not Cs:
-            Cs.append(Cluster(center=x, radius=0))
+    num_features = X.shape[1]
+    sqrt_q = np.sqrt(num_features)
+    
+    if not Cs:
+        max_clusters = len(X)
+        centers = np.empty((max_clusters, num_features))
+        radii = np.zeros(max_clusters)
+        supports = np.zeros(max_clusters, dtype=int)
+        
+        centers[0] = X[0]
+        radii[0] = 0.0
+        supports[0] = 1
+        num_clusters = 1
+        start_idx = 1
+    else:
+        max_clusters = len(X) + len(Cs)
+        centers = np.empty((max_clusters, num_features))
+        radii = np.zeros(max_clusters)
+        supports = np.zeros(max_clusters, dtype=int)
+        
+        for idx, C in enumerate(Cs):
+            centers[idx] = C.center
+            radii[idx] = C.radius
+            supports[idx] = C.support
+        num_clusters = len(Cs)
+        start_idx = 0
+        
+    for i in range(start_idx, len(X)):
+        x = X[i]
+        
+        # Sliced distance calculation (no list/array conversion inside the loop!)
+        diff = centers[:num_clusters] - x
+        D_i = np.linalg.norm(diff, axis=1) / sqrt_q
+        
+        inside_mask = D_i < radii[:num_clusters]
+        if np.any(inside_mask):
+            j = np.argmax(inside_mask)
+            supports[j] += 1
             continue
-        
-        D_i = [general_euclidean_distance(x, C.center) for C in Cs]
-        
-        match = False
-        for j, C in enumerate(Cs):
-            if D_i[j] < C.radius:
-                C.add_support()
-                match = True
-                break
-        if match: continue
-        
-        S_i = [D_i[j] + C.radius for j in range(len(Cs))]
+            
+        S_i = D_i + radii[:num_clusters]
         a = np.argmin(S_i)
         
         if S_i[a] > (2.0 * Dthr):
-            Cs.append(Cluster(center=x, radius=0))
+            centers[num_clusters] = x
+            radii[num_clusters] = 0.0
+            supports[num_clusters] = 1
+            num_clusters += 1
         else:
-            Ca = Cs[a]
-            Ca.radius = S_i[a] / 2.0
-            Ca.add_support()
-            n = Ca.support
-            Ca.center = ((n - 1) * Ca.center + x) / n
-    return Cs
+            radii[a] = S_i[a] / 2.0
+            supports[a] += 1
+            n = supports[a]
+            centers[a] = ((n - 1) * centers[a] + x) / n
+            
+    new_Cs = []
+    for idx in range(num_clusters):
+        C = Cluster(center=centers[idx], radius=radii[idx])
+        C.support = supports[idx]
+        new_Cs.append(C)
+    return new_Cs
 
 def rule_creation(X, antecedents, consistency_check=True):
     rules = []
@@ -368,6 +401,10 @@ def run_FYD(rules, X, antecedents, top_k=None):
                 new_rules.append({'A': new_A, 'CF': rule['CF']})
                 seen_A.add(A_tuple)
                 
+    if not new_rules:
+        print("Warning: FYD pruning resulted in 0 rules. Falling back to original rules.")
+        return rules, antecedents
+        
     return new_rules, new_antecedents
 
 class MamdaniAutoencoder(nn.Module):

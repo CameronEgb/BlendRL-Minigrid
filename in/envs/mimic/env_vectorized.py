@@ -15,10 +15,12 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
         mode: str,
         n_envs: int,
         seed=None,
-        dataset_name="mimic_lazy_0_interventions_balanced.npz",
+        dataset_name=None,
         **kwargs
     ):
         super().__init__(mode)
+        if dataset_name is None:
+            dataset_name = os.environ.get("MIMIC_DATASET_NAME", "mimic_lazy_0_interventions_balanced.npz")
         self.n_envs = n_envs
         self.seed = seed if seed is not None else 42
         
@@ -43,6 +45,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
         self.X = data['X']  # (N, 240, 49)
         self.y = data['y']  # (N, 1)
         self.mask = data['mask']  # (N, 240, 1)
+        self.orig = data['orig'] if 'orig' in data else None
         
         self.n_patients = len(self.X)
         self.states = self.X[:, :, :46]
@@ -115,19 +118,51 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
             # Historical action taken by clinician
             clinician_action = int(self.actions_antibiotics[traj, t])
             
-            # Outcome-weighted behavioral reward
-            # episode length T
-            T = len(valid_steps)
-            outcome = self.y[traj, 0]
-            
-            if outcome == 0:  # Patient survived
-                # Positive reinforcement for copying clinician
-                reward = 1.0 / T if policy_action == clinician_action else 0.0
-            else:  # Patient died
-                # Negative reinforcement for copying clinician (force divergence)
-                reward = -1.0 / T if policy_action == clinician_action else 0.0
-            
             is_done = (step_idx == len(valid_steps) - 1)
+            
+            reward_type = os.environ.get("MIMIC_REWARD_TYPE", "behavioral")
+            if reward_type == "outcome":
+                # Outcome/Physiological Shaped Reward
+                if self.orig is not None:
+                    obs_orig = self.orig[traj, t]
+                    map_val = obs_orig[15]
+                    lactate_val = obs_orig[10]
+                    creatinine_val = obs_orig[12]
+                    bilirubin_val = obs_orig[13]
+                    platelet_val = obs_orig[11]
+                    
+                    map_penalty = max(0.0, (65.0 - map_val) / 65.0) if not np.isnan(map_val) else 0.0
+                    lactate_penalty = max(0.0, (lactate_val - 2.0) / 2.0) if not np.isnan(lactate_val) else 0.0
+                    renal_penalty = max(0.0, creatinine_val - 1.2) if not np.isnan(creatinine_val) else 0.0
+                    hepatic_penalty = max(0.0, bilirubin_val - 1.2) if not np.isnan(bilirubin_val) else 0.0
+                    coagulation_penalty = max(0.0, (150.0 - platelet_val) / 150.0) if not np.isnan(platelet_val) else 0.0
+                    
+                    penalty = -(map_penalty + lactate_penalty + renal_penalty + hepatic_penalty + coagulation_penalty)
+                else:
+                    obs_t = self.states[traj, t]
+                    map_penalty = max(0.0, -obs_t[15])
+                    lactate_penalty = max(0.0, obs_t[10])
+                    renal_penalty = max(0.0, obs_t[12])
+                    hepatic_penalty = max(0.0, obs_t[13])
+                    coagulation_penalty = max(0.0, -obs_t[11])
+                    
+                    penalty = -(map_penalty + lactate_penalty + renal_penalty + hepatic_penalty + coagulation_penalty)
+                
+                outcome = self.y[traj, 0]
+                terminal_reward = 15.0 if outcome == 0 else -15.0
+                
+                # Small step penalty, large terminal reward at the end
+                reward = 0.1 * penalty
+                if is_done:
+                    reward += terminal_reward
+            else:
+                # Default behavioral copying reward
+                T = len(valid_steps)
+                outcome = self.y[traj, 0]
+                if outcome == 0:  # Patient survived
+                    reward = 1.0 / T if policy_action == clinician_action else 0.0
+                else:  # Patient died
+                    reward = -1.0 / T if policy_action == clinician_action else 0.0
             
             if is_done:
                 terminated = True
@@ -153,7 +188,10 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
         return (th.stack(logic_states), th.stack(neural_states)), np.array(rewards, dtype=np.float32), np.array(terminations, dtype=bool), np.array(truncations, dtype=bool), infos
 
     def extract_logic_state(self, obs):
-        return th.tensor(obs, dtype=th.float32)
+        state = th.zeros((2, 46), dtype=th.float32)
+        state[0] = th.tensor(obs, dtype=th.float32)
+        state[1] = th.tensor(obs, dtype=th.float32)
+        return state
 
     def extract_neural_state(self, obs):
         return th.tensor(obs, dtype=th.float32)
