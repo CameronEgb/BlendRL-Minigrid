@@ -101,7 +101,8 @@ class BlendRLCQLAgent(L.LightningModule):
         if real_batch["logic_obs"] is not None:
             logic_obs = real_batch["logic_obs"].to(self.device)
         else:
-            logic_obs = torch.stack([self.env.extract_logic_state(o.cpu().numpy()) for o in obs]).to(self.device)
+            # Vectorized duplication: (B, 46) -> (B, 2, 46)
+            logic_obs = obs.unsqueeze(1).repeat(1, 2, 1)
             
         actions = real_batch["action"].to(self.device)
         rewards = real_batch["reward"].to(self.device)
@@ -110,7 +111,8 @@ class BlendRLCQLAgent(L.LightningModule):
         if real_batch["next_logic_obs"] is not None:
             next_logic_obs = real_batch["next_logic_obs"].to(self.device)
         else:
-            next_logic_obs = torch.stack([self.env.extract_logic_state(o.cpu().numpy()) for o in next_obs]).to(self.device)
+            # Vectorized duplication: (B, 46) -> (B, 2, 46)
+            next_logic_obs = next_obs.unsqueeze(1).repeat(1, 2, 1)
             
         dones = real_batch["done"].to(self.device)
         
