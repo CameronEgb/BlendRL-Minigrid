@@ -298,6 +298,10 @@ def main():
     overrides_for_compose = [f"+experiment={args.experiment}"]
     
     for arg in extra_args:
+        # Skip local overrides as it is explicitly handled by the parser/sbatch generator
+        if "local=" in arg:
+            continue
+            
         if "=" in arg:
             # If it has a slash, it is a config group (e.g. hydra/sweeper=optuna), do not prepend ++
             # Also, do not prepend ++ to sweep parameters (containing interval, choice, or range)
