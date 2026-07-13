@@ -515,10 +515,14 @@ def main():
                 if not dataset_path.exists():
                     alt_path = Path("results/datasets") / cfg.group / args.experiment / dataset_name_internal
                     if alt_path.exists() and any(alt_path.glob("*.pkl")):
-                         dataset_path = alt_path
+                        dataset_path = alt_path
                     else:
-                        print(f"Error: Dataset '{dataset_id}' not found at {dataset_path} or {alt_path}")
-                        sys.exit(1)
+                        global_match = find_dataset_globally(dataset_name_internal)
+                        if global_match:
+                            dataset_path = Path(global_match)
+                        else:
+                            print(f"Error: Dataset '{dataset_id}' not found at {dataset_path} or globally.")
+                            sys.exit(1)
                 print(f"Using dataset from: {dataset_path}")
 
             for agent_config in offline_list:
@@ -593,6 +597,10 @@ def main():
                         script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} ++mode.dataset_path=$D_PATH\n"
                     else:
                         dataset_path = Path("results/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
+                        if not (dataset_path.exists() and any(dataset_path.glob("*.pkl"))):
+                            global_match = find_dataset_globally(dataset_name_internal)
+                            if global_match:
+                                dataset_path = Path(global_match)
                         overrides_slurm.append(f"++mode.dataset_path={dataset_path}")
                         overrides_slurm += sanitized_extra_args
                         script_content = generate_sbatch_script(
