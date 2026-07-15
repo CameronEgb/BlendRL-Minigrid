@@ -263,7 +263,7 @@ def submit_sbatch(script_content):
         print("Error: 'sbatch' command not found. Are you on the Slurm cluster?")
         return "99999"
 
-def run_early_prediction_eval(checkpoint_path):
+def run_early_prediction_eval(checkpoint_path, remake=False):
     env = os.environ.copy()
     env["PYTHONPATH"] = os.path.abspath("src") + ":" + env.get("PYTHONPATH", "")
     
@@ -272,6 +272,8 @@ def run_early_prediction_eval(checkpoint_path):
         venv_python, "src/early_prediction_eval.py",
         "--checkpoint", str(checkpoint_path)
     ]
+    if remake:
+        cmd.append("--remake")
     print(f"\n=== Running Early Prediction Evaluation for checkpoint: {checkpoint_path} ===")
     subprocess.run(cmd, check=True, env=env)
 
@@ -289,6 +291,7 @@ def main():
     parser.add_argument("--no-offline", action="store_true", help="Skip offline training phase")
     parser.add_argument("--no-dash", action="store_true", help="Disable the automatic dashboard")
     parser.add_argument("--dash-only", action="store_true", help="Launch the persistent dashboard and exit")
+    parser.add_argument("--remake", action="store_true", help="Force recalculation and overwrite of early prediction summaries")
     args, extra_args = parser.parse_known_args()
 
     # Prepare extra_args:
@@ -619,19 +622,38 @@ def main():
                             if is_online and is_sweep:
                                 storage_url_slurm = f"sqlite:///optuna.db"
                                 study_name_slurm = f"{cfg.experiment_id}_{dataset_name_internal}"
-                                eval_cmd = (
+                                best_id_cmd = (
                                     f"BEST_ID=$($PROJECT_ROOT/venv/bin/python3 -c \"import sys; sys.path.append('$PROJECT_ROOT'); from run_pipeline import get_best_trial_id; print(get_best_trial_id('{storage_url_slurm}', '{study_name_slurm}'))\")\n"
-                                    f"CKPT_PATH=results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/$BEST_ID/best_model.ckpt\n"
-                                    f"if [ -f \"$CKPT_PATH\" ]; then\n"
-                                    f"    echo \"Running evaluation on $CKPT_PATH\"\n"
-                                    f"    $PROJECT_ROOT/venv/bin/python3 src/early_prediction_eval.py --checkpoint $CKPT_PATH\n"
-                                    f"else\n"
-                                    f"    echo \"Checkpoint not found at $CKPT_PATH\"\n"
-                                    f"fi"
                                 )
+                                if args.remake:
+                                    eval_cmd = (
+                                        best_id_cmd +
+                                        f"CKPT_DIR=results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/$BEST_ID\n"
+                                        f"if [ -d \"$CKPT_DIR\" ]; then\n"
+                                        f"    echo \"Running evaluation on all checkpoints under $CKPT_DIR (--remake)\"\n"
+                                        f"    $PROJECT_ROOT/venv/bin/python3 src/early_prediction_eval.py --checkpoint $CKPT_DIR --remake\n"
+                                        f"else\n"
+                                        f"    echo \"Checkpoint dir not found at $CKPT_DIR\"\n"
+                                        f"fi"
+                                    )
+                                else:
+                                    eval_cmd = (
+                                        best_id_cmd +
+                                        f"CKPT_PATH=results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/$BEST_ID/best_model.ckpt\n"
+                                        f"if [ -f \"$CKPT_PATH\" ]; then\n"
+                                        f"    echo \"Running evaluation on $CKPT_PATH\"\n"
+                                        f"    $PROJECT_ROOT/venv/bin/python3 src/early_prediction_eval.py --checkpoint $CKPT_PATH\n"
+                                        f"else\n"
+                                        f"    echo \"Checkpoint not found at $CKPT_PATH\"\n"
+                                        f"fi"
+                                    )
                             else:
                                 ckpt_path = f"results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/0/best_model.ckpt"
-                                eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction_eval.py --checkpoint {ckpt_path}"
+                                ckpt_dir = f"results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/0"
+                                if args.remake:
+                                    eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction_eval.py --checkpoint {ckpt_dir} --remake"
+                                else:
+                                    eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction_eval.py --checkpoint {ckpt_path}"
                                 
                             eval_script = f"#!/bin/bash\n"
                             eval_script += f"#SBATCH --job-name={eval_job_name}\n"
@@ -661,19 +683,29 @@ def main():
         print("\n=== Phase: Local Early Prediction Evaluation ===")
         ckpt_dir_root = Path("results/checkpoints") / cfg.group / cfg.experiment_id
         if ckpt_dir_root.exists():
-            checkpoint_files = []
-            for path_dir in ckpt_dir_root.glob("**/"):
-                if path_dir.is_dir():
-                    candidates = list(path_dir.glob("best_model*.ckpt"))
-                    if candidates:
-                        candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-                        checkpoint_files.append(candidates[0])
-            
-            if checkpoint_files:
-                for ckpt_file in checkpoint_files:
-                    run_early_prediction_eval(ckpt_file)
+            if args.remake:
+                # Pass parent directories of best_model files to run them all at once
+                checkpoint_dirs = set()
+                for cp_path in ckpt_dir_root.glob("**/best_model*.ckpt"):
+                    checkpoint_dirs.add(cp_path.parent)
+                if checkpoint_dirs:
+                    for cp_dir in sorted(checkpoint_dirs):
+                        run_early_prediction_eval(cp_dir, remake=True)
+                else:
+                    print(f"Warning: No best_model*.ckpt files found under {ckpt_dir_root} for evaluation.")
             else:
-                print(f"Warning: No best_model*.ckpt files found under {ckpt_dir_root} for evaluation.")
+                checkpoint_files = []
+                for path_dir in ckpt_dir_root.glob("**/"):
+                    if path_dir.is_dir():
+                        candidates = list(path_dir.glob("best_model*.ckpt"))
+                        if candidates:
+                            candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                            checkpoint_files.append(candidates[0])
+                if checkpoint_files:
+                    for ckpt_file in checkpoint_files:
+                        run_early_prediction_eval(ckpt_file)
+                else:
+                    print(f"Warning: No best_model*.ckpt files found under {ckpt_dir_root} for evaluation.")
         else:
             print(f"Warning: Checkpoint root directory {ckpt_dir_root} does not exist.")
 

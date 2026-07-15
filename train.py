@@ -107,9 +107,11 @@ def main(cfg: DictConfig):
     
     # Callbacks
     from src.utils import EnvironmentEvaluatorCallback
-    # Use trial-specific subdirectory for checkpoints to avoid auto-recovery collisions
-    trial_id = cfg.get("hydra", {}).get("job", {}).get("num", "0")
-    ckpt_dir = os.path.join("results/checkpoints", cfg.group, cfg.experiment_id, cfg.agent.name, str(trial_id))
+    from hydra.core.hydra_config import HydraConfig
+    trial_id = "0"
+    if HydraConfig.initialized():
+        trial_id = str(HydraConfig.get().job.num)
+    ckpt_dir = os.path.join("results/checkpoints", cfg.group, cfg.experiment_id, cfg.agent.name, trial_id)
     callbacks = [
         ModelCheckpoint(
             dirpath=ckpt_dir,
