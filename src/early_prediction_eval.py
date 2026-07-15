@@ -222,7 +222,7 @@ def main():
     import csv
     parser = argparse.ArgumentParser(description="MIMIC Sepsis Early Prediction Evaluation")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to trained CQL checkpoint or directory of checkpoints")
-    parser.add_argument("--dataset-name", type=str, default=os.environ.get("MIMIC_DATASET_NAME", "mimic_lazy_12_clean_with_interventions.npz"), help="Dataset name")
+    parser.add_argument("--dataset-name", type=str, default=os.environ.get("MIMIC_DATASET_NAME", "mimic_lazy_12_clean_with_interventions_corrected.npz"), help="Dataset name")
     parser.add_argument("--dataset-path", type=str, default=None, help="Direct path to the MIMIC dataset .npz file")
     parser.add_argument("--dataset-dir", type=str, default=None, help="Custom directory containing the MIMIC dataset")
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory for early prediction report")
