@@ -222,7 +222,9 @@ def main():
     import csv
     parser = argparse.ArgumentParser(description="MIMIC Sepsis Early Prediction Evaluation")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to trained CQL checkpoint or directory of checkpoints")
-    parser.add_argument("--dataset-name", type=str, default=os.environ.get("MIMIC_DATASET_NAME", "mimic_lazy_12_clean_with_q_values.npz"), help="Dataset name")
+    parser.add_argument("--dataset-name", type=str, default=os.environ.get("MIMIC_DATASET_NAME", "mimic_lazy_12_clean_with_interventions.npz"), help="Dataset name")
+    parser.add_argument("--dataset-path", type=str, default=None, help="Direct path to the MIMIC dataset .npz file")
+    parser.add_argument("--dataset-dir", type=str, default=None, help="Custom directory containing the MIMIC dataset")
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory for early prediction report")
     parser.add_argument("--remake", action="store_true", help="Force recalculation and overwrite the CSV/MD summaries")
     args = parser.parse_known_args()[0]
@@ -231,15 +233,21 @@ def main():
     print(f"Using device: {device}")
     
     # 1. Load the dataset
-    mimic_dir = "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2"
-    if not os.path.exists(mimic_dir):
-        mimic_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../datasets/MIMIC 2"))
-    if not os.path.exists(mimic_dir):
-        mimic_dir = "/mnt/beegfs/cegbert/MIMIC 2"
-    if not os.path.exists(mimic_dir):
-        mimic_dir = os.path.abspath(os.path.join(os.getcwd(), "../datasets/MIMIC 2"))
-        
-    dataset_path = os.path.join(mimic_dir, args.dataset_name)
+    if args.dataset_path is not None:
+        dataset_path = os.path.abspath(args.dataset_path)
+    else:
+        if args.dataset_dir is not None:
+            mimic_dir = args.dataset_dir
+        else:
+            mimic_dir = "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2"
+            if not os.path.exists(mimic_dir):
+                mimic_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../datasets/MIMIC 2"))
+            if not os.path.exists(mimic_dir):
+                mimic_dir = "/mnt/beegfs/cegbert/MIMIC 2"
+            if not os.path.exists(mimic_dir):
+                mimic_dir = os.path.abspath(os.path.join(os.getcwd(), "../datasets/MIMIC 2"))
+                
+        dataset_path = os.path.join(mimic_dir, args.dataset_name)
     if not os.path.exists(dataset_path):
         raise FileNotFoundError(f"MIMIC dataset not found at {dataset_path}")
         
