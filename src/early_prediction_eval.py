@@ -222,7 +222,8 @@ def main():
     import csv
     parser = argparse.ArgumentParser(description="MIMIC Sepsis Early Prediction Evaluation")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to trained CQL checkpoint or directory of checkpoints")
-    parser.add_argument("--dataset-name", type=str, default=os.environ.get("MIMIC_DATASET_NAME", "mimic_lazy_12_clean_with_interventions_corrected.npz"), help="Dataset name")
+    parser.add_argument("--dataset-name", type=str, default=os.environ.get("MIMIC_DATASET_NAME", "mimic_lazy_12_clean_with_interventions_corrected.npz"), help="Predictor training dataset name")
+    parser.add_argument("--eval-dataset-name", type=str, default=os.environ.get("MIMIC_EVAL_DATASET_NAME", "mimic_expert_demonstrations.npz"), help="Evaluation dataset name")
     parser.add_argument("--dataset-path", type=str, default=None, help="Direct path to the MIMIC dataset .npz file")
     parser.add_argument("--dataset-dir", type=str, default=None, help="Custom directory containing the MIMIC dataset")
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory for early prediction report")
@@ -232,37 +233,53 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
     print(f"Using device: {device}")
     
-    # 1. Load the dataset
+    # 1. Resolve mimic directory
+    if args.dataset_dir is not None:
+        mimic_dir = args.dataset_dir
+    else:
+        mimic_dir = "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2"
+        if not os.path.exists(mimic_dir):
+            mimic_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../datasets/MIMIC 2"))
+        if not os.path.exists(mimic_dir):
+            mimic_dir = "/mnt/beegfs/cegbert/MIMIC 2"
+        if not os.path.exists(mimic_dir):
+            mimic_dir = os.path.abspath(os.path.join(os.getcwd(), "../datasets/MIMIC 2"))
+            
+    # Load predictor training dataset
     if args.dataset_path is not None:
         dataset_path = os.path.abspath(args.dataset_path)
     else:
-        if args.dataset_dir is not None:
-            mimic_dir = args.dataset_dir
-        else:
-            mimic_dir = "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2"
-            if not os.path.exists(mimic_dir):
-                mimic_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../datasets/MIMIC 2"))
-            if not os.path.exists(mimic_dir):
-                mimic_dir = "/mnt/beegfs/cegbert/MIMIC 2"
-            if not os.path.exists(mimic_dir):
-                mimic_dir = os.path.abspath(os.path.join(os.getcwd(), "../datasets/MIMIC 2"))
-                
         dataset_path = os.path.join(mimic_dir, args.dataset_name)
     if not os.path.exists(dataset_path):
-        raise FileNotFoundError(f"MIMIC dataset not found at {dataset_path}")
+        raise FileNotFoundError(f"Predictor training dataset not found at {dataset_path}")
         
-    print(f"Loading dataset from: {dataset_path}")
-    data = np.load(dataset_path, allow_pickle=True)
-    X = data['X']  # (N, 240, 51)
-    y = data['y']  # (N, 1)
-    mask = data['mask']  # (N, 240, 1)
+    print(f"Loading predictor training dataset from: {dataset_path}")
+    data_train = np.load(dataset_path, allow_pickle=True)
+    X_train = data_train['X']
+    y_train = data_train['y']
+    mask_train = data_train['mask']
     
-    # 2. Split train/test (80/20)
-    train_indices, test_indices = train_test_split(np.arange(len(X)), test_size=0.2, random_state=42)
-    print(f"Dataset split: Train={len(train_indices)}, Test={len(test_indices)}")
+    # 2. Split train/test (80/20) for predictor training
+    train_indices, test_indices = train_test_split(np.arange(len(X_train)), test_size=0.2, random_state=42)
+    print(f"Predictor Dataset split: Train={len(train_indices)}, Test={len(test_indices)}")
     
     # 3. Train predictor model (Trained only ONCE for all checkpoints!)
-    predictor, predictor_acc = train_predictor(X, y, mask, train_indices, test_indices, device=device)
+    predictor, predictor_acc = train_predictor(X_train, y_train, mask_train, train_indices, test_indices, device=device)
+    
+    # Load evaluation dataset
+    eval_dataset_path = os.path.join(mimic_dir, args.eval_dataset_name)
+    if not os.path.exists(eval_dataset_path):
+        raise FileNotFoundError(f"Evaluation dataset not found at {eval_dataset_path}")
+        
+    print(f"Loading evaluation dataset from: {eval_dataset_path}")
+    data_eval = np.load(eval_dataset_path, allow_pickle=True)
+    X = data_eval['X']
+    y = data_eval['y']
+    mask = data_eval['mask']
+    
+    # Setup test_indices to cover the ENTIRE evaluation set
+    test_indices = np.arange(len(X))
+    print(f"Evaluation dataset size: {len(X)} patients")
     
     # 4. Gather checkpoints to evaluate
     checkpoint_arg = Path(args.checkpoint)
