@@ -30,3 +30,5 @@ optuna.db
 
 # Antigravity/Agent customizations
 .agents/
+scratch/
+
