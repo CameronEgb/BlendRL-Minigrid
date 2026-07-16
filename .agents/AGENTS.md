@@ -29,6 +29,7 @@ The ultimate objective of this codebase is to compare **Online** vs. **Offline**
 - **X-Axis:** Represented by the number of steps/transitions in the database.
 - **Interval Logic:** `INTERVALS_COUNT` defines snapshot points. 
 - **Evaluation Standard:** All interval evaluation points (both online and offline) MUST be calculated as a **100-episode average reward** to ensure statistical significance.
+- **MIMIC/Offline-Only Exception:** For offline-only environments (such as MIMIC) where an online simulator does not exist, the pipeline runs purely in offline mode on the static dataset, and the Online vs. Offline comparison rules do not apply.
 
 ## 3. Execution Pipeline & Configuration
 The project uses a modular configuration system powered by Hydra.
