@@ -162,7 +162,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
                 if outcome == 0:  # Patient survived
                     reward = 1.0 / T if policy_action == clinician_action else 0.0
                 else:  # Patient died
-                    reward = -1.0 / T if policy_action == clinician_action else 0.0
+                    reward = 0.0
             
             if is_done:
                 terminated = True

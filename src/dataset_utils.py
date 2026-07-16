@@ -162,9 +162,14 @@ class DatasetReader:
             self.next_obs = torch.tensor(np.concatenate(next_obs_list, axis=0))
             self.dones = torch.tensor(np.concatenate(dones_list, axis=0))
             
-            # If MIMIC_REWARD_TYPE is set to "outcome", recompute rewards in the loaded dataset
             import os
-            if os.environ.get("MIMIC_REWARD_TYPE") == "outcome" and self.obs.shape[-1] == 46:
+            reward_type = os.environ.get("MIMIC_REWARD_TYPE", "behavioral")
+            if reward_type == "behavioral" and self.obs.shape[-1] == 46:
+                print("MIMIC_REWARD_TYPE=behavioral detected! Zeroing out clinician penalties for death cases in memory...")
+                self.rewards[self.rewards < 0.0] = 0.0
+                
+            # If MIMIC_REWARD_TYPE is set to "outcome", recompute rewards in the loaded dataset
+            if reward_type == "outcome" and self.obs.shape[-1] == 46:
                 print("MIMIC_REWARD_TYPE=outcome detected! Recomputing offline dataset rewards in memory...")
                 n_transitions = len(self.obs)
                 new_rewards = self.rewards.clone().float()

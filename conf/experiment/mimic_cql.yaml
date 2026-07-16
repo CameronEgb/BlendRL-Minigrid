@@ -7,7 +7,7 @@ defaults:
 env:
   name: mimic
   architecture: mlp
-  reward_type: outcome
+  reward_type: behavioral
 
 online_methods: []
 offline_methods: [cql]

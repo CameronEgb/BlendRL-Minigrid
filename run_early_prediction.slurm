@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=sepsis_early_pred_dl
-#SBATCH --partition=rtx4060ti8g    # Changing to 8G version because it has 3 idle nodes (c[20-22])
+#SBATCH --partition=rtx4060ti8g    # Default partition with idle GPUs
 #SBATCH --ntasks-per-node=16
 #SBATCH --nodes=1
 #SBATCH --output=results/logs/%x_%j.out
@@ -25,9 +25,6 @@ if [ ! -f "$DATASET_PATH" ]; then
     DATASET_PATH="/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
 fi
 
-# Pointing to the experiment root folder.
-# The rglob logic in septic_shock_early_prediction.py will recursively search all subdirectories
-# (e.g., cql_base/0/, cql_base/1/, etc.) to find the latest checkpoint.
 CHECKPOINT="results/checkpoints/mimic/tune_mimic_cql"
 
 echo "Using Dataset Path: $DATASET_PATH"
@@ -38,14 +35,16 @@ mkdir -p results/plots/early_prediction
 mkdir -p results/logs
 
 # 4. Run early prediction sweep (LSTM vs Transformer, with vs without V(s))
-# Sweeps lead times 1 to 36 hours with a step of 2 hours.
+# Trains and averages predictions of 100 models per configuration.
+# Step size of 4 hours sweeps 9 points (1, 5, 9, ..., 33) to keep it fast while retaining smooth curves.
 $PROJECT_ROOT/venv/bin/python3 src/septic_shock_early_prediction.py \
     --checkpoint "$CHECKPOINT" \
     --dataset-path "$DATASET_PATH" \
     --tau-min 1 \
     --tau-max 36 \
-    --tau-step 2 \
-    --epochs 15 \
+    --tau-step 4 \
+    --epochs 10 \
+    --n-models 100 \
     --output-dir "results/plots/early_prediction"
 
 echo "=== Sepsis Early Prediction Sweep Execution End ==="

@@ -36,12 +36,11 @@ class PositionalEncoding(nn.Module):
         self.register_buffer('pe', pe.unsqueeze(0))
 
     def forward(self, x):
-        # x shape: (B, T, d_model)
         return x + self.pe[:, :x.size(1)]
 
-# --- Transformer Classifier Model ---
+# --- Lightweight Transformer Classifier Model ---
 class SepsisTransformer(nn.Module):
-    def __init__(self, input_dim, d_model=64, nhead=4, num_layers=2, dim_feedforward=128):
+    def __init__(self, input_dim, d_model=32, nhead=2, num_layers=1, dim_feedforward=64):
         super().__init__()
         self.embedding = nn.Linear(input_dim, d_model)
         self.pos_encoder = PositionalEncoding(d_model)
@@ -53,32 +52,26 @@ class SepsisTransformer(nn.Module):
         self.fc = nn.Linear(d_model, 1)
 
     def forward(self, x, padding_mask):
-        # x shape: (B, T, input_dim)
-        # padding_mask shape: (B, T), True indicates padding (to ignore)
-        x = self.embedding(x) # (B, T, d_model)
-        x = self.pos_encoder(x) # (B, T, d_model)
-        
-        # Transformer forward pass
-        out = self.transformer_encoder(x, src_key_padding_mask=padding_mask) # (B, T, d_model)
+        x = self.embedding(x)
+        x = self.pos_encoder(x)
+        out = self.transformer_encoder(x, src_key_padding_mask=padding_mask)
         
         # Mean pool over non-padding steps
-        valid_lens = (~padding_mask).sum(dim=1, keepdim=True).clamp(min=1) # (B, 1)
+        valid_lens = (~padding_mask).sum(dim=1, keepdim=True).clamp(min=1)
         out_masked = out * (~padding_mask).unsqueeze(-1)
-        pooled = out_masked.sum(dim=1) / valid_lens # (B, d_model)
+        pooled = out_masked.sum(dim=1) / valid_lens
         
         logits = self.fc(pooled)
         return logits
 
-# --- PyTorch LSTM Model ---
+# --- Lightweight PyTorch LSTM Model ---
 class SepsisLSTM(nn.Module):
-    def __init__(self, input_dim, hidden_dim=64):
+    def __init__(self, input_dim, hidden_dim=32):
         super().__init__()
         self.lstm = nn.LSTM(input_dim, hidden_dim, batch_first=True)
         self.fc = nn.Linear(hidden_dim, 1)
 
     def forward(self, x, lengths):
-        # x shape: (batch_size, max_seq_len, input_dim)
-        # lengths shape: (batch_size,)
         packed = nn.utils.rnn.pack_padded_sequence(
             x, lengths.cpu(), batch_first=True, enforce_sorted=False
         )
@@ -86,8 +79,9 @@ class SepsisLSTM(nn.Module):
         logits = self.fc(hn.squeeze(0))
         return logits
 
-# --- LSTM Training and Evaluation Helper Functions ---
-def train_lstm_model(X_train, y_train, input_dim, epochs=15, batch_size=64, device="cpu"):
+# --- Training Helper Functions ---
+def train_lstm_model(X_train, y_train, input_dim, epochs=10, batch_size=64, device="cpu", seed=42):
+    torch.manual_seed(seed)
     lengths_train = torch.tensor([len(seq) for seq in X_train], dtype=torch.long)
     max_len = max(lengths_train).item()
     
@@ -98,8 +92,8 @@ def train_lstm_model(X_train, y_train, input_dim, epochs=15, batch_size=64, devi
     X_train_tensor = torch.tensor(X_train_padded, dtype=torch.float32).to(device)
     y_train_tensor = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1).to(device)
     
-    model = SepsisLSTM(input_dim=input_dim).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    model = SepsisLSTM(input_dim=input_dim, hidden_dim=32).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=2e-3)
     criterion = nn.BCEWithLogitsLoss()
     
     model.train()
@@ -134,12 +128,10 @@ def evaluate_lstm_model(model, X_test, input_dim, device="cpu"):
     with torch.no_grad():
         logits = model(X_test_tensor, lengths_test)
         probs = torch.sigmoid(logits).cpu().numpy().squeeze(1)
-        preds = (probs > 0.5).astype(np.int32)
-        
-    return probs, preds
+    return probs
 
-# --- Transformer Training and Evaluation Helper Functions ---
-def train_transformer_model(X_train, y_train, input_dim, epochs=15, batch_size=64, device="cpu"):
+def train_transformer_model(X_train, y_train, input_dim, epochs=10, batch_size=64, device="cpu", seed=42):
+    torch.manual_seed(seed)
     lengths_train = torch.tensor([len(seq) for seq in X_train], dtype=torch.long)
     max_len = max(lengths_train).item()
     
@@ -155,7 +147,7 @@ def train_transformer_model(X_train, y_train, input_dim, epochs=15, batch_size=6
     y_train_tensor = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1).to(device)
     
     model = SepsisTransformer(input_dim=input_dim).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=5e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     criterion = nn.BCEWithLogitsLoss()
     
     model.train()
@@ -193,23 +185,23 @@ def evaluate_transformer_model(model, X_test, input_dim, device="cpu"):
     with torch.no_grad():
         logits = model(X_test_tensor, mask_test_tensor)
         probs = torch.sigmoid(logits).cpu().numpy().squeeze(1)
-        preds = (probs > 0.5).astype(np.int32)
-        
-    return probs, preds
+    return probs
 
 def main():
-    parser = argparse.ArgumentParser(description="Septic Shock Early Prediction with LSTM & Transformer (varying tau)")
-    parser.add_argument("--checkpoint", type=str, default="results/checkpoints/sepsis/mimic_cql/cql/0/best_model.ckpt", help="Path to CQL agent checkpoint")
+    parser = argparse.ArgumentParser(description="Controlled Septic Shock Early Prediction Sweep with Fixed Cohort")
+    parser.add_argument("--checkpoint", type=str, default="results/checkpoints/mimic/tune_mimic_cql", help="Path to CQL agent checkpoints")
     parser.add_argument("--dataset-path", type=str, default="/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz", help="Path to MIMIC dataset")
     parser.add_argument("--tau-min", type=int, default=1, help="Minimum tau in hours")
     parser.add_argument("--tau-max", type=int, default=36, help="Maximum tau in hours")
     parser.add_argument("--tau-step", type=int, default=4, help="Step size for tau sweep in hours")
-    parser.add_argument("--epochs", type=int, default=15, help="Number of training epochs for PyTorch models")
+    parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs for each model")
+    parser.add_argument("--n-models", type=int, default=20, help="Number of models to train and ensemble (average) per configuration")
     parser.add_argument("--output-dir", type=str, default="results/plots/early_prediction", help="Directory to save plots")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
+    print(f"Ensembling configuration: training and averaging {args.n_models} models per setup.")
 
     # Load dataset
     print(f"Loading dataset from: {args.dataset_path}")
@@ -220,7 +212,24 @@ def main():
     y = data['y'].squeeze()
     mask = data['mask']
     
-    # Resolve checkpoint path robustly (handling directory paths and versioned checkpoints)
+    # Filter cohort globally: Only keep patients with stays > 2 * tau_max steps (e.g. > 36 hours / 72 steps)
+    min_stay_steps = 2 * args.tau_max
+    cohort_indices = []
+    cohort_t_lengths = []
+    
+    for i in range(len(X)):
+        valid_steps = np.where(mask[i].squeeze() != -1)[0]
+        if len(valid_steps) > min_stay_steps:
+            cohort_indices.append(i)
+            cohort_t_lengths.append(len(valid_steps))
+            
+    cohort_indices = np.array(cohort_indices)
+    cohort_t_lengths = np.array(cohort_t_lengths)
+    y_cohort = y[cohort_indices]
+    
+    print(f"Global Cohort Filter (stays > {args.tau_max} hours / {min_stay_steps} steps): {len(cohort_indices)} patients remaining (out of {len(X)})")
+    
+    # Load CQL agent robustly
     checkpoint_arg = Path(args.checkpoint)
     if checkpoint_arg.is_dir():
         candidates = list(checkpoint_arg.glob("best_model*.ckpt"))
@@ -235,10 +244,10 @@ def main():
                         return int(parts[1])
                 return -1
             candidates.sort(key=extract_version)
-            checkpoint_path = candidates[-1] # Load the latest version
+            checkpoint_path = candidates[-1]
             print(f"Directory mode: Selected latest checkpoint {checkpoint_path}")
         else:
-            raise FileNotFoundError(f"No best_model*.ckpt files found in directory {checkpoint_arg}")
+            raise FileNotFoundError(f"No best_model*.ckpt files found under {checkpoint_arg}")
     else:
         checkpoint_path = checkpoint_arg
         if not checkpoint_path.exists():
@@ -248,9 +257,9 @@ def main():
                 if candidates:
                     candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
                     checkpoint_path = candidates[0]
-                    print(f"Specified checkpoint not found. Redirecting to newest candidate: {checkpoint_path}")
+                    print(f"Redirecting to candidate: {checkpoint_path}")
                 else:
-                    raise FileNotFoundError(f"No best_model*.ckpt files found in directory {dirpath}")
+                    raise FileNotFoundError(f"No best_model*.ckpt files under {dirpath}")
             else:
                 raise FileNotFoundError(f"No checkpoint or directory found at {checkpoint_path}")
 
@@ -263,41 +272,34 @@ def main():
     cql_agent = CQLAgent.load_from_checkpoint(str(checkpoint_path), map_location=device, weights_only=False)
     cql_agent.eval()
 
-    # Pre-compute learned V-values from CQL agent for all patients and all timesteps
-    print("Pre-computing CQL state-value functions V(s) = max_a Q(s, a)...")
-    v_vals_all = []
+    # Pre-compute CQL state values V(s) = max_a Q(s, a) for the cohort
+    print("Pre-computing CQL state-value functions V(s)...")
+    v_vals_all = {}
     batch_size = 128
     with torch.no_grad():
-        for i in range(0, len(X), batch_size):
-            batch_x = X[i:i+batch_size, :, :46] # Extract states (first 46 features)
+        for i in range(0, len(cohort_indices), batch_size):
+            batch_indices = cohort_indices[i:i+batch_size]
+            batch_x = X[batch_indices, :, :46]
             batch_x_tensor = torch.tensor(batch_x, dtype=torch.float32).to(device)
-            
             B_curr = batch_x_tensor.size(0)
             flat_x = batch_x_tensor.view(-1, 46)
             flat_q = cql_agent.q_network(flat_x)
             q_vals = flat_q.view(B_curr, 240, 2)
-            
-            # V(s) = max_a Q(s, a)
             v_vals = torch.max(q_vals, dim=-1)[0].unsqueeze(-1).cpu().numpy()
-            v_vals_all.append(v_vals)
             
-    v_vals_all = np.concatenate(v_vals_all, axis=0) # shape: (N, 240, 1)
+            for idx_in_batch, original_idx in enumerate(batch_indices):
+                v_vals_all[original_idx] = v_vals[idx_in_batch]
     
-    # Feature configurations to evaluate
+    # Feature configurations (accessed by patient original index)
     feat_configs = {
-        "no_v": lambda idx, t: X[idx, :t, :49], # Baseline clinical features
-        "with_v": lambda idx, t: np.concatenate([X[idx, :t, :49], v_vals_all[idx, :t]], axis=-1), # Baseline + V(s)
+        "no_v": lambda idx, t: X[idx, :t, :49],
+        "with_v": lambda idx, t: np.concatenate([X[idx, :t, :49], v_vals_all[idx][:t]], axis=-1),
     }
 
     # Set up tau sweep list
     tau_list = list(range(args.tau_min, args.tau_max + 1, args.tau_step))
     print(f"Sweeping tau (hours early): {tau_list}")
 
-    # Models we want to run:
-    # 1. LSTM (without V)
-    # 2. LSTM (with V)
-    # 3. Transformer (without V)
-    # 4. Transformer (with V)
     model_configs = [
         ("LSTM (no V)", "lstm", "no_v"),
         ("LSTM (with V)", "lstm", "with_v"),
@@ -305,82 +307,74 @@ def main():
         ("Transformer (with V)", "transformer", "with_v"),
     ]
     
-    # Initialize results
     results = {}
     for m_cfg, _, _ in model_configs:
         results[m_cfg] = {"tau": [], "f1": [], "auc": []}
 
+    # Split train/test ONCE at the cohort level to keep the test set identical across all taus
+    train_cohort_idxs, test_cohort_idxs = train_test_split(
+        np.arange(len(cohort_indices)), test_size=0.2, random_state=42, stratify=y_cohort
+    )
+    print(f"Train/Test split: Train size={len(train_cohort_idxs)}, Test size={len(test_cohort_idxs)}")
+
     # Run the sweep
     for tau in tau_list:
         print(f"\n--- Evaluating Lead Time: {tau} Hours Early ---")
-        
-        # Step size is 30 mins, so tau hours is 2 * tau steps
         steps_early = 2 * tau
         
-        # Build dataset for this specific tau
-        valid_patients = []
-        for i in range(len(X)):
-            valid_steps = np.where(mask[i].squeeze() != -1)[0]
-            if len(valid_steps) > steps_early:
-                t_cutoff = len(valid_steps) - steps_early
-                valid_patients.append((i, t_cutoff))
-                
-        if len(valid_patients) < 100:
-            print(f"Skipping tau={tau} due to insufficient valid patients.")
-            continue
-            
-        print(f"Valid patients at tau={tau}: {len(valid_patients)}")
+        # Slices are constructed using the pre-filtered cohort details
+        # For each patient in the cohort, the cutoff time is len(valid_steps) - steps_early
+        t_cutoffs = cohort_t_lengths - steps_early
         
-        patient_indices = np.array([vp[0] for vp in valid_patients])
-        t_cutoffs = np.array([vp[1] for vp in valid_patients])
-        y_curr = y[patient_indices]
-        
-        # Split train/test indices
-        train_idxs, test_idxs = train_test_split(
-            np.arange(len(patient_indices)), test_size=0.2, random_state=42, stratify=y_curr
-        )
-        
-        # Train and evaluate each configuration
         for m_cfg_name, m_type, feat_key in model_configs:
-            print(f"  Running model configuration: {m_cfg_name}")
-            
-            # Construct dataset
+            print(f"  Training Ensemble for: {m_cfg_name}")
             feat_func = feat_configs[feat_key]
-            seq_data = [feat_func(patient_indices[i], t_cutoffs[i]) for i in range(len(patient_indices))]
+            
+            # Construct patient sliced sequences
+            seq_data = [feat_func(cohort_indices[i], t_cutoffs[i]) for i in range(len(cohort_indices))]
             input_dim = seq_data[0].shape[-1]
             
-            X_train = [seq_data[i] for i in train_idxs]
-            X_test = [seq_data[i] for i in test_idxs]
-            y_train = y_curr[train_idxs]
-            y_test = y_curr[test_idxs]
+            X_train = [seq_data[i] for i in train_cohort_idxs]
+            X_test = [seq_data[i] for i in test_cohort_idxs]
+            y_train = y_cohort[train_cohort_idxs]
+            y_test = y_cohort[test_cohort_idxs]
             
-            if m_type == "lstm":
-                model = train_lstm_model(
-                    X_train, y_train, input_dim, epochs=args.epochs, device=device
-                )
-                probs, preds = evaluate_lstm_model(model, X_test, input_dim, device=device)
-            elif m_type == "transformer":
-                model = train_transformer_model(
-                    X_train, y_train, input_dim, epochs=args.epochs, device=device
-                )
-                probs, preds = evaluate_transformer_model(model, X_test, input_dim, device=device)
+            prob_predictions = []
+            
+            for m_idx in range(args.n_models):
+                seed_val = 42 + m_idx
+                if m_type == "lstm":
+                    model = train_lstm_model(
+                        X_train, y_train, input_dim, epochs=args.epochs, device=device, seed=seed_val
+                    )
+                    probs = evaluate_lstm_model(model, X_test, input_dim, device=device)
+                elif m_type == "transformer":
+                    model = train_transformer_model(
+                        X_train, y_train, input_dim, epochs=args.epochs, device=device, seed=seed_val
+                    )
+                    probs = evaluate_transformer_model(model, X_test, input_dim, device=device)
+                
+                prob_predictions.append(probs)
+                
+            avg_probs = np.mean(prob_predictions, axis=0)
+            preds = (avg_probs > 0.5).astype(np.int32)
             
             f1 = f1_score(y_test, preds, zero_division=0)
-            auc = roc_auc_score(y_test, probs)
+            auc = roc_auc_score(y_test, avg_probs)
             
             results[m_cfg_name]["tau"].append(tau)
             results[m_cfg_name]["f1"].append(f1)
             results[m_cfg_name]["auc"].append(auc)
-            print(f"    -> F1: {f1:.4f}, AUC: {auc:.4f}")
+            print(f"    Ensemble F1: {f1:.4f}, AUC: {auc:.4f}")
 
-    # Output directory
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     
     # Save text results
     results_file = out_dir / "early_prediction_dl_results.txt"
     with open(results_file, "w") as f:
-        f.write("=== Septic Shock Early Prediction DL Sweep Results ===\n\n")
+        f.write(f"=== Septic Shock Early Prediction DL Ensemble Sweep Results (n_models={args.n_models}) ===\n")
+        f.write(f"Cohort Constraint: Patients with stays > {args.tau_max} hours only (Fixed size = {len(cohort_indices)})\n\n")
         for m_cfg_name, _, _ in model_configs:
             f.write(f"Model Configuration: {m_cfg_name}\n")
             f.write(f"  Taus: {results[m_cfg_name]['tau']}\n")
@@ -398,7 +392,7 @@ def main():
     for idx, (m_cfg_name, _, _) in enumerate(model_configs):
         res = results[m_cfg_name]
         axes[0].plot(res["tau"], res["f1"], marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
-    axes[0].set_title("F1-Score for Septic Shock Early Prediction (\u03c4 \u2208 [1, 36])", fontsize=12)
+    axes[0].set_title(f"Ensemble F1-Score for Septic Shock Early Prediction (\u03c4 \u2208 [1, 36], n={args.n_models})", fontsize=12)
     axes[0].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=11)
     axes[0].set_ylabel("F1-Score", fontsize=11)
     axes[0].grid(True, linestyle="--", alpha=0.6)
@@ -408,7 +402,7 @@ def main():
     for idx, (m_cfg_name, _, _) in enumerate(model_configs):
         res = results[m_cfg_name]
         axes[1].plot(res["tau"], res["auc"], marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
-    axes[1].set_title("AUC-ROC for Septic Shock Early Prediction (\u03c4 \u2208 [1, 36])", fontsize=12)
+    axes[1].set_title(f"Ensemble AUC-ROC for Septic Shock Early Prediction (\u03c4 \u2208 [1, 36], n={args.n_models})", fontsize=12)
     axes[1].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=11)
     axes[1].set_ylabel("AUC-ROC", fontsize=11)
     axes[1].grid(True, linestyle="--", alpha=0.6)
