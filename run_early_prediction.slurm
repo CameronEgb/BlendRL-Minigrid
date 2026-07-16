@@ -25,7 +25,10 @@ if [ ! -f "$DATASET_PATH" ]; then
     DATASET_PATH="/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
 fi
 
-CHECKPOINT="results/checkpoints/sepsis/mimic_cql/cql/0/best_model.ckpt"
+# Pointing to the experiment root folder.
+# The rglob logic in septic_shock_early_prediction.py will recursively search all subdirectories
+# (e.g., cql_base/0/, cql_base/1/, etc.) to find the latest checkpoint.
+CHECKPOINT="results/checkpoints/mimic/tune_mimic_cql"
 
 echo "Using Dataset Path: $DATASET_PATH"
 echo "Using Checkpoint: $CHECKPOINT"
