@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=sepsis_early_pred_dl
-#SBATCH --partition=rtx4060ti16g   # Default cluster partition, override as needed
+#SBATCH --partition=rtx4060ti8g    # Changing to 8G version because it has 3 idle nodes (c[20-22])
 #SBATCH --ntasks-per-node=16
 #SBATCH --nodes=1
 #SBATCH --output=results/logs/%x_%j.out
