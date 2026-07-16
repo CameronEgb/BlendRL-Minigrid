@@ -7,8 +7,6 @@
 #SBATCH --error=results/logs/%x_%j.err
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=cegbert@ncsu.edu
-#SBATCH --time=12:00:00            # Allow up to 12 hours
-#SBATCH --mem=32G
 
 echo "=== Sepsis Early Prediction Sweep Execution Start ==="
 echo "Node: $(hostname)"
