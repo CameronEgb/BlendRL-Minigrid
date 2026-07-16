@@ -1,0 +1,55 @@
+agent:
+  name: cql
+  algorithm: cql
+  lr: 0.0007268222670380755
+  batch_size: 64
+  epochs_per_interval: 50
+  cql_alpha: 1.5020827412568596
+  soft_target_tau: 0.005
+  hidden_sizes:
+  - 256
+  - 256
+  ent_coef: 0.0
+  clip_coef: 0.2
+  num_steps: 256
+  blender_mode: neural
+  eval_interval_epochs: 10
+  modules:
+  - type: nsfr
+    rules: simplified
+  - type: neural
+env:
+  name: mimic
+  env_id: mimic
+  num_envs: 10
+  num_steps: 240
+  gamma: 0.99
+  gae_lambda: 0.95
+  rules: default
+  reasoner: nsfr
+  architecture: mlp
+  reward_type: outcome
+mode:
+  name: offline
+  type: offline
+  dataset_path: results/datasets/sepsis/mimic/expert_demo
+  save_dataset: false
+experiment_id: mimic_expert_compare
+group: sepsis
+seed: 1
+total_timesteps: 1000
+intervals_count: 2
+eval_episodes: 2
+save_dataset: false
+local: true
+recover: false
+results_dir: results
+experiment_dir: ${results_dir}/experiments/${experiment_id}
+dataset_root: ${results_dir}/datasets/${experiment_id}
+dataset_path: ${dataset_root}/${agent.name}/${hydra:job.num}
+online_methods: []
+offline_methods:
+- cql
+- multi_arch/blendrl_cql/human_neural
+offline_datasets:
+- expert_demo

@@ -289,7 +289,7 @@ def main():
     parser.add_argument("--no-plot", action="store_true", help="Skip automatic plotting")
     parser.add_argument("--no-online", action="store_true", help="Skip online training phase")
     parser.add_argument("--no-offline", action="store_true", help="Skip offline training phase")
-    parser.add_argument("--no-dash", action="store_true", help="Disable the automatic dashboard")
+    parser.add_argument("--dash", action="store_true", help="Launch the Optuna dashboard during the run")
     parser.add_argument("--dash-only", action="store_true", help="Launch the persistent dashboard and exit")
     parser.add_argument("--remake", action="store_true", help="Force recalculation and overwrite of early prediction summaries")
     args, extra_args = parser.parse_known_args()
@@ -309,7 +309,7 @@ def main():
             # If it has a slash, it is a config group (e.g. hydra/sweeper=optuna), do not prepend ++
             # Also, do not prepend ++ to sweep parameters (containing interval, choice, or range)
             is_sweep_param = any(sw in arg for sw in ["interval(", "choice(", "range("])
-            if not (arg.startswith("+") or arg.startswith("++") or "/" in arg.split("=")[0] or is_sweep_param):
+            if not (arg.startswith("+") or arg.startswith("++") or "/" in arg.split("=")[0] or is_sweep_param or arg.startswith("hydra.")):
                 sanitized_arg = "++" + arg
             else:
                 sanitized_arg = arg
@@ -347,7 +347,7 @@ def main():
     if "hydra" in cfg and "sweeper" in cfg.hydra and "storage" in cfg.hydra.sweeper:
         storage_url = cfg.hydra.sweeper.storage
         
-    if local_val and storage_url and (is_sweep or not args.no_dash):
+    if local_val and storage_url and (args.dash or args.dash_only):
         # Resolve interpolation if any
         storage_url = storage_url.replace("${experiment_id}", args.experiment)
         launch_optuna_dashboard(storage_url)

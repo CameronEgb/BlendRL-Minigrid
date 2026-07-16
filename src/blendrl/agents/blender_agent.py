@@ -308,6 +308,12 @@ class BlenderActorCritic(nn.Module):
         self.rng = random.Random() if rng is None else rng
         self.env = env
         self.cfg = cfg
+        hidden_sizes = [64, 64]
+        if cfg:
+            if "hidden_sizes" in cfg:
+                hidden_sizes = list(cfg["hidden_sizes"])
+            elif "agent" in cfg and "hidden_sizes" in cfg["agent"]:
+                hidden_sizes = list(cfg["agent"]["hidden_sizes"])
         
         self.actor_mode = actor_mode
         self.blender_mode = blender_mode
@@ -348,7 +354,7 @@ class BlenderActorCritic(nn.Module):
                     self.policy_modules.append(m)
                     self.module_types.append("cew")
                 elif m_type == "neural":
-                    m = get_neural_agent(env.name, env.n_actions, device, arch_name=self.architecture)
+                    m = get_neural_agent(env.name, env.n_actions, device, arch_name=self.architecture, hidden_sizes=hidden_sizes)
                     self.policy_modules.append(m)
                     self.module_types.append("neural")
         else:
@@ -361,7 +367,7 @@ class BlenderActorCritic(nn.Module):
                 rulesets = [rules]
             
             # Add Neural module first
-            self.policy_modules.append(get_neural_agent(env.name, env.n_actions, device, arch_name=self.architecture))
+            self.policy_modules.append(get_neural_agent(env.name, env.n_actions, device, arch_name=self.architecture, hidden_sizes=hidden_sizes))
             self.module_types.append("neural")
             
             # Add Logic modules
@@ -394,7 +400,7 @@ class BlenderActorCritic(nn.Module):
         mlp_module_path = f"in/envs/{env.name}/mlp.py"
         if os.path.exists(mlp_module_path):
             module = load_module(mlp_module_path)
-            self.logic_critic = module.MLP(device=device, out_size=1, logic=True)
+            self.logic_critic = module.MLP(device=device, out_size=1, logic=True, hidden_sizes=hidden_sizes)
         else:
             self.logic_critic = None 
 

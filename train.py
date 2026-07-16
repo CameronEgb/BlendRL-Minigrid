@@ -110,7 +110,10 @@ def main(cfg: DictConfig):
     from hydra.core.hydra_config import HydraConfig
     trial_id = "0"
     if HydraConfig.initialized():
-        trial_id = str(HydraConfig.get().job.num)
+        try:
+            trial_id = str(HydraConfig.get().job.num)
+        except Exception:
+            pass
     ckpt_dir = os.path.join("results/checkpoints", cfg.group, cfg.experiment_id, cfg.agent.name, trial_id)
     callbacks = [
         ModelCheckpoint(
