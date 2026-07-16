@@ -220,11 +220,47 @@ def main():
     y = data['y'].squeeze()
     mask = data['mask']
     
-    # Load CQL agent to extract Q-values
-    print(f"Loading CQL agent from: {args.checkpoint}")
-    if not os.path.exists(args.checkpoint):
-        raise FileNotFoundError(f"Checkpoint not found at {args.checkpoint}")
-    cql_agent = CQLAgent.load_from_checkpoint(args.checkpoint, map_location=device, weights_only=False)
+    # Resolve checkpoint path robustly (handling directory paths and versioned checkpoints)
+    checkpoint_arg = Path(args.checkpoint)
+    if checkpoint_arg.is_dir():
+        candidates = list(checkpoint_arg.glob("best_model*.ckpt"))
+        if not candidates:
+            candidates = list(checkpoint_arg.rglob("best_model*.ckpt"))
+        if candidates:
+            def extract_version(p):
+                name = p.stem
+                if "-" in name:
+                    parts = name.split("-v")
+                    if len(parts) > 1 and parts[1].isdigit():
+                        return int(parts[1])
+                return -1
+            candidates.sort(key=extract_version)
+            checkpoint_path = candidates[-1] # Load the latest version
+            print(f"Directory mode: Selected latest checkpoint {checkpoint_path}")
+        else:
+            raise FileNotFoundError(f"No best_model*.ckpt files found in directory {checkpoint_arg}")
+    else:
+        checkpoint_path = checkpoint_arg
+        if not checkpoint_path.exists():
+            dirpath = checkpoint_path.parent
+            if dirpath.exists():
+                candidates = list(dirpath.glob("best_model*.ckpt"))
+                if candidates:
+                    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                    checkpoint_path = candidates[0]
+                    print(f"Specified checkpoint not found. Redirecting to newest candidate: {checkpoint_path}")
+                else:
+                    raise FileNotFoundError(f"No best_model*.ckpt files found in directory {dirpath}")
+            else:
+                raise FileNotFoundError(f"No checkpoint or directory found at {checkpoint_path}")
+
+    # Allow loading dictconfig safelist for torch.load
+    torch.serialization.add_safe_globals([
+        getattr(sys.modules.get('omegaconf.dictconfig', None), 'DictConfig', None)
+    ])
+
+    print(f"Loading CQL agent from: {checkpoint_path}")
+    cql_agent = CQLAgent.load_from_checkpoint(str(checkpoint_path), map_location=device, weights_only=False)
     cql_agent.eval()
 
     # Pre-compute learned V-values from CQL agent for all patients and all timesteps
