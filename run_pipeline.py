@@ -165,6 +165,23 @@ def delete_optuna_study(storage_url, study_name):
     except subprocess.CalledProcessError:
         pass # Study didn't exist or other error
 
+def create_optuna_study(storage_url, study_name):
+    """Pre-creates/initializes an Optuna study to avoid schema initialization race conditions on cluster nodes."""
+    if not storage_url or not storage_url.startswith("sqlite:///"):
+        return
+        
+    venv_python = get_python_executable()
+    cmd = [
+        venv_python, "-c",
+        f"import optuna; "
+        f"optuna.create_study(study_name='{study_name}', storage='{storage_url}', load_if_exists=True)"
+    ]
+    try:
+        subprocess.run(cmd, check=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+        print(f"Pre-initialized Optuna study: {study_name}")
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: Failed to pre-initialize Optuna study '{study_name}': {e.stderr.decode().strip()}")
+
 def run_experiment(overrides):
     env = os.environ.copy()
     project_root = os.getcwd()
@@ -489,7 +506,11 @@ def main():
                     f"agent={agent_config}",
                     f"++agent.name={agent_name_internal}"
                 ]
-                if not is_sweep:
+                if is_sweep:
+                    overrides_slurm.append(f"++hydra.sweeper.study_name={study_name}")
+                    delete_optuna_study(storage_url, study_name)
+                    create_optuna_study(storage_url, study_name)
+                else:
                     overrides_slurm.append(f"++dataset_path={dataset_path}")
                 overrides_slurm += sanitized_extra_args
                 
@@ -566,6 +587,7 @@ def main():
                     if is_sweep:
                         overrides_slurm.append(f"++hydra.sweeper.study_name={study_name}")
                         delete_optuna_study(storage_url, study_name)
+                        create_optuna_study(storage_url, study_name)
                     
                     if is_online and is_sweep:
                         storage_url_slurm = f"sqlite:///optuna.db"
