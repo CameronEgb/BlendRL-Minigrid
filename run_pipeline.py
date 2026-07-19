@@ -506,6 +506,7 @@ def main():
 
     # 2. Offline Training Phases (Many-to-Many)
     eval_job_ids = []
+    eval_commands = []
     if not args.no_offline:
         for dataset_id in dataset_list:
             dataset_name_internal = dataset_id.replace("/", "_")
@@ -562,6 +563,9 @@ def main():
                         f"agent={agent_config}",
                         f"++agent.name={agent_name_internal}"
                     ]
+                    if is_sweep:
+                        overrides_slurm.append(f"++hydra.sweeper.study_name={study_name}")
+                        delete_optuna_study(storage_url, study_name)
                     
                     if is_online and is_sweep:
                         storage_url_slurm = f"sqlite:///optuna.db"
@@ -618,10 +622,12 @@ def main():
                         
                         # Pipeline Integration: MIMIC early prediction evaluator for Slurm
                         if cfg.env.name == "mimic":
-                            eval_job_name = f"eval_{agent_name_internal}_{dataset_name_internal}_{cfg.experiment_id}"
-                            if is_online and is_sweep:
+                            if is_sweep:
                                 storage_url_slurm = f"sqlite:///optuna.db"
-                                study_name_slurm = f"{cfg.experiment_id}_{dataset_name_internal}"
+                                if is_online:
+                                    study_name_slurm = f"{cfg.experiment_id}_{dataset_name_internal}"
+                                else:
+                                    study_name_slurm = f"{cfg.experiment_id}_{agent_name_internal}_{dataset_name_internal}"
                                 best_id_cmd = (
                                     f"BEST_ID=$($PROJECT_ROOT/venv/bin/python3 -c \"import sys; sys.path.append('$PROJECT_ROOT'); from run_pipeline import get_best_trial_id; print(get_best_trial_id('{storage_url_slurm}', '{study_name_slurm}'))\")\n"
                                 )
@@ -655,23 +661,7 @@ def main():
                                 else:
                                     eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction_eval.py --checkpoint {ckpt_path}"
                                 
-                            eval_script = f"#!/bin/bash\n"
-                            eval_script += f"#SBATCH --job-name={eval_job_name}\n"
-                            eval_script += f"#SBATCH --partition={args.partition}\n"
-                            eval_script += f"#SBATCH --ntasks-per-node=1\n"
-                            eval_script += f"#SBATCH --nodes=1\n"
-                            eval_script += f"#SBATCH --output={log_dir}/%x_%j.out\n"
-                            eval_script += f"#SBATCH --error={log_dir}/%x_%j.err\n"
-                            eval_script += f"#SBATCH --mail-type=END,FAIL\n"
-                            eval_script += f"#SBATCH --mail-user=cegbert@ncsu.edu\n"
-                            eval_script += f"#SBATCH --dependency=afterok:{job_id}\n\n"
-                            eval_script += f"export PROJECT_ROOT={os.getcwd()}\n"
-                            eval_script += f"export PYTHONPATH=$PROJECT_ROOT/src:$PYTHONPATH\n\n"
-                            eval_script += eval_cmd + "\n"
-                            
-                            eval_job_id = submit_sbatch(eval_script)
-                            if eval_job_id:
-                                eval_job_ids.append(eval_job_id)
+                            eval_commands.append(eval_cmd)
     else:
         print("\n=== Skipping Offline Training Phase ===")
 
@@ -716,7 +706,7 @@ def main():
         else:
             if job_ids:
                 actual_exp_id = cfg.experiment_id
-                print(f"\n=== Preparing Final Job: Plotting ({actual_exp_id}) ===")
+                print(f"\n=== Preparing Final Job: Evaluation and Plotting ({actual_exp_id}) ===")
 
                 job_name = f"final_{actual_exp_id}"
                 
@@ -741,6 +731,12 @@ def main():
                     final_script += f"#SBATCH --dependency=afterany:{all_dependencies}\n"
                 final_script += f"\nexport PROJECT_ROOT={project_root}\n"
                 final_script += f"export PYTHONPATH=$PROJECT_ROOT/src:$PYTHONPATH\n\n"
+                
+                if eval_commands:
+                    final_script += "echo 'Running combined evaluations...'\n"
+                    for cmd in eval_commands:
+                        final_script += f"{cmd}\n\n"
+                        
                 final_script += f"echo 'Generating final plots for {actual_exp_id}...'\n"
                 final_script += f"{plot_cmd}\n"
                 
