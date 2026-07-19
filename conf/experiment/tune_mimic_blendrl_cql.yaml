@@ -12,7 +12,7 @@ intervals_count: 5  # Sweep across 5 data-efficiency intervals (20%, 40%, 60%, 8
 eval_episodes: 100
 
 online_methods: []
-offline_methods: [multi_arch/blendrl_cql/human_neural]
+offline_methods: [multi_arch/blendrl_cql/human_neural, multi_arch/blendrl_cql/human_cew]
 offline_datasets: [mimic]
 
 agent:
@@ -39,3 +39,7 @@ hydra:
     params:
       agent.lr: interval(1e-4, 1e-3)
       agent.cql_alpha: interval(0.1, 5.0)
+      agent.batch_size: choice(32, 64, 128, 256)
+      ++agent.ecm_dthr: interval(0.01, 0.5)
+      ++agent.soft_target_tau: interval(0.001, 0.1)
+      agent.blender_mode: choice('logic', 'neural')

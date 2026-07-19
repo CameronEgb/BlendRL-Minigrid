@@ -122,39 +122,11 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
             
             reward_type = os.environ.get("MIMIC_REWARD_TYPE", "behavioral")
             if reward_type == "outcome":
-                # Outcome/Physiological Shaped Reward
-                if self.orig is not None:
-                    obs_orig = self.orig[traj, t]
-                    map_val = obs_orig[15]
-                    lactate_val = obs_orig[10]
-                    creatinine_val = obs_orig[12]
-                    bilirubin_val = obs_orig[13]
-                    platelet_val = obs_orig[11]
-                    
-                    map_penalty = max(0.0, (65.0 - map_val) / 65.0) if not np.isnan(map_val) else 0.0
-                    lactate_penalty = max(0.0, (lactate_val - 2.0) / 2.0) if not np.isnan(lactate_val) else 0.0
-                    renal_penalty = max(0.0, creatinine_val - 1.2) if not np.isnan(creatinine_val) else 0.0
-                    hepatic_penalty = max(0.0, bilirubin_val - 1.2) if not np.isnan(bilirubin_val) else 0.0
-                    coagulation_penalty = max(0.0, (150.0 - platelet_val) / 150.0) if not np.isnan(platelet_val) else 0.0
-                    
-                    penalty = -(map_penalty + lactate_penalty + renal_penalty + hepatic_penalty + coagulation_penalty)
-                else:
-                    obs_t = self.states[traj, t]
-                    map_penalty = max(0.0, -obs_t[15])
-                    lactate_penalty = max(0.0, obs_t[10])
-                    renal_penalty = max(0.0, obs_t[12])
-                    hepatic_penalty = max(0.0, obs_t[13])
-                    coagulation_penalty = max(0.0, -obs_t[11])
-                    
-                    penalty = -(map_penalty + lactate_penalty + renal_penalty + hepatic_penalty + coagulation_penalty)
-                
                 outcome = self.y[traj, 0]
                 terminal_reward = 15.0 if outcome == 0 else -15.0
-                
-                # Small step penalty, large terminal reward at the end
-                reward = 0.1 * penalty
+                reward = 0.0
                 if is_done:
-                    reward += terminal_reward
+                    reward = terminal_reward
             else:
                 # Default behavioral copying reward
                 T = len(valid_steps)

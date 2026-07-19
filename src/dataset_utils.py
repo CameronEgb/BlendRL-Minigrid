@@ -183,19 +183,9 @@ class DatasetReader:
                         
                         # Recompute rewards for this trajectory
                         for step_idx in range(start_idx, idx + 1):
-                            obs_t = self.obs[step_idx]
-                            
-                            map_penalty = max(0.0, -obs_t[15].item())
-                            lactate_penalty = max(0.0, obs_t[10].item())
-                            renal_penalty = max(0.0, obs_t[12].item())
-                            hepatic_penalty = max(0.0, obs_t[13].item())
-                            coagulation_penalty = max(0.0, -obs_t[11].item())
-                            
-                            penalty = -(map_penalty + lactate_penalty + renal_penalty + hepatic_penalty + coagulation_penalty)
-                            reward_t = 0.1 * penalty
-                            
+                            reward_t = 0.0
                             if step_idx == idx:
-                                reward_t += 15.0 if outcome == 0.0 else -15.0
+                                reward_t = 15.0 if outcome == 0.0 else -15.0
                                 
                             new_rewards[step_idx] = reward_t
                         
