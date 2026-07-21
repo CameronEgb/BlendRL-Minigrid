@@ -9,13 +9,21 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.dataset_utils import DatasetWriter
 
 # Paths
-datasets_dir = "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2"
-if not os.path.exists(datasets_dir):
-    datasets_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../datasets/MIMIC 2"))
-if not os.path.exists(datasets_dir):
-    datasets_dir = "/mnt/beegfs/cegbert/MIMIC 2"
-if not os.path.exists(datasets_dir):
-    datasets_dir = os.path.abspath(os.path.join(os.getcwd(), "datasets/MIMIC 2"))
+datasets_dir = os.environ.get("MIMIC_DATASET_DIR", "")
+if not datasets_dir or not os.path.exists(datasets_dir):
+    for candidate in [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets/MIMIC 2")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets")),
+        os.path.abspath(os.path.join(os.getcwd(), "in/datasets/MIMIC 2")),
+        os.path.abspath(os.path.join(os.getcwd(), "in/datasets")),
+        "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2",
+        "/mnt/beegfs/cegbert/NeSyRL/in/datasets/MIMIC 2",
+        "/mnt/beegfs/cegbert/NeSyRL/in/datasets",
+        "/mnt/beegfs/cegbert/MIMIC 2"
+    ]:
+        if os.path.exists(candidate):
+            datasets_dir = candidate
+            break
 
 npz_path = os.path.join(datasets_dir, "mimic_expert_demonstrations.npz")
 out_dir = "/Users/cameronegbert/Documents/NCSU/Research/NeSyRL/results/datasets/sepsis/mimic/expert_demo"

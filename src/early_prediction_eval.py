@@ -237,13 +237,21 @@ def main():
     if args.dataset_dir is not None:
         mimic_dir = args.dataset_dir
     else:
-        mimic_dir = "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2"
-        if not os.path.exists(mimic_dir):
-            mimic_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../datasets/MIMIC 2"))
-        if not os.path.exists(mimic_dir):
-            mimic_dir = "/mnt/beegfs/cegbert/MIMIC 2"
-        if not os.path.exists(mimic_dir):
-            mimic_dir = os.path.abspath(os.path.join(os.getcwd(), "../datasets/MIMIC 2"))
+        mimic_dir = os.environ.get("MIMIC_DATASET_DIR", "")
+        if not mimic_dir or not os.path.exists(mimic_dir):
+            for candidate in [
+                os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets/MIMIC 2")),
+                os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets")),
+                os.path.abspath(os.path.join(os.getcwd(), "in/datasets/MIMIC 2")),
+                os.path.abspath(os.path.join(os.getcwd(), "in/datasets")),
+                "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2",
+                "/mnt/beegfs/cegbert/NeSyRL/in/datasets/MIMIC 2",
+                "/mnt/beegfs/cegbert/NeSyRL/in/datasets",
+                "/mnt/beegfs/cegbert/MIMIC 2"
+            ]:
+                if os.path.exists(candidate):
+                    mimic_dir = candidate
+                    break
             
     # Load predictor training dataset
     if args.dataset_path is not None:

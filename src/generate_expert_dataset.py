@@ -7,15 +7,21 @@ from torch.utils.data import DataLoader, Dataset
 from sklearn.model_selection import train_test_split
 
 # Dynamic dataset directory detection
-datasets_dir = "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2"
-if not os.path.exists(datasets_dir):
-    datasets_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../datasets/MIMIC 2"))
-if not os.path.exists(datasets_dir):
-    datasets_dir = "/mnt/beegfs/cegbert/MIMIC 2"
-if not os.path.exists(datasets_dir):
-    datasets_dir = os.path.abspath(os.path.join(os.getcwd(), "../datasets/MIMIC 2"))
-if not os.path.exists(datasets_dir):
-    datasets_dir = os.path.abspath(os.path.join(os.getcwd(), "datasets/MIMIC 2"))
+datasets_dir = os.environ.get("MIMIC_DATASET_DIR", "")
+if not datasets_dir or not os.path.exists(datasets_dir):
+    for candidate in [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets/MIMIC 2")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets")),
+        os.path.abspath(os.path.join(os.getcwd(), "in/datasets/MIMIC 2")),
+        os.path.abspath(os.path.join(os.getcwd(), "in/datasets")),
+        "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2",
+        "/mnt/beegfs/cegbert/NeSyRL/in/datasets/MIMIC 2",
+        "/mnt/beegfs/cegbert/NeSyRL/in/datasets",
+        "/mnt/beegfs/cegbert/MIMIC 2"
+    ]:
+        if os.path.exists(candidate):
+            datasets_dir = candidate
+            break
 
 src_path = os.path.join(datasets_dir, "mimic_lazy_0_interventions_balanced.npz")
 out_path = os.path.join(datasets_dir, "mimic_expert_demonstrations.npz")

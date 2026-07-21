@@ -187,10 +187,29 @@ def evaluate_transformer_model(model, X_test, input_dim, device="cpu"):
         probs = torch.sigmoid(logits).cpu().numpy().squeeze(1)
     return probs
 
+def find_default_mimic_npz():
+    env_dir = os.environ.get("MIMIC_DATASET_DIR", "")
+    if env_dir and os.path.exists(os.path.join(env_dir, "mimic_lazy_12_clean_with_interventions_corrected.npz")):
+        return os.path.join(env_dir, "mimic_lazy_12_clean_with_interventions_corrected.npz")
+    for candidate_dir in [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets/MIMIC 2")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets")),
+        os.path.abspath(os.path.join(os.getcwd(), "in/datasets/MIMIC 2")),
+        os.path.abspath(os.path.join(os.getcwd(), "in/datasets")),
+        "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2",
+        "/mnt/beegfs/cegbert/NeSyRL/in/datasets/MIMIC 2",
+        "/mnt/beegfs/cegbert/NeSyRL/in/datasets",
+        "/mnt/beegfs/cegbert/MIMIC 2"
+    ]:
+        candidate_file = os.path.join(candidate_dir, "mimic_lazy_12_clean_with_interventions_corrected.npz")
+        if os.path.exists(candidate_file):
+            return candidate_file
+    return "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
+
 def main():
     parser = argparse.ArgumentParser(description="Controlled Septic Shock Early Prediction Sweep with Fixed Cohort")
     parser.add_argument("--checkpoint", type=str, default="results/checkpoints/mimic/tune_mimic_cql", help="Path to CQL agent checkpoints")
-    parser.add_argument("--dataset-path", type=str, default="/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz", help="Path to MIMIC dataset")
+    parser.add_argument("--dataset-path", type=str, default=find_default_mimic_npz(), help="Path to MIMIC dataset")
     parser.add_argument("--tau-min", type=int, default=1, help="Minimum tau in hours")
     parser.add_argument("--tau-max", type=int, default=36, help="Maximum tau in hours")
     parser.add_argument("--tau-step", type=int, default=4, help="Step size for tau sweep in hours")
