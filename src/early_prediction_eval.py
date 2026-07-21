@@ -221,7 +221,8 @@ def main():
     import argparse
     import csv
     parser = argparse.ArgumentParser(description="MIMIC Sepsis Early Prediction Evaluation")
-    parser.add_argument("--checkpoint", type=str, required=True, help="Path to trained CQL checkpoint or directory of checkpoints")
+    parser.add_argument("--experiment", "-e", type=str, default=None, help="Experiment ID to evaluate (e.g., tune_mimic_blendrl_cql)")
+    parser.add_argument("--checkpoint", type=str, default=None, help="Path to trained CQL checkpoint or directory of checkpoints")
     parser.add_argument("--dataset-name", type=str, default=os.environ.get("MIMIC_DATASET_NAME", "mimic_lazy_12_clean_with_interventions_corrected.npz"), help="Predictor training dataset name")
     parser.add_argument("--eval-dataset-name", type=str, default=os.environ.get("MIMIC_EVAL_DATASET_NAME", "mimic_expert_demonstrations.npz"), help="Evaluation dataset name")
     parser.add_argument("--dataset-path", type=str, default=None, help="Direct path to the MIMIC dataset .npz file")
@@ -229,6 +230,22 @@ def main():
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory for early prediction report")
     parser.add_argument("--remake", action="store_true", help="Force recalculation and overwrite the CSV/MD summaries")
     args = parser.parse_known_args()[0]
+    
+    if args.experiment is not None and args.checkpoint is None:
+        exp_id = args.experiment
+        ckpt_root = Path("results/checkpoints")
+        matches = list(ckpt_root.glob(f"**/{exp_id}"))
+        if not matches:
+            matches = list(ckpt_root.glob(f"*{exp_id}*"))
+        if matches:
+            args.checkpoint = str(matches[0])
+            args.remake = True
+            print(f"Resolved experiment '{exp_id}' to checkpoint path: {args.checkpoint}")
+        else:
+            raise FileNotFoundError(f"Could not find any checkpoint directory for experiment '{exp_id}' under {ckpt_root}")
+            
+    if args.checkpoint is None:
+        parser.error("Either --experiment (-e) or --checkpoint must be provided.")
     
     device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
     print(f"Using device: {device}")
