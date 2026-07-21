@@ -39,6 +39,18 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
             
         path = os.path.join(mimic_dir, dataset_name)
         if not os.path.exists(path):
+            # Fallback to alternate dataset filenames if default dataset_name doesn't exist in mimic_dir
+            for alt_name in [
+                "mimic_lazy_12_clean_with_interventions_corrected.npz",
+                "mimic_lazy_0_interventions_flag.npz",
+                "mimic_expert_demonstrations.npz"
+            ]:
+                alt_path = os.path.join(mimic_dir, alt_name)
+                if os.path.exists(alt_path):
+                    path = alt_path
+                    break
+                    
+        if not os.path.exists(path):
             raise FileNotFoundError(f"MIMIC dataset not found at {path}")
             
         data = np.load(path, allow_pickle=True)

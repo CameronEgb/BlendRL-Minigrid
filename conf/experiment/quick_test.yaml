@@ -23,7 +23,7 @@ trainer:
 hydra:
   sweeper:
     _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
-    storage: "sqlite:///optuna_${experiment_id}.db"
+    storage: "sqlite:///results/optuna/optuna_${experiment_id}.db"
     study_name: "${experiment_id}_sweep"
     n_trials: 10
     n_jobs: 1

@@ -25,7 +25,7 @@ hydra:
       seed: 123
       n_startup_trials: 10
     direction: maximize
-    storage: "sqlite:///optuna_${experiment_id}.db"
+    storage: "sqlite:///results/optuna/optuna_${experiment_id}.db"
     study_name: "cp_final_tune_${agent.name}"
     n_trials: 100
     n_jobs: 1

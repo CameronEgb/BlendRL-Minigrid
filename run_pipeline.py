@@ -363,6 +363,7 @@ def main():
     
     if "hydra" in cfg and "sweeper" in cfg.hydra and "storage" in cfg.hydra.sweeper:
         storage_url = cfg.hydra.sweeper.storage
+        os.makedirs("results/optuna", exist_ok=True)
         
     if local_val and storage_url and (args.dash or args.dash_only):
         # Resolve interpolation if any
@@ -590,7 +591,7 @@ def main():
                         create_optuna_study(storage_url, study_name)
                     
                     if is_online and is_sweep:
-                        storage_url_slurm = f"sqlite:///optuna.db"
+                        storage_url_slurm = storage_url if storage_url else f"sqlite:///results/optuna/optuna.db"
                         study_name_slurm = f"{cfg.experiment_id}_{dataset_name_internal}"
                         best_id_cmd = f"BEST_ID=$($PROJECT_ROOT/venv/bin/python3 -c \"import sys; sys.path.append('$PROJECT_ROOT'); from run_pipeline import get_best_trial_id; print(get_best_trial_id('{storage_url_slurm}', '{study_name_slurm}'))\")"
                         dataset_path_cmd = f"D_PATH=results/datasets/{cfg.experiment_id}/{dataset_name_internal}/$BEST_ID"
@@ -645,7 +646,7 @@ def main():
                         # Pipeline Integration: MIMIC early prediction evaluator for Slurm
                         if cfg.env.name == "mimic":
                             if is_sweep:
-                                storage_url_slurm = f"sqlite:///optuna.db"
+                                storage_url_slurm = storage_url if storage_url else f"sqlite:///results/optuna/optuna.db"
                                 if is_online:
                                     study_name_slurm = f"{cfg.experiment_id}_{dataset_name_internal}"
                                 else:
