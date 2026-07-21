@@ -17,7 +17,13 @@ export PROJECT_ROOT=$(pwd)
 export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/nsfr:$PROJECT_ROOT/src/nudge:$PROJECT_ROOT/src/neumann:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
 
 # 2. Paths Configuration (Defaults for Cluster)
-DATASET_PATH="/mnt/beegfs/cegbert/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
+DATASET_PATH="in/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
+if [ ! -f "$DATASET_PATH" ]; then
+    DATASET_PATH="in/datasets/mimic_lazy_12_clean_with_interventions_corrected.npz"
+fi
+if [ ! -f "$DATASET_PATH" ]; then
+    DATASET_PATH="/mnt/beegfs/cegbert/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
+fi
 if [ ! -f "$DATASET_PATH" ]; then
     DATASET_PATH="datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
 fi
@@ -42,9 +48,10 @@ $PROJECT_ROOT/venv/bin/python3 -u src/septic_shock_early_prediction.py \
     --dataset-path "$DATASET_PATH" \
     --tau-min 1 \
     --tau-max 36 \
-    --tau-step 5 \
+    --tau-step 4 \
+    --window-hours 12 \
     --epochs 10 \
-    --n-models 5 \
+    --n-models 100 \
     --output-dir "results/plots/early_prediction"
 
 echo "=== Sepsis Early Prediction Sweep Execution End ==="

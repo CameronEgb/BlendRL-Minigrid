@@ -56,10 +56,10 @@ class SepsisTransformer(nn.Module):
         x = self.pos_encoder(x)
         out = self.transformer_encoder(x, src_key_padding_mask=padding_mask)
         
-        # Mean pool over non-padding steps
-        valid_lens = (~padding_mask).sum(dim=1, keepdim=True).clamp(min=1)
-        out_masked = out * (~padding_mask).unsqueeze(-1)
-        pooled = out_masked.sum(dim=1) / valid_lens
+        # Last non-padding step representation per sequence
+        valid_lens = (~padding_mask).sum(dim=1).clamp(min=1)
+        last_indices = valid_lens - 1
+        pooled = out[torch.arange(out.size(0)), last_indices]
         
         logits = self.fc(pooled)
         return logits
@@ -213,13 +213,16 @@ def main():
     parser.add_argument("--tau-min", type=int, default=1, help="Minimum tau in hours")
     parser.add_argument("--tau-max", type=int, default=36, help="Maximum tau in hours")
     parser.add_argument("--tau-step", type=int, default=4, help="Step size for tau sweep in hours")
+    parser.add_argument("--window-hours", type=int, default=12, help="Fixed observation window length in hours (default: 12)")
     parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs for each model")
     parser.add_argument("--n-models", type=int, default=20, help="Number of models to train and ensemble (average) per configuration")
     parser.add_argument("--output-dir", type=str, default="results/plots/early_prediction", help="Directory to save plots")
     args = parser.parse_args()
 
+    w_steps = 2 * args.window_hours
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
+    print(f"Observation window: {args.window_hours} hours ({w_steps} steps)")
     print(f"Ensembling configuration: training and averaging {args.n_models} models per setup.")
 
     # Load dataset
@@ -231,14 +234,14 @@ def main():
     y = data['y'].squeeze()
     mask = data['mask']
     
-    # Filter cohort globally: Only keep patients with stays > 2 * tau_max steps (e.g. > 36 hours / 72 steps)
-    min_stay_steps = 2 * args.tau_max
+    # Filter cohort globally: Only keep patients with stays >= 2 * tau_max + w_steps to ensure a full window at max tau
+    min_stay_steps = 2 * args.tau_max + w_steps
     cohort_indices = []
     cohort_t_lengths = []
     
     for i in range(len(X)):
         valid_steps = np.where(mask[i].squeeze() != -1)[0]
-        if len(valid_steps) > min_stay_steps:
+        if len(valid_steps) >= min_stay_steps:
             cohort_indices.append(i)
             cohort_t_lengths.append(len(valid_steps))
             
@@ -246,7 +249,7 @@ def main():
     cohort_t_lengths = np.array(cohort_t_lengths)
     y_cohort = y[cohort_indices]
     
-    print(f"Global Cohort Filter (stays > {args.tau_max} hours / {min_stay_steps} steps): {len(cohort_indices)} patients remaining (out of {len(X)})")
+    print(f"Global Cohort Filter (stays >= {args.tau_max}h + {args.window_hours}h window = {min_stay_steps} steps): {len(cohort_indices)} patients remaining (out of {len(X)})")
     
     # Load CQL agent robustly
     checkpoint_arg = Path(args.checkpoint)
@@ -309,10 +312,10 @@ def main():
             for idx_in_batch, original_idx in enumerate(batch_indices):
                 v_vals_all[original_idx] = v_vals[idx_in_batch]
     
-    # Feature configurations (accessed by patient original index)
+    # Feature configurations with fixed window W ending at t: X[idx, max(0, t-w_steps):t, :]
     feat_configs = {
-        "no_v": lambda idx, t: X[idx, :t, :49],
-        "with_v": lambda idx, t: np.concatenate([X[idx, :t, :49], v_vals_all[idx][:t]], axis=-1),
+        "no_v": lambda idx, t: X[idx, max(0, t - w_steps):t, :49],
+        "with_v": lambda idx, t: np.concatenate([X[idx, max(0, t - w_steps):t, :49], v_vals_all[idx][max(0, t - w_steps):t]], axis=-1),
     }
 
     # Set up tau sweep list
