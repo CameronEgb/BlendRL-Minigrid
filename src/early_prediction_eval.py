@@ -350,13 +350,28 @@ def main():
         report_dir = Path(args.output_dir)
         exp_id = report_dir.name
     else:
-        parts = Path(args.checkpoint).parts
-        if len(parts) >= 5:
+        ckpt_path = Path(args.checkpoint)
+        parts = ckpt_path.parts
+        exp_id = getattr(args, "experiment", None)
+        
+        # Try to find group and exp_id from checkpoint path
+        if len(parts) >= 4 and parts[0] == "results" and parts[1] == "checkpoints":
+            group = parts[2]
             exp_id = parts[3]
-            report_dir = Path("results/plots/combined") / exp_id
+            report_dir = Path("results/plots") / group / exp_id
+        elif len(parts) >= 3 and parts[0] == "results":
+            exp_id = parts[2]
+            report_dir = Path("results/plots") / exp_id
+        elif exp_id:
+            # Look for existing plot dir matching exp_id under results/plots/
+            matches = list(Path("results/plots").glob(f"**/{exp_id}"))
+            if matches:
+                report_dir = matches[0]
+            else:
+                report_dir = Path("results/plots") / exp_id
         else:
-            exp_id = "mimic_cql"
-            report_dir = Path("results/plots/combined/mimic_cql")
+            exp_id = ckpt_path.name
+            report_dir = Path("results/plots") / exp_id
             
     report_dir.mkdir(parents=True, exist_ok=True)
     csv_path = report_dir / "early_prediction_summary.csv"
