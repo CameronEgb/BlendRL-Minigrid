@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import f1_score, roc_auc_score
+from sklearn.metrics import f1_score, roc_auc_score, precision_recall_curve, auc
 import matplotlib.pyplot as plt
 from pathlib import Path
 
@@ -92,9 +92,14 @@ def train_lstm_model(X_train, y_train, input_dim, epochs=10, batch_size=64, devi
     X_train_tensor = torch.tensor(X_train_padded, dtype=torch.float32).to(device)
     y_train_tensor = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1).to(device)
     
+    # Class-weighted loss
+    n_pos = (y_train == 1).sum()
+    n_neg = (y_train == 0).sum()
+    pos_weight = torch.tensor([n_neg / max(1, n_pos)], dtype=torch.float32).to(device)
+    
     model = SepsisLSTM(input_dim=input_dim, hidden_dim=32).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=2e-3)
-    criterion = nn.BCEWithLogitsLoss()
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     
     model.train()
     dataset_size = len(X_train)
@@ -146,9 +151,14 @@ def train_transformer_model(X_train, y_train, input_dim, epochs=10, batch_size=6
     mask_train_tensor = torch.tensor(mask_train, dtype=torch.bool).to(device)
     y_train_tensor = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1).to(device)
     
+    # Class-weighted loss
+    n_pos = (y_train == 1).sum()
+    n_neg = (y_train == 0).sum()
+    pos_weight = torch.tensor([n_neg / max(1, n_pos)], dtype=torch.float32).to(device)
+    
     model = SepsisTransformer(input_dim=input_dim).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    criterion = nn.BCEWithLogitsLoss()
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     
     model.train()
     dataset_size = len(X_train)
@@ -331,7 +341,7 @@ def main():
     
     results = {}
     for m_cfg, _, _ in model_configs:
-        results[m_cfg] = {"tau": [], "f1": [], "auc": []}
+        results[m_cfg] = {"tau": [], "auc": [], "auprc": [], "f1_max": [], "f1_05": []}
 
     # Split train/test ONCE at the cohort level to keep the test set identical across all taus
     train_cohort_idxs, test_cohort_idxs = train_test_split(
@@ -379,15 +389,28 @@ def main():
                 prob_predictions.append(probs)
                 
             avg_probs = np.mean(prob_predictions, axis=0)
-            preds = (avg_probs > 0.5).astype(np.int32)
             
-            f1 = f1_score(y_test, preds, zero_division=0)
-            auc = roc_auc_score(y_test, avg_probs)
+            # 1. AUC-ROC
+            auc_roc = float(roc_auc_score(y_test, avg_probs))
+            
+            # 2. AUPRC & Optimal F1 (F1_max)
+            precisions, recalls, thresholds = precision_recall_curve(y_test, avg_probs)
+            auprc_val = float(auc(recalls, precisions))
+            
+            f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-8)
+            f1_max_val = float(np.max(f1_scores))
+            
+            # 3. Standard F1 at 0.5 threshold
+            preds_05 = (avg_probs > 0.5).astype(np.int32)
+            f1_05_val = float(f1_score(y_test, preds_05, zero_division=0))
             
             results[m_cfg_name]["tau"].append(tau)
-            results[m_cfg_name]["f1"].append(f1)
-            results[m_cfg_name]["auc"].append(auc)
-            print(f"    Ensemble F1: {f1:.4f}, AUC: {auc:.4f}")
+            results[m_cfg_name]["auc"].append(auc_roc)
+            results[m_cfg_name]["auprc"].append(auprc_val)
+            results[m_cfg_name]["f1_max"].append(f1_max_val)
+            results[m_cfg_name]["f1_05"].append(f1_05_val)
+            
+            print(f"    AUC-ROC: {auc_roc:.4f}, AUPRC: {auprc_val:.4f}, F1-Max (optimal): {f1_max_val:.4f}, F1-0.5: {f1_05_val:.4f}")
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -396,45 +419,67 @@ def main():
     results_file = out_dir / "early_prediction_dl_results.txt"
     with open(results_file, "w") as f:
         f.write(f"=== Septic Shock Early Prediction DL Ensemble Sweep Results (n_models={args.n_models}) ===\n")
-        f.write(f"Cohort Constraint: Patients with stays > {args.tau_max} hours only (Fixed size = {len(cohort_indices)})\n\n")
+        f.write(f"Cohort Constraint: Patients with stays >= {args.tau_max}h + {args.window_hours}h window (Fixed size = {len(cohort_indices)})\n\n")
         for m_cfg_name, _, _ in model_configs:
             f.write(f"Model Configuration: {m_cfg_name}\n")
-            f.write(f"  Taus: {results[m_cfg_name]['tau']}\n")
-            f.write(f"  F1s:  {results[m_cfg_name]['f1']}\n")
-            f.write(f"  AUCs: {results[m_cfg_name]['auc']}\n\n")
+            f.write(f"  Taus:   {results[m_cfg_name]['tau']}\n")
+            f.write(f"  AUCs:   {results[m_cfg_name]['auc']}\n")
+            f.write(f"  AUPRCs: {results[m_cfg_name]['auprc']}\n")
+            f.write(f"  F1_max: {results[m_cfg_name]['f1_max']}\n")
+            f.write(f"  F1_0.5: {results[m_cfg_name]['f1_05']}\n\n")
 
-    # Plot results
-    print(f"Plotting results and saving to {out_dir}...")
-    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+    # Plot 4-panel results
+    print(f"Plotting 4-panel results and saving to {out_dir}...")
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
     
     colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red']
     markers = ['o', 's', '^', 'D']
     
-    # F1 Plot
+    # Plot 1: AUC-ROC
     for idx, (m_cfg_name, _, _) in enumerate(model_configs):
         res = results[m_cfg_name]
-        axes[0].plot(res["tau"], res["f1"], marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
-    axes[0].set_title(f"Ensemble F1-Score for Septic Shock Early Prediction (\u03c4 \u2208 [1, 36], n={args.n_models})", fontsize=12)
-    axes[0].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=11)
-    axes[0].set_ylabel("F1-Score", fontsize=11)
-    axes[0].grid(True, linestyle="--", alpha=0.6)
-    axes[0].legend(fontsize=10)
+        axes[0, 0].plot(res["tau"], res["auc"], marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
+    axes[0, 0].set_title(f"AUC-ROC vs. Lead Time (\u03c4)", fontsize=12, fontweight='bold')
+    axes[0, 0].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=11)
+    axes[0, 0].set_ylabel("AUC-ROC", fontsize=11)
+    axes[0, 0].grid(True, linestyle="--", alpha=0.6)
+    axes[0, 0].legend(fontsize=10)
     
-    # AUC Plot
+    # Plot 2: AUPRC
     for idx, (m_cfg_name, _, _) in enumerate(model_configs):
         res = results[m_cfg_name]
-        axes[1].plot(res["tau"], res["auc"], marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
-    axes[1].set_title(f"Ensemble AUC-ROC for Septic Shock Early Prediction (\u03c4 \u2208 [1, 36], n={args.n_models})", fontsize=12)
-    axes[1].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=11)
-    axes[1].set_ylabel("AUC-ROC", fontsize=11)
-    axes[1].grid(True, linestyle="--", alpha=0.6)
-    axes[1].legend(fontsize=10)
+        axes[0, 1].plot(res["tau"], res["auprc"], marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
+    axes[0, 1].set_title(f"AUPRC (PR-AUC) vs. Lead Time (\u03c4)", fontsize=12, fontweight='bold')
+    axes[0, 1].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=11)
+    axes[0, 1].set_ylabel("AUPRC", fontsize=11)
+    axes[0, 1].grid(True, linestyle="--", alpha=0.6)
+    axes[0, 1].legend(fontsize=10)
+    
+    # Plot 3: F1-Max (Optimal Threshold)
+    for idx, (m_cfg_name, _, _) in enumerate(model_configs):
+        res = results[m_cfg_name]
+        axes[1, 0].plot(res["tau"], res["f1_max"], marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
+    axes[1, 0].set_title(f"F1-Max (Optimal Threshold \u03b8*) vs. Lead Time (\u03c4)", fontsize=12, fontweight='bold')
+    axes[1, 0].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=11)
+    axes[1, 0].set_ylabel("Optimal F1-Score", fontsize=11)
+    axes[1, 0].grid(True, linestyle="--", alpha=0.6)
+    axes[1, 0].legend(fontsize=10)
+
+    # Plot 4: F1 at 0.5 Threshold
+    for idx, (m_cfg_name, _, _) in enumerate(model_configs):
+        res = results[m_cfg_name]
+        axes[1, 1].plot(res["tau"], res["f1_05"], marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
+    axes[1, 1].set_title(f"F1-Score (Standard Threshold \u03b8=0.5) vs. Lead Time (\u03c4)", fontsize=12, fontweight='bold')
+    axes[1, 1].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=11)
+    axes[1, 1].set_ylabel("F1-Score (\u03b8=0.5)", fontsize=11)
+    axes[1, 1].grid(True, linestyle="--", alpha=0.6)
+    axes[1, 1].legend(fontsize=10)
     
     plt.tight_layout()
     plot_path = out_dir / "early_prediction_dl_comparison.png"
     plt.savefig(plot_path, dpi=200)
     plt.close()
-    print(f"Saved plot: {plot_path}")
+    print(f"Saved 4-panel comparison plot: {plot_path}")
     
     print("Early prediction deep learning evaluation finished successfully!")
 
