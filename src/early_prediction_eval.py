@@ -3,52 +3,48 @@ import sys
 import numpy as np
 import torch
 import torch.nn as nn
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 from pathlib import Path
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score, roc_auc_score
 
-# Ensure project root and src are in PYTHONPATH
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if PROJECT_ROOT not in sys.path:
-    sys.path.append(PROJECT_ROOT)
-if os.path.join(PROJECT_ROOT, "src") not in sys.path:
-    sys.path.append(os.path.join(PROJECT_ROOT, "src"))
-
-# Import CQLAgent from methods
-from src.methods.cql_agent import CQLAgent
+# Add root directory to path to allow importing src modules
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from src.cql.cql_agent import CQLAgent
 
 class SepsisPredictorLSTM(nn.Module):
-    def __init__(self, input_dim=49, hidden_dim=64, num_layers=1):
+    def __init__(self, input_dim=49, hidden_dim=64):
         super().__init__()
-        self.lstm = nn.LSTM(
-            input_size=input_dim,
-            hidden_size=hidden_dim,
-            num_layers=num_layers,
-            batch_first=True
-        )
-        self.fc = nn.Linear(hidden_dim, 1)
+        self.lstm = nn.LSTM(input_dim, hidden_dim, batch_first=True)
+        self.classifier = nn.Linear(hidden_dim, 1)
         
     def forward(self, x, mask):
-        # x: (batch_size, seq_len, input_dim)
-        # mask: (batch_size, seq_len, 1)
+        # x shape: (batch_size, seq_len, input_dim)
+        # mask shape: (batch_size, seq_len, 1) or (batch_size, seq_len)
+        if mask.ndim == 2:
+            mask = mask.unsqueeze(-1)
+            
         out, _ = self.lstm(x)
+        # Apply mask: zero out hidden states where mask == -1 (or padded)
+        m = (mask != -1).float()
+        out = out * m
         
-        # Determine lengths
-        valid_mask = (mask.squeeze(-1) != -1).float()
-        lengths = valid_mask.sum(dim=1).long() # (batch_size,)
-        
+        # Take the last valid timestep for classification
         batch_size = x.size(0)
-        idx = (lengths - 1).clamp(min=0)
-        last_out = out[torch.arange(batch_size), idx] # (batch_size, hidden_dim)
+        last_outputs = []
+        for i in range(batch_size):
+            valid_steps = torch.where(mask[i].squeeze() != -1)[0]
+            if len(valid_steps) > 0:
+                last_idx = valid_steps[-1]
+                last_outputs.append(out[i, last_idx])
+            else:
+                last_outputs.append(out[i, -1])
+        last_outputs = torch.stack(last_outputs)
+        return self.classifier(last_outputs)
         
-        logits = self.fc(last_out)
-        return logits
-
     def predict_all_steps(self, x):
-        # x: (batch_size, seq_len, input_dim)
-        out, _ = self.lstm(x) # (batch_size, seq_len, hidden_dim)
-        logits = self.fc(out) # (batch_size, seq_len, 1)
-        return logits
+        # For evaluation Setup B: return prediction for every step
+        out, _ = self.lstm(x)
+        return self.classifier(out)
 
 class PatientDataset(torch.utils.data.Dataset):
     def __init__(self, X, y, mask):
@@ -183,7 +179,7 @@ def generate_markdown_report(csv_path, summary_path, exp_id):
             return float(val)
         except (ValueError, TypeError):
             return default
-
+ 
     def format_val(mean_val, sem_val, is_percent=True, digits=2):
         if sem_val is not None:
             if is_percent:
@@ -335,13 +331,14 @@ def main():
     parser.add_argument("--experiment", "-e", type=str, default=None, help="Experiment ID to evaluate (e.g., tune_mimic_blendrl_cql)")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to trained CQL checkpoint or directory of checkpoints")
     parser.add_argument("--dataset-name", type=str, default=os.environ.get("MIMIC_DATASET_NAME", "mimic_lazy_12_clean_with_interventions_corrected.npz"), help="Predictor training dataset name")
-    parser.add_argument("--eval-dataset-name", type=str, default=os.environ.get("MIMIC_EVAL_DATASET_NAME", "mimic_expert_demonstrations.npz"), help="Evaluation dataset name")
+    parser.add_argument("--eval-dataset-name", type=str, default=os.environ.get("MIMIC_EVAL_DATASET_NAME", "mimic_lazy_12_clean_with_interventions_corrected.npz"), help="Evaluation dataset name")
     parser.add_argument("--dataset-path", type=str, default=None, help="Direct path to the MIMIC dataset .npz file")
     parser.add_argument("--dataset-dir", type=str, default=None, help="Custom directory containing the MIMIC dataset")
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory for early prediction report")
     parser.add_argument("--remake", action="store_true", help="Force recalculation and overwrite the CSV/MD summaries")
     parser.add_argument("--n-splits", type=int, default=100, help="Number of random data splits to evaluate (mean and SEM will be computed across splits)")
     parser.add_argument("--predictor-epochs", type=int, default=60, help="Number of training epochs for predictor per split")
+    parser.add_argument("--tau", type=int, default=12, help="Lead time in hours for early prediction model (default: 12)")
     args = parser.parse_known_args()[0]
     
     if args.experiment is not None and args.checkpoint is None:
@@ -397,6 +394,17 @@ def main():
     y_train = data_train['y']
     mask_train = data_train['mask']
     
+    # Apply lead-time tau cutoff to predictor training dataset
+    steps_early = 2 * args.tau
+    print(f"Applying lead-time tau={args.tau} hours ({steps_early} steps) cutoff to predictor training dataset...")
+    X_train = X_train.copy()
+    mask_train = mask_train.copy()
+    for i in range(len(X_train)):
+        valid_steps = np.where(mask_train[i].squeeze() != -1)[0]
+        cutoff = max(1, len(valid_steps) - steps_early)
+        mask_train[i, cutoff:] = -1
+        X_train[i, cutoff:, :] = 0
+        
     # 2. Resolve Output Directories and Paths (Experiment-Specific)
     if args.output_dir is not None:
         report_dir = Path(args.output_dir)
@@ -437,18 +445,29 @@ def main():
         except Exception as e:
             print(f"Error removing {old_report}: {e}")
 
-    # 3. Train predictor model (Trained only ONCE!)
-    print("Training a single Sepsis Predictor...")
-    train_indices, test_indices_pred = train_test_split(
-        np.arange(len(X_train)), test_size=0.2, random_state=42
-    )
-    plot_path = report_dir / "predictor_convergence.png"
-    predictor, predictor_acc = train_predictor(
-        X_train, y_train, mask_train, train_indices, test_indices_pred,
-        epochs=args.predictor_epochs, device=device,
-        plot_convergence=True, plot_path=plot_path
-    )
+    # 3. Train predictor models over n_splits random splits
+    print(f"Training {args.n_splits} Sepsis Predictors over random train/test splits...")
+    predictors = []
+    predictor_accs = []
     
+    for split_idx in range(args.n_splits):
+        print(f"\nTraining predictor split {split_idx + 1}/{args.n_splits}...")
+        seed_val = 42 + split_idx
+        train_indices, test_indices_pred = train_test_split(
+            np.arange(len(X_train)), test_size=0.2, random_state=seed_val
+        )
+        plot_path = None
+        if split_idx == 0:
+            plot_path = report_dir / "predictor_convergence.png"
+            
+        pred_model, pred_acc = train_predictor(
+            X_train, y_train, mask_train, train_indices, test_indices_pred,
+            epochs=args.predictor_epochs, device=device,
+            plot_convergence=(split_idx == 0), plot_path=plot_path
+        )
+        predictors.append(pred_model)
+        predictor_accs.append(pred_acc)
+        
     # Load evaluation dataset
     eval_dataset_path = os.path.join(mimic_dir, args.eval_dataset_name)
     if not os.path.exists(eval_dataset_path):
@@ -460,6 +479,16 @@ def main():
     y = data_eval['y']
     mask = data_eval['mask']
     
+    # Apply lead-time tau cutoff to evaluation dataset
+    print(f"Applying lead-time tau={args.tau} hours ({steps_early} steps) cutoff to evaluation dataset...")
+    X = X.copy()
+    mask = mask.copy()
+    for i in range(len(X)):
+        valid_steps = np.where(mask[i].squeeze() != -1)[0]
+        cutoff = max(1, len(valid_steps) - steps_early)
+        mask[i, cutoff:] = -1
+        X[i, cutoff:, :] = 0
+        
     print(f"Evaluation dataset size: {len(X)} patients")
     
     # 4. Gather checkpoints to evaluate
@@ -559,6 +588,7 @@ def main():
             print(f"Error loading checkpoint {checkpoint_path}: {e}")
             continue
             
+        split_pred_accs = []
         split_clinician_morts = []
         split_cql_morts = []
         split_clinician_admins = []
@@ -572,6 +602,10 @@ def main():
         split_aucs = []
         
         for split_idx in range(args.n_splits):
+            predictor = predictors[split_idx]
+            pred_acc = predictor_accs[split_idx]
+            split_pred_accs.append(pred_acc)
+            
             seed_val = 42 + split_idx
             # Split the evaluation dataset into 80/20 train/test
             _, test_indices_eval = train_test_split(
@@ -716,6 +750,7 @@ def main():
         def get_mean_sem(lst):
             return float(np.mean(lst)), float(np.std(lst) / np.sqrt(len(lst)))
             
+        pred_acc_m, pred_acc_s = get_mean_sem(split_pred_accs)
         clinician_mort_m, clinician_mort_s = get_mean_sem(split_clinician_morts)
         cql_mort_m, cql_mort_s = get_mean_sem(split_cql_morts)
         clinician_admin_m, clinician_admin_s = get_mean_sem(split_clinician_admins)
@@ -728,13 +763,13 @@ def main():
         f1_b_m, f1_b_s = get_mean_sem(split_f1s)
         auc_b_m, auc_b_s = get_mean_sem(split_aucs)
         
-        print(f"Setup A Results over {args.n_splits} evaluation splits:")
+        print(f"Setup A Results over {args.n_splits} splits:")
         print(f"  Avg Predicted Mortality (Clinician): {clinician_mort_m:.4f} \u00b1 {clinician_mort_s:.4f}")
         print(f"  Avg Predicted Mortality (CQL Policy): {cql_mort_m:.4f} \u00b1 {cql_mort_s:.4f}")
         print(f"  Policy Agreement: {agreement_m:.4f} \u00b1 {agreement_s:.4f}")
         print(f"  Clinician Admin Rate: {clinician_admin_m:.4f} \u00b1 {clinician_admin_s:.4f}, CQL Admin Rate: {cql_admin_m:.4f} \u00b1 {cql_admin_s:.4f}")
         
-        print(f"Setup B Results over {args.n_splits} evaluation splits:")
+        print(f"Setup B Results over {args.n_splits} splits:")
         print(f"  Accuracy:  {acc_b_m:.4f} \u00b1 {acc_b_s:.4f}")
         print(f"  Recall:    {rec_b_m:.4f} \u00b1 {rec_b_s:.4f}")
         print(f"  Precision: {prec_b_m:.4f} \u00b1 {prec_b_s:.4f}")
@@ -755,7 +790,7 @@ def main():
             writer = csv.writer(f_csv)
             writer.writerow([
                 checkpoint_name,
-                f"{predictor_acc:.6f}", "0.000000",
+                f"{pred_acc_m:.6f}", f"{pred_acc_s:.6f}",
                 f"{clinician_mort_m:.6f}", f"{clinician_mort_s:.6f}",
                 f"{cql_mort_m:.6f}", f"{cql_mort_s:.6f}",
                 f"{clinician_admin_m:.6f}", f"{clinician_admin_s:.6f}",

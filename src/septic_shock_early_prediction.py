@@ -80,31 +80,62 @@ class SepsisLSTM(nn.Module):
         return logits
 
 # --- Training Helper Functions ---
-def train_lstm_model(X_train, y_train, input_dim, epochs=10, batch_size=64, device="cpu", seed=42):
+def train_lstm_model(X_train, y_train, input_dim, epochs=10, batch_size=64, device="cpu", seed=42, plot_convergence=False, plot_path=None):
     torch.manual_seed(seed)
-    lengths_train = torch.tensor([len(seq) for seq in X_train], dtype=torch.long)
+    
+    if plot_convergence:
+        sub_train_idx, sub_val_idx = train_test_split(
+            np.arange(len(X_train)), test_size=0.2, random_state=seed, stratify=y_train
+        )
+        X_sub_train = [X_train[i] for i in sub_train_idx]
+        X_sub_val = [X_train[i] for i in sub_val_idx]
+        y_sub_train = y_train[sub_train_idx]
+        y_sub_val = y_train[sub_val_idx]
+    else:
+        X_sub_train = X_train
+        y_sub_train = y_train
+        X_sub_val = []
+        y_sub_val = []
+
+    lengths_train = torch.tensor([len(seq) for seq in X_sub_train], dtype=torch.long)
     max_len = max(lengths_train).item()
     
-    X_train_padded = np.zeros((len(X_train), max_len, input_dim), dtype=np.float32)
-    for idx, seq in enumerate(X_train):
+    X_train_padded = np.zeros((len(X_sub_train), max_len, input_dim), dtype=np.float32)
+    for idx, seq in enumerate(X_sub_train):
         X_train_padded[idx, :len(seq), :] = seq
         
     X_train_tensor = torch.tensor(X_train_padded, dtype=torch.float32).to(device)
-    y_train_tensor = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1).to(device)
+    y_train_tensor = torch.tensor(y_sub_train, dtype=torch.float32).unsqueeze(1).to(device)
     
     # Class-weighted loss
-    n_pos = (y_train == 1).sum()
-    n_neg = (y_train == 0).sum()
+    n_pos = (y_sub_train == 1).sum()
+    n_neg = (y_sub_train == 0).sum()
     pos_weight = torch.tensor([n_neg / max(1, n_pos)], dtype=torch.float32).to(device)
     
     model = SepsisLSTM(input_dim=input_dim, hidden_dim=32).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=2e-3)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     
-    model.train()
-    dataset_size = len(X_train)
+    train_losses = []
+    val_losses = []
+    
+    dataset_size = len(X_sub_train)
+    
+    # Pre-pad val set if plotting convergence
+    if plot_convergence:
+        lengths_val = torch.tensor([len(seq) for seq in X_sub_val], dtype=torch.long)
+        max_len_val = max(lengths_val).item()
+        X_val_padded = np.zeros((len(X_sub_val), max_len_val, input_dim), dtype=np.float32)
+        for idx, seq in enumerate(X_sub_val):
+            X_val_padded[idx, :len(seq), :] = seq
+        X_val_tensor = torch.tensor(X_val_padded, dtype=torch.float32).to(device)
+        y_val_tensor = torch.tensor(y_sub_val, dtype=torch.float32).unsqueeze(1).to(device)
+    
     for epoch in range(epochs):
+        model.train()
         permutation = torch.randperm(dataset_size)
+        epoch_loss = 0.0
+        batches = 0
         for i in range(0, dataset_size, batch_size):
             indices = permutation[i:i+batch_size]
             batch_x = X_train_tensor[indices]
@@ -117,6 +148,66 @@ def train_lstm_model(X_train, y_train, input_dim, epochs=10, batch_size=64, devi
             loss.backward()
             optimizer.step()
             
+            epoch_loss += loss.item()
+            batches += 1
+            
+        train_losses.append(epoch_loss / max(1, batches))
+        
+        if plot_convergence:
+            model.eval()
+            with torch.no_grad():
+                logits_val = model(X_val_tensor, lengths_val)
+                loss_val = criterion(logits_val, y_val_tensor)
+                val_losses.append(loss_val.item())
+                
+    if plot_convergence and plot_path:
+        plt.figure(figsize=(8, 5))
+        plt.plot(range(1, epochs + 1), train_losses, label="Train Loss", color="tab:red")
+        plt.plot(range(1, epochs + 1), val_losses, label="Val Loss", color="tab:blue", linestyle="--")
+        plt.xlabel("Epoch")
+        plt.ylabel("BCE Loss")
+        plt.title("LSTM Predictor Model Convergence (Septic Shock Prediction)")
+        plt.legend()
+        plt.grid(True, linestyle="--", alpha=0.6)
+        plt.tight_layout()
+        plt.savefig(plot_path, dpi=150)
+        plt.close()
+        print(f"Saved LSTM convergence plot to: {plot_path}")
+        
+    # Re-train on FULL training dataset to maintain the exact same behavior as original code!
+    if plot_convergence:
+        lengths_full = torch.tensor([len(seq) for seq in X_train], dtype=torch.long)
+        max_len_full = max(lengths_full).item()
+        X_full_padded = np.zeros((len(X_train), max_len_full, input_dim), dtype=np.float32)
+        for idx, seq in enumerate(X_train):
+            X_full_padded[idx, :len(seq), :] = seq
+        X_full_tensor = torch.tensor(X_full_padded, dtype=torch.float32).to(device)
+        y_full_tensor = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1).to(device)
+        
+        n_pos_full = (y_train == 1).sum()
+        n_neg_full = (y_train == 0).sum()
+        pos_weight_full = torch.tensor([n_neg_full / max(1, n_pos_full)], dtype=torch.float32).to(device)
+        
+        model = SepsisLSTM(input_dim=input_dim, hidden_dim=32).to(device)
+        optimizer = torch.optim.Adam(model.parameters(), lr=2e-3)
+        criterion_full = nn.BCEWithLogitsLoss(pos_weight=pos_weight_full)
+        
+        model.train()
+        full_size = len(X_train)
+        for epoch in range(epochs):
+            permutation = torch.randperm(full_size)
+            for i in range(0, full_size, batch_size):
+                indices = permutation[i:i+batch_size]
+                batch_x = X_full_tensor[indices]
+                batch_y = y_full_tensor[indices]
+                batch_lengths = lengths_full[indices]
+                
+                optimizer.zero_grad()
+                logits = model(batch_x, batch_lengths)
+                loss = criterion_full(logits, batch_y)
+                loss.backward()
+                optimizer.step()
+                
     return model
 
 def evaluate_lstm_model(model, X_test, input_dim, device="cpu"):
@@ -135,35 +226,68 @@ def evaluate_lstm_model(model, X_test, input_dim, device="cpu"):
         probs = torch.sigmoid(logits).cpu().numpy().squeeze(1)
     return probs
 
-def train_transformer_model(X_train, y_train, input_dim, epochs=10, batch_size=64, device="cpu", seed=42):
+def train_transformer_model(X_train, y_train, input_dim, epochs=10, batch_size=64, device="cpu", seed=42, plot_convergence=False, plot_path=None):
     torch.manual_seed(seed)
-    lengths_train = torch.tensor([len(seq) for seq in X_train], dtype=torch.long)
+    
+    if plot_convergence:
+        sub_train_idx, sub_val_idx = train_test_split(
+            np.arange(len(X_train)), test_size=0.2, random_state=seed, stratify=y_train
+        )
+        X_sub_train = [X_train[i] for i in sub_train_idx]
+        X_sub_val = [X_train[i] for i in sub_val_idx]
+        y_sub_train = y_train[sub_train_idx]
+        y_sub_val = y_train[sub_val_idx]
+    else:
+        X_sub_train = X_train
+        y_sub_train = y_train
+        X_sub_val = []
+        y_sub_val = []
+
+    lengths_train = torch.tensor([len(seq) for seq in X_sub_train], dtype=torch.long)
     max_len = max(lengths_train).item()
     
-    X_train_padded = np.zeros((len(X_train), max_len, input_dim), dtype=np.float32)
-    mask_train = np.ones((len(X_train), max_len), dtype=bool)
+    X_train_padded = np.zeros((len(X_sub_train), max_len, input_dim), dtype=np.float32)
+    mask_train = np.ones((len(X_sub_train), max_len), dtype=bool)
     
-    for idx, seq in enumerate(X_train):
+    for idx, seq in enumerate(X_sub_train):
         X_train_padded[idx, :len(seq), :] = seq
         mask_train[idx, :len(seq)] = False
         
     X_train_tensor = torch.tensor(X_train_padded, dtype=torch.float32).to(device)
     mask_train_tensor = torch.tensor(mask_train, dtype=torch.bool).to(device)
-    y_train_tensor = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1).to(device)
+    y_train_tensor = torch.tensor(y_sub_train, dtype=torch.float32).unsqueeze(1).to(device)
     
     # Class-weighted loss
-    n_pos = (y_train == 1).sum()
-    n_neg = (y_train == 0).sum()
+    n_pos = (y_sub_train == 1).sum()
+    n_neg = (y_sub_train == 0).sum()
     pos_weight = torch.tensor([n_neg / max(1, n_pos)], dtype=torch.float32).to(device)
     
     model = SepsisTransformer(input_dim=input_dim).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     
-    model.train()
-    dataset_size = len(X_train)
+    train_losses = []
+    val_losses = []
+    
+    dataset_size = len(X_sub_train)
+    
+    if plot_convergence:
+        lengths_val = torch.tensor([len(seq) for seq in X_sub_val], dtype=torch.long)
+        max_len_val = max(lengths_val).item()
+        X_val_padded = np.zeros((len(X_sub_val), max_len_val, input_dim), dtype=np.float32)
+        mask_val = np.ones((len(X_sub_val), max_len_val), dtype=bool)
+        for idx, seq in enumerate(X_sub_val):
+            X_val_padded[idx, :len(seq), :] = seq
+            mask_val[idx, :len(seq)] = False
+        X_val_tensor = torch.tensor(X_val_padded, dtype=torch.float32).to(device)
+        mask_val_tensor = torch.tensor(mask_val, dtype=torch.bool).to(device)
+        y_val_tensor = torch.tensor(y_sub_val, dtype=torch.float32).unsqueeze(1).to(device)
+        
     for epoch in range(epochs):
+        model.train()
         permutation = torch.randperm(dataset_size)
+        epoch_loss = 0.0
+        batches = 0
         for i in range(0, dataset_size, batch_size):
             indices = permutation[i:i+batch_size]
             batch_x = X_train_tensor[indices]
@@ -176,6 +300,70 @@ def train_transformer_model(X_train, y_train, input_dim, epochs=10, batch_size=6
             loss.backward()
             optimizer.step()
             
+            epoch_loss += loss.item()
+            batches += 1
+            
+        train_losses.append(epoch_loss / max(1, batches))
+        
+        if plot_convergence:
+            model.eval()
+            with torch.no_grad():
+                logits_val = model(X_val_tensor, mask_val_tensor)
+                loss_val = criterion(logits_val, y_val_tensor)
+                val_losses.append(loss_val.item())
+                
+    if plot_convergence and plot_path:
+        plt.figure(figsize=(8, 5))
+        plt.plot(range(1, epochs + 1), train_losses, label="Train Loss", color="tab:red")
+        plt.plot(range(1, epochs + 1), val_losses, label="Val Loss", color="tab:blue", linestyle="--")
+        plt.xlabel("Epoch")
+        plt.ylabel("BCE Loss")
+        plt.title("Transformer Predictor Model Convergence (Septic Shock Prediction)")
+        plt.legend()
+        plt.grid(True, linestyle="--", alpha=0.6)
+        plt.tight_layout()
+        plt.savefig(plot_path, dpi=150)
+        plt.close()
+        print(f"Saved Transformer convergence plot to: {plot_path}")
+        
+    # Re-train on FULL training dataset to maintain the exact same behavior as original code!
+    if plot_convergence:
+        lengths_full = torch.tensor([len(seq) for seq in X_train], dtype=torch.long)
+        max_len_full = max(lengths_full).item()
+        X_full_padded = np.zeros((len(X_train), max_len_full, input_dim), dtype=np.float32)
+        mask_full = np.ones((len(X_train), max_len_full), dtype=bool)
+        for idx, seq in enumerate(X_train):
+            X_full_padded[idx, :len(seq), :] = seq
+            mask_full[idx, :len(seq)] = False
+            
+        X_full_tensor = torch.tensor(X_full_padded, dtype=torch.float32).to(device)
+        mask_full_tensor = torch.tensor(mask_full, dtype=torch.bool).to(device)
+        y_full_tensor = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1).to(device)
+        
+        n_pos_full = (y_train == 1).sum()
+        n_neg_full = (y_train == 0).sum()
+        pos_weight_full = torch.tensor([n_neg_full / max(1, n_pos_full)], dtype=torch.float32).to(device)
+        
+        model = SepsisTransformer(input_dim=input_dim).to(device)
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+        criterion_full = nn.BCEWithLogitsLoss(pos_weight=pos_weight_full)
+        
+        model.train()
+        full_size = len(X_train)
+        for epoch in range(epochs):
+            permutation = torch.randperm(full_size)
+            for i in range(0, full_size, batch_size):
+                indices = permutation[i:i+batch_size]
+                batch_x = X_full_tensor[indices]
+                batch_mask = mask_full_tensor[indices]
+                batch_y = y_full_tensor[indices]
+                
+                optimizer.zero_grad()
+                logits = model(batch_x, batch_mask)
+                loss = criterion_full(logits, batch_y)
+                loss.backward()
+                optimizer.step()
+                
     return model
 
 def evaluate_transformer_model(model, X_test, input_dim, device="cpu"):
@@ -348,6 +536,8 @@ def main():
             "f1_max": [], "f1_max_sem": [],
             "f1_05": [], "f1_05_sem": []
         }
+        
+    results_losses = {}
 
     # Run the sweep
     for tau in tau_list:
@@ -357,6 +547,7 @@ def main():
         # Slices are constructed using the pre-filtered cohort details
         # For each patient in the cohort, the cutoff time is len(valid_steps) - steps_early
         t_cutoffs = cohort_t_lengths - steps_early
+        results_losses[tau] = {}
         
         for m_cfg_name, m_type, feat_key in model_configs:
             print(f"  Evaluating: {m_cfg_name} across {args.n_splits} splits")
@@ -370,6 +561,7 @@ def main():
             split_auprcs = []
             split_f1_maxes = []
             split_f1_05s = []
+            results_losses[tau][m_cfg_name] = []
             
             for m_idx in range(args.n_splits):
                 seed_val = 42 + m_idx
@@ -384,15 +576,17 @@ def main():
                 y_test = y_cohort[test_cohort_idxs]
                 
                 if m_type == "lstm":
-                    model = train_lstm_model(
+                    model, train_losses = train_lstm_model(
                         X_train, y_train, input_dim, epochs=args.epochs, device=device, seed=seed_val
                     )
                     probs = evaluate_lstm_model(model, X_test, input_dim, device=device)
                 elif m_type == "transformer":
-                    model = train_transformer_model(
+                    model, train_losses = train_transformer_model(
                         X_train, y_train, input_dim, epochs=args.epochs, device=device, seed=seed_val
                     )
                     probs = evaluate_transformer_model(model, X_test, input_dim, device=device)
+                
+                results_losses[tau][m_cfg_name].append(train_losses)
                 
                 # Metrics for this split
                 auc_roc = float(roc_auc_score(y_test, probs))
@@ -518,6 +712,43 @@ def main():
     plt.savefig(plot_path, dpi=200)
     plt.close()
     print(f"Saved 4-panel comparison plot: {plot_path}")
+    
+    # Plot composite training convergence curves for all tau values on one single PNG
+    print("Plotting composite training convergence curves...")
+    num_taus = len(tau_list)
+    cols = 3
+    rows = math.ceil(num_taus / cols)
+    fig_conv, axes_conv = plt.subplots(rows, cols, figsize=(5 * cols, 4 * rows))
+    
+    # Ensure axes_conv is a flat array even if rows/cols = 1
+    if num_taus == 1:
+        axes_conv_flat = [axes_conv]
+    else:
+        axes_conv_flat = axes_conv.flatten()
+        
+    for tau_idx, tau in enumerate(tau_list):
+        ax = axes_conv_flat[tau_idx]
+        for m_idx, (m_cfg_name, _, _) in enumerate(model_configs):
+            loss_lists = results_losses[tau][m_cfg_name]
+            mean_losses = np.mean(loss_lists, axis=0)
+            ax.plot(range(1, args.epochs + 1), mean_losses, color=colors[m_idx], label=m_cfg_name, linewidth=1.5)
+            
+        ax.set_title(f"Lead Time \u03c4 = {tau}h", fontsize=11, fontweight='bold')
+        ax.set_xlabel("Epoch", fontsize=9)
+        ax.set_ylabel("Avg BCE Loss", fontsize=9)
+        ax.grid(True, linestyle="--", alpha=0.6)
+        if tau_idx == 0:
+            ax.legend(fontsize=8, loc="upper right")
+            
+    # Hide unused subplots
+    for idx in range(num_taus, len(axes_conv_flat)):
+        fig_conv.delaxes(axes_conv_flat[idx])
+        
+    plt.tight_layout()
+    conv_plot_path = out_dir / "predictor_convergence_all_taus.png"
+    plt.savefig(conv_plot_path, dpi=200)
+    plt.close()
+    print(f"Saved composite convergence plot: {conv_plot_path}")
     
     print("Early prediction deep learning evaluation finished successfully!")
 
