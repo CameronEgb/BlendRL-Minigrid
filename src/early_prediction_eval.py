@@ -62,7 +62,7 @@ class PatientDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx], self.mask[idx]
 
-def train_predictor(X, y, mask, train_indices, test_indices, epochs=60, batch_size=32, device='cpu'):
+def train_predictor(X, y, mask, train_indices, test_indices, epochs=60, batch_size=32, device='cpu', plot_convergence=False, plot_path=None):
     # States + action are features 0 to 48
     X_sa = X[:, :, :49].copy()
     
@@ -83,8 +83,14 @@ def train_predictor(X, y, mask, train_indices, test_indices, epochs=60, batch_si
     best_acc = 0.0
     best_state = None
     
+    train_losses = []
+    val_losses = []
+    val_accs = []
+    
     for epoch in range(epochs):
         model.train()
+        epoch_loss = 0.0
+        batches = 0
         for batch_x, batch_y, batch_mask in train_loader:
             batch_x, batch_y, batch_mask = batch_x.to(device), batch_y.to(device), batch_mask.to(device)
             optimizer.zero_grad()
@@ -92,25 +98,66 @@ def train_predictor(X, y, mask, train_indices, test_indices, epochs=60, batch_si
             loss = criterion(logits, batch_y)
             loss.backward()
             optimizer.step()
+            epoch_loss += loss.item()
+            batches += 1
+            
+        train_losses.append(epoch_loss / batches)
             
         # Eval on test set
         model.eval()
         correct = 0
         total = 0
+        val_loss_epoch = 0.0
+        val_batches = 0
         with torch.no_grad():
             for batch_x, batch_y, batch_mask in test_loader:
                 batch_x, batch_y, batch_mask = batch_x.to(device), batch_y.to(device), batch_mask.to(device)
                 logits = model(batch_x, batch_mask)
+                loss = criterion(logits, batch_y)
+                val_loss_epoch += loss.item()
+                val_batches += 1
+                
                 preds = (logits > 0).float()
                 correct += (preds == batch_y).sum().item()
                 total += batch_y.size(0)
         acc = correct / total
+        val_accs.append(acc)
+        val_losses.append(val_loss_epoch / val_batches)
+        
         if acc > best_acc or best_state is None:
             best_acc = acc
             best_state = {k: v.cpu() for k, v in model.state_dict().items()}
             
     print(f"Supervised Predictor trained. Best test accuracy: {best_acc:.4f}")
     
+    if plot_convergence and plot_path:
+        import matplotlib.pyplot as plt
+        fig, ax1 = plt.subplots(figsize=(10, 5))
+        
+        color = 'tab:red'
+        ax1.set_xlabel('Epoch')
+        ax1.set_ylabel('BCE Loss', color=color)
+        ax1.plot(range(1, epochs + 1), train_losses, label='Train Loss', color=color, linestyle='-')
+        ax1.plot(range(1, epochs + 1), val_losses, label='Val Loss', color=color, linestyle='--')
+        ax1.tick_params(axis='y', labelcolor=color)
+        
+        ax2 = ax1.twinx()
+        color = 'tab:blue'
+        ax2.set_ylabel('Validation Accuracy', color=color)
+        ax2.plot(range(1, epochs + 1), val_accs, label='Val Acc', color=color, linestyle='-')
+        ax2.tick_params(axis='y', labelcolor=color)
+        
+        fig.tight_layout()
+        plt.title('Predictor Model Convergence Graph')
+        # Combine legends
+        lines1, labels1 = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+        
+        plt.savefig(plot_path, dpi=150)
+        plt.close()
+        print(f"Saved predictor convergence graph to: {plot_path}")
+        
     model.load_state_dict(best_state)
     model.to(device)
     return model, best_acc
@@ -136,10 +183,22 @@ def generate_markdown_report(csv_path, summary_path, exp_id):
             return float(val)
         except (ValueError, TypeError):
             return default
+
+    def format_val(mean_val, sem_val, is_percent=True, digits=2):
+        if sem_val is not None:
+            if is_percent:
+                return f"{mean_val * 100:.{digits}f}% &plusmn; {sem_val * 100:.{digits}f}%"
+            else:
+                return f"{mean_val:.{digits+2}f} &plusmn; {sem_val:.{digits+2}f}"
+        else:
+            if is_percent:
+                return f"{mean_val:.{digits}%}"
+            else:
+                return f"{mean_val:.{digits+2}f}"
             
     with open(summary_path, mode="w") as f_md:
         f_md.write(f"# MIMIC Sepsis Early Prediction Summary Report ({exp_id})\n\n")
-        f_md.write("This document compiles the summary table and detailed early prediction evaluation results for all evaluated checkpoints in this experiment.\n\n")
+        f_md.write("This document compiles the summary table and detailed early prediction evaluation results for all evaluated checkpoints in this experiment. All values are reported as mean &plusmn; standard error over the random data splits.\n\n")
         
         # Write Summary Table
         f_md.write("## Summary Table\n\n")
@@ -147,24 +206,50 @@ def generate_markdown_report(csv_path, summary_path, exp_id):
         f_md.write("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n")
         
         for row in rows:
-            # Format fields
             ckpt = row.get("checkpoint", "N/A")
-            pred_acc = safe_float(row.get("predictor_acc", 0))
-            clin_mort = safe_float(row.get("clinician_mort", 0))
-            cql_mort = safe_float(row.get("cql_mort", 0))
-            clin_admin = safe_float(row.get("clinician_admin", 0))
-            cql_admin = safe_float(row.get("cql_admin", 0))
-            agreement = safe_float(row.get("agreement", 0))
-            expert_visits = row.get("setup_b_expert_visits")
-            if expert_visits is None or expert_visits == "":
-                expert_visits = "N/A"
-            acc_b = safe_float(row.get("setup_b_accuracy", 0))
-            rec_b = safe_float(row.get("setup_b_recall", 0))
-            prec_b = safe_float(row.get("setup_b_precision", 0))
-            f1_b = safe_float(row.get("setup_b_f1", 0))
-            auc_b = safe_float(row.get("setup_b_auc", 0))
             
-            f_md.write(f"| `{ckpt}` | {pred_acc:.2%} | {clin_mort:.2%} | {cql_mort:.2%} | {clin_admin:.2%} | {cql_admin:.2%} | {agreement:.2%} | {expert_visits} | {acc_b:.2%} | {rec_b:.2%} | {prec_b:.2%} | {f1_b:.2%} | {auc_b:.4f} |\n")
+            def get_val_and_sem(key):
+                m = safe_float(row.get(key, 0))
+                s_val = row.get(key + "_sem")
+                s = safe_float(s_val) if s_val is not None and s_val != "" else None
+                return m, s
+
+            pred_acc, pred_acc_sem = get_val_and_sem("predictor_acc")
+            clin_mort, clin_mort_sem = get_val_and_sem("clinician_mort")
+            cql_mort, cql_mort_sem = get_val_and_sem("cql_mort")
+            clin_admin, clin_admin_sem = get_val_and_sem("clinician_admin")
+            cql_admin, cql_admin_sem = get_val_and_sem("cql_admin")
+            agreement, agreement_sem = get_val_and_sem("agreement")
+            
+            expert_visits_val = row.get("setup_b_expert_visits")
+            expert_visits_sem_val = row.get("setup_b_expert_visits_sem")
+            if expert_visits_val is not None and expert_visits_val != "":
+                if expert_visits_sem_val is not None and expert_visits_sem_val != "":
+                    expert_visits_str = f"{safe_float(expert_visits_val):.1f} &plusmn; {safe_float(expert_visits_sem_val):.1f}"
+                else:
+                    expert_visits_str = f"{safe_float(expert_visits_val):.1f}"
+            else:
+                expert_visits_str = "N/A"
+                
+            acc_b, acc_b_sem = get_val_and_sem("setup_b_accuracy")
+            rec_b, rec_b_sem = get_val_and_sem("setup_b_recall")
+            prec_b, prec_b_sem = get_val_and_sem("setup_b_precision")
+            f1_b, f1_b_sem = get_val_and_sem("setup_b_f1")
+            auc_b, auc_b_sem = get_val_and_sem("setup_b_auc")
+            
+            pred_acc_str = format_val(pred_acc, pred_acc_sem, is_percent=True, digits=2)
+            clin_mort_str = format_val(clin_mort, clin_mort_sem, is_percent=True, digits=2)
+            cql_mort_str = format_val(cql_mort, cql_mort_sem, is_percent=True, digits=2)
+            clin_admin_str = format_val(clin_admin, clin_admin_sem, is_percent=True, digits=2)
+            cql_admin_str = format_val(cql_admin, cql_admin_sem, is_percent=True, digits=2)
+            agreement_str = format_val(agreement, agreement_sem, is_percent=True, digits=2)
+            acc_b_str = format_val(acc_b, acc_b_sem, is_percent=True, digits=2)
+            rec_b_str = format_val(rec_b, rec_b_sem, is_percent=True, digits=2)
+            prec_b_str = format_val(prec_b, prec_b_sem, is_percent=True, digits=2)
+            f1_b_str = format_val(f1_b, f1_b_sem, is_percent=True, digits=2)
+            auc_b_str = format_val(auc_b, auc_b_sem, is_percent=False, digits=2)
+            
+            f_md.write(f"| `{ckpt}` | {pred_acc_str} | {clin_mort_str} | {cql_mort_str} | {clin_admin_str} | {cql_admin_str} | {agreement_str} | {expert_visits_str} | {acc_b_str} | {rec_b_str} | {prec_b_str} | {f1_b_str} | {auc_b_str} |\n")
             
         f_md.write("\n---\n\n")
         f_md.write("# Detailed Trial Reports\n")
@@ -173,46 +258,72 @@ def generate_markdown_report(csv_path, summary_path, exp_id):
             ckpt = row.get("checkpoint", "N/A")
             ckpt_stem = os.path.basename(ckpt).replace(".ckpt", "")
             
-            pred_acc = safe_float(row.get("predictor_acc", 0))
-            clin_mort = safe_float(row.get("clinician_mort", 0))
-            cql_mort = safe_float(row.get("cql_mort", 0))
-            clin_admin = safe_float(row.get("clinician_admin", 0))
-            cql_admin = safe_float(row.get("cql_admin", 0))
-            agreement = safe_float(row.get("agreement", 0))
-            expert_visits = row.get("setup_b_expert_visits")
-            if expert_visits is None or expert_visits == "":
-                expert_visits = "N/A"
-            acc_b = safe_float(row.get("setup_b_accuracy", 0))
-            rec_b = safe_float(row.get("setup_b_recall", 0))
-            prec_b = safe_float(row.get("setup_b_precision", 0))
-            f1_b = safe_float(row.get("setup_b_f1", 0))
-            auc_b = safe_float(row.get("setup_b_auc", 0))
+            def get_val_and_sem(key):
+                m = safe_float(row.get(key, 0))
+                s_val = row.get(key + "_sem")
+                s = safe_float(s_val) if s_val is not None and s_val != "" else None
+                return m, s
+
+            pred_acc, pred_acc_sem = get_val_and_sem("predictor_acc")
+            clin_mort, clin_mort_sem = get_val_and_sem("clinician_mort")
+            cql_mort, cql_mort_sem = get_val_and_sem("cql_mort")
+            clin_admin, clin_admin_sem = get_val_and_sem("clinician_admin")
+            cql_admin, cql_admin_sem = get_val_and_sem("cql_admin")
+            agreement, agreement_sem = get_val_and_sem("agreement")
+            
+            expert_visits_val = row.get("setup_b_expert_visits")
+            expert_visits_sem_val = row.get("setup_b_expert_visits_sem")
+            if expert_visits_val is not None and expert_visits_val != "":
+                if expert_visits_sem_val is not None and expert_visits_sem_val != "":
+                    expert_visits_str = f"{safe_float(expert_visits_val):.1f} &plusmn; {safe_float(expert_visits_sem_val):.1f}"
+                else:
+                    expert_visits_str = f"{safe_float(expert_visits_val):.1f}"
+            else:
+                expert_visits_str = "N/A"
+                
+            acc_b, acc_b_sem = get_val_and_sem("setup_b_accuracy")
+            rec_b, rec_b_sem = get_val_and_sem("setup_b_recall")
+            prec_b, prec_b_sem = get_val_and_sem("setup_b_precision")
+            f1_b, f1_b_sem = get_val_and_sem("setup_b_f1")
+            auc_b, auc_b_sem = get_val_and_sem("setup_b_auc")
+            
+            pred_acc_str = format_val(pred_acc, pred_acc_sem, is_percent=True, digits=2)
+            clin_mort_str = format_val(clin_mort, clin_mort_sem, is_percent=True, digits=2)
+            cql_mort_str = format_val(cql_mort, cql_mort_sem, is_percent=True, digits=2)
+            clin_admin_str = format_val(clin_admin, clin_admin_sem, is_percent=True, digits=2)
+            cql_admin_str = format_val(cql_admin, cql_admin_sem, is_percent=True, digits=2)
+            agreement_str = format_val(agreement, agreement_sem, is_percent=True, digits=2)
+            acc_b_str = format_val(acc_b, acc_b_sem, is_percent=True, digits=2)
+            rec_b_str = format_val(rec_b, rec_b_sem, is_percent=True, digits=2)
+            prec_b_str = format_val(prec_b, prec_b_sem, is_percent=True, digits=2)
+            f1_b_str = format_val(f1_b, f1_b_sem, is_percent=True, digits=2)
+            auc_b_str = format_val(auc_b, auc_b_sem, is_percent=False, digits=2)
             
             f_md.write(f"""
 ## Checkpoint: `{ckpt}` (Trial `{ckpt_stem}`)
 
 ### Predictor Model Details
 - **Architecture**: PyTorch LSTM Sepsis Predictor
-- **Supervised Validation Accuracy**: **{pred_acc:.2%}**
+- **Supervised Validation Accuracy**: **{pred_acc_str}**
 
 ### Setup A: Counterfactual Evaluation
 | Metric | Clinician Actual | CQL Policy |
 | :--- | :---: | :---: |
-| **Average Predicted Mortality Rate** | **{clin_mort:.2%}** | **{cql_mort:.2%}** |
-| **Antibiotics Administration Rate** | **{clin_admin:.2%}** | **{cql_admin:.2%}** |
+| **Average Predicted Mortality Rate** | **{clin_mort_str}** | **{cql_mort_str}** |
+| **Antibiotics Administration Rate** | **{clin_admin_str}** | **{cql_admin_str}** |
 
-- **Policy Agreement**: The CQL policy agreed with the clinician's decisions on **{agreement:.2%}** of all patient visits.
+- **Policy Agreement**: The CQL policy agreed with the clinician's decisions on **{agreement_str}** of all patient visits.
 
 ### Setup B: Imitation of Effective Interventions
-- **Total Expert Visits Identified**: **{expert_visits}**
+- **Total Expert Visits Identified**: **{expert_visits_str}**
 
 | Metric | Score |
 | :--- | :---: |
-| **Accuracy** | **{acc_b:.2%}** |
-| **Precision** | **{prec_b:.2%}** |
-| **Recall (Sensitivity)** | **{rec_b:.2%}** |
-| **F1-Score** | **{f1_b:.2%}** |
-| **AUC-ROC** | **{auc_b:.4f}** |
+| **Accuracy** | **{acc_b_str}** |
+| **Precision** | **{prec_b_str}** |
+| **Recall (Sensitivity)** | **{rec_b_str}** |
+| **F1-Score** | **{f1_b_str}** |
+| **AUC-ROC** | **{auc_b_str}** |
 
 ---
 """)
@@ -229,6 +340,8 @@ def main():
     parser.add_argument("--dataset-dir", type=str, default=None, help="Custom directory containing the MIMIC dataset")
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory for early prediction report")
     parser.add_argument("--remake", action="store_true", help="Force recalculation and overwrite the CSV/MD summaries")
+    parser.add_argument("--n-splits", type=int, default=100, help="Number of random data splits to evaluate (mean and SEM will be computed across splits)")
+    parser.add_argument("--predictor-epochs", type=int, default=60, help="Number of training epochs for predictor per split")
     args = parser.parse_known_args()[0]
     
     if args.experiment is not None and args.checkpoint is None:
@@ -284,12 +397,57 @@ def main():
     y_train = data_train['y']
     mask_train = data_train['mask']
     
-    # 2. Split train/test (80/20) for predictor training
-    train_indices, test_indices = train_test_split(np.arange(len(X_train)), test_size=0.2, random_state=42)
-    print(f"Predictor Dataset split: Train={len(train_indices)}, Test={len(test_indices)}")
+    # 2. Resolve Output Directories and Paths (Experiment-Specific)
+    if args.output_dir is not None:
+        report_dir = Path(args.output_dir)
+        exp_id = report_dir.name
+    else:
+        ckpt_path = Path(args.checkpoint)
+        parts = ckpt_path.parts
+        exp_id = getattr(args, "experiment", None)
+        
+        # Try to find group and exp_id from checkpoint path
+        if len(parts) >= 4 and parts[0] == "results" and parts[1] == "checkpoints":
+            group = parts[2]
+            exp_id = parts[3]
+            report_dir = Path("results/plots") / group / exp_id
+        elif len(parts) >= 3 and parts[0] == "results":
+            exp_id = parts[2]
+            report_dir = Path("results/plots") / exp_id
+        elif exp_id:
+            # Look for existing plot dir matching exp_id under results/plots/
+            matches = list(Path("results/plots").glob(f"**/{exp_id}"))
+            if matches:
+                report_dir = matches[0]
+            else:
+                report_dir = Path("results/plots") / exp_id
+        else:
+            exp_id = ckpt_path.name
+            report_dir = Path("results/plots") / exp_id
+            
+    report_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = report_dir / "early_prediction_summary.csv"
+    summary_path = report_dir / "early_prediction_summary.md"
     
-    # 3. Train predictor model (Trained only ONCE for all checkpoints!)
-    predictor, predictor_acc = train_predictor(X_train, y_train, mask_train, train_indices, test_indices, device=device)
+    # Clean up old individual report files if present to prevent clutter
+    for old_report in report_dir.glob("early_prediction_report*.md"):
+        try:
+            old_report.unlink()
+            print(f"Removed legacy individual report file: {old_report}")
+        except Exception as e:
+            print(f"Error removing {old_report}: {e}")
+
+    # 3. Train predictor model (Trained only ONCE!)
+    print("Training a single Sepsis Predictor...")
+    train_indices, test_indices_pred = train_test_split(
+        np.arange(len(X_train)), test_size=0.2, random_state=42
+    )
+    plot_path = report_dir / "predictor_convergence.png"
+    predictor, predictor_acc = train_predictor(
+        X_train, y_train, mask_train, train_indices, test_indices_pred,
+        epochs=args.predictor_epochs, device=device,
+        plot_convergence=True, plot_path=plot_path
+    )
     
     # Load evaluation dataset
     eval_dataset_path = os.path.join(mimic_dir, args.eval_dataset_name)
@@ -302,8 +460,6 @@ def main():
     y = data_eval['y']
     mask = data_eval['mask']
     
-    # Setup test_indices to cover the ENTIRE evaluation set
-    test_indices = np.arange(len(X))
     print(f"Evaluation dataset size: {len(X)} patients")
     
     # 4. Gather checkpoints to evaluate
@@ -344,48 +500,8 @@ def main():
     torch.serialization.add_safe_globals([
         getattr(sys.modules.get('omegaconf.dictconfig', None), 'DictConfig', None)
     ])
-    
-    # 5. Resolve Output Directories and Paths (Experiment-Specific)
-    if args.output_dir is not None:
-        report_dir = Path(args.output_dir)
-        exp_id = report_dir.name
-    else:
-        ckpt_path = Path(args.checkpoint)
-        parts = ckpt_path.parts
-        exp_id = getattr(args, "experiment", None)
-        
-        # Try to find group and exp_id from checkpoint path
-        if len(parts) >= 4 and parts[0] == "results" and parts[1] == "checkpoints":
-            group = parts[2]
-            exp_id = parts[3]
-            report_dir = Path("results/plots") / group / exp_id
-        elif len(parts) >= 3 and parts[0] == "results":
-            exp_id = parts[2]
-            report_dir = Path("results/plots") / exp_id
-        elif exp_id:
-            # Look for existing plot dir matching exp_id under results/plots/
-            matches = list(Path("results/plots").glob(f"**/{exp_id}"))
-            if matches:
-                report_dir = matches[0]
-            else:
-                report_dir = Path("results/plots") / exp_id
-        else:
-            exp_id = ckpt_path.name
-            report_dir = Path("results/plots") / exp_id
             
-    report_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = report_dir / "early_prediction_summary.csv"
-    summary_path = report_dir / "early_prediction_summary.md"
-    
-    # Clean up old individual report files if present to prevent clutter
-    for old_report in report_dir.glob("early_prediction_report*.md"):
-        try:
-            old_report.unlink()
-            print(f"Removed legacy individual report file: {old_report}")
-        except Exception as e:
-            print(f"Error removing {old_report}: {e}")
-            
-    # 6. Read existing entries to support incremental mode
+    # 5. Read existing entries to support incremental mode
     existing_checkpoints = set()
     if not args.remake and csv_path.exists():
         try:
@@ -416,13 +532,21 @@ def main():
         with open(csv_path, mode="w", newline="") as f_csv:
             writer = csv.writer(f_csv)
             writer.writerow([
-                "checkpoint", "predictor_acc", "clinician_mort", "cql_mort",
-                "clinician_admin", "cql_admin", "agreement", "setup_b_expert_visits",
-                "setup_b_accuracy", "setup_b_recall", "setup_b_precision",
-                "setup_b_f1", "setup_b_auc"
+                "checkpoint", "predictor_acc", "predictor_acc_sem",
+                "clinician_mort", "clinician_mort_sem",
+                "cql_mort", "cql_mort_sem",
+                "clinician_admin", "clinician_admin_sem",
+                "cql_admin", "cql_admin_sem",
+                "agreement", "agreement_sem",
+                "setup_b_expert_visits", "setup_b_expert_visits_sem",
+                "setup_b_accuracy", "setup_b_accuracy_sem",
+                "setup_b_recall", "setup_b_recall_sem",
+                "setup_b_precision", "setup_b_precision_sem",
+                "setup_b_f1", "setup_b_f1_sem",
+                "setup_b_auc", "setup_b_auc_sem"
             ])
 
-    # 7. Evaluation Loop
+    # 6. Evaluation Loop
     for checkpoint_path in checkpoints_to_eval:
         print(f"\n" + "="*50)
         print(f"Evaluating checkpoint: {checkpoint_path}")
@@ -435,116 +559,105 @@ def main():
             print(f"Error loading checkpoint {checkpoint_path}: {e}")
             continue
             
-        # Setup A: Counterfactual Evaluation
-        print("Running Setup A: Counterfactual Evaluation...")
-        X_clinician = X[test_indices, :, :49].copy()
-        m_test = (mask[test_indices] != -1).astype(np.float32)
-        X_clinician = X_clinician * m_test
+        split_clinician_morts = []
+        split_cql_morts = []
+        split_clinician_admins = []
+        split_cql_admins = []
+        split_agreements = []
+        split_expert_visits = []
+        split_accuracies = []
+        split_recalls = []
+        split_precisions = []
+        split_f1s = []
+        split_aucs = []
         
-        X_cql = X[test_indices, :, :49].copy()
-        cql_actions_count = 0
-        clinician_actions_count = 0
-        agreement_count = 0
-        
-        cql_recommended_actions = np.zeros((len(test_indices), 240))
-        cql_action_probs = np.zeros((len(test_indices), 240))
-        
-        for idx, patient_idx in enumerate(test_indices):
-            valid_steps = np.where(mask[patient_idx].squeeze() != -1)[0]
-            for t in valid_steps:
-                obs = X[patient_idx, t, :46]
-                obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(device)
-                
-                with torch.no_grad():
-                    probs = cql_agent.actor.get_action_probs(obs_tensor)
-                    action = torch.argmax(probs, dim=-1).item()
-                    prob_admin = probs[0, 1].item()
-                    
-                cql_recommended_actions[idx, t] = action
-                cql_action_probs[idx, t] = prob_admin
-                X_cql[idx, t, 47] = action
-                
-                clin_act = int(X[patient_idx, t, 47])
-                if action == clin_act:
-                    agreement_count += 1
-                if action == 1:
-                    cql_actions_count += 1
-                if clin_act == 1:
-                    clinician_actions_count += 1
-                    
-        X_cql = X_cql * m_test
-        
-        predictor.eval()
-        with torch.no_grad():
-            inputs_clinician = torch.tensor(X_clinician, dtype=torch.float32).to(device)
-            mask_tensor = torch.tensor(mask[test_indices], dtype=torch.float32).to(device)
+        for split_idx in range(args.n_splits):
+            seed_val = 42 + split_idx
+            # Split the evaluation dataset into 80/20 train/test
+            _, test_indices_eval = train_test_split(
+                np.arange(len(X)), test_size=0.2, random_state=seed_val
+            )
             
-            logits_clinician = predictor(inputs_clinician, mask_tensor)
-            probs_clinician = torch.sigmoid(logits_clinician).cpu().numpy().squeeze()
+            # Setup A: Counterfactual Evaluation
+            X_clinician = X[test_indices_eval, :, :49].copy()
+            m_test = (mask[test_indices_eval] != -1).astype(np.float32)
+            X_clinician = X_clinician * m_test
             
-            inputs_cql = torch.tensor(X_cql, dtype=torch.float32).to(device)
-            logits_cql = predictor(inputs_cql, mask_tensor)
-            probs_cql = torch.sigmoid(logits_cql).cpu().numpy().squeeze()
+            X_cql = X[test_indices_eval, :, :49].copy()
+            cql_actions_count = 0
+            clinician_actions_count = 0
+            agreement_count = 0
             
-        avg_mortality_clinician = float(np.mean(probs_clinician))
-        avg_mortality_cql = float(np.mean(probs_cql))
-        
-        total_valid_steps = sum(len(np.where(mask[i].squeeze() != -1)[0]) for i in test_indices)
-        policy_agreement = agreement_count / total_valid_steps if total_valid_steps > 0 else 0.0
-        cql_admin_rate = cql_actions_count / total_valid_steps if total_valid_steps > 0 else 0.0
-        clinician_admin_rate = clinician_actions_count / total_valid_steps if total_valid_steps > 0 else 0.0
-        
-        print(f"Setup A Results:")
-        print(f"  Avg Predicted Mortality (Clinician): {avg_mortality_clinician:.4f}")
-        print(f"  Avg Predicted Mortality (CQL Policy): {avg_mortality_cql:.4f}")
-        print(f"  Policy Agreement: {policy_agreement:.4f}")
-        print(f"  Clinician Admin Rate: {clinician_admin_rate:.4f}, CQL Admin Rate: {cql_admin_rate:.4f}")
-        
-        # Setup B: Imitation of Effective Interventions
-        print("Running Setup B: Imitation of Effective Interventions...")
-        with torch.no_grad():
-            logits_steps = predictor.predict_all_steps(inputs_clinician)
-            probs_steps = torch.sigmoid(logits_steps).cpu().numpy().squeeze(-1) # (N_test, 240)
+            cql_recommended_actions = np.zeros((len(test_indices_eval), 240))
+            cql_action_probs = np.zeros((len(test_indices_eval), 240))
             
-        targets_list = []
-        predictions_list = []
-        scores_list = []
-        
-        for idx, patient_idx in enumerate(test_indices):
-            patient_y = y[patient_idx, 0]
-            if patient_y == 0:
+            for idx, patient_idx in enumerate(test_indices_eval):
                 valid_steps = np.where(mask[patient_idx].squeeze() != -1)[0]
                 for t in valid_steps:
-                    pred_death_prob = probs_steps[idx, t]
-                    if pred_death_prob > 0.5:
-                        clinician_act = int(X[patient_idx, t, 47])
-                        cql_act = cql_recommended_actions[idx, t]
-                        cql_prob_admin = cql_action_probs[idx, t]
+                    obs = X[patient_idx, t, :46]
+                    obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(device)
+                    
+                    with torch.no_grad():
+                        probs = cql_agent.actor.get_action_probs(obs_tensor)
+                        action = torch.argmax(probs, dim=-1).item()
+                        prob_admin = probs[0, 1].item()
                         
-                        targets_list.append(clinician_act)
-                        predictions_list.append(cql_act)
-                        scores_list.append(cql_prob_admin)
+                    cql_recommended_actions[idx, t] = action
+                    cql_action_probs[idx, t] = prob_admin
+                    X_cql[idx, t, 47] = action
+                    
+                    clin_act = int(X[patient_idx, t, 47])
+                    if action == clin_act:
+                        agreement_count += 1
+                    if action == 1:
+                        cql_actions_count += 1
+                    if clin_act == 1:
+                        clinician_actions_count += 1
                         
-        print(f"Setup B: Found {len(targets_list)} expert demonstration visits.")
-        
-        if len(targets_list) > 0:
-            accuracy = accuracy_score(targets_list, predictions_list)
-            recall = recall_score(targets_list, predictions_list, zero_division=0)
-            precision = precision_score(targets_list, predictions_list, zero_division=0)
-            f1 = f1_score(targets_list, predictions_list, zero_division=0)
-            if len(np.unique(targets_list)) > 1:
-                auc = roc_auc_score(targets_list, scores_list)
-            else:
-                auc = 0.5
-        else:
-            print("Warning: No visits met the predicted-to-crash threshold (> 0.5) for survivors. Trying lower threshold (0.3).")
-            for idx, patient_idx in enumerate(test_indices):
+            X_cql = X_cql * m_test
+            
+            predictor.eval()
+            with torch.no_grad():
+                inputs_clinician = torch.tensor(X_clinician, dtype=torch.float32).to(device)
+                mask_tensor = torch.tensor(mask[test_indices_eval], dtype=torch.float32).to(device)
+                
+                logits_clinician = predictor(inputs_clinician, mask_tensor)
+                probs_clinician = torch.sigmoid(logits_clinician).cpu().numpy().squeeze()
+                
+                inputs_cql = torch.tensor(X_cql, dtype=torch.float32).to(device)
+                logits_cql = predictor(inputs_cql, mask_tensor)
+                probs_cql = torch.sigmoid(logits_cql).cpu().numpy().squeeze()
+                
+            avg_mortality_clinician = float(np.mean(probs_clinician))
+            avg_mortality_cql = float(np.mean(probs_cql))
+            
+            total_valid_steps = sum(len(np.where(mask[i].squeeze() != -1)[0]) for i in test_indices_eval)
+            policy_agreement = agreement_count / total_valid_steps if total_valid_steps > 0 else 0.0
+            cql_admin_rate = cql_actions_count / total_valid_steps if total_valid_steps > 0 else 0.0
+            clinician_admin_rate = clinician_actions_count / total_valid_steps if total_valid_steps > 0 else 0.0
+            
+            split_clinician_morts.append(avg_mortality_clinician)
+            split_cql_morts.append(avg_mortality_cql)
+            split_clinician_admins.append(clinician_admin_rate)
+            split_cql_admins.append(cql_admin_rate)
+            split_agreements.append(policy_agreement)
+            
+            # Setup B: Imitation of Effective Interventions
+            with torch.no_grad():
+                logits_steps = predictor.predict_all_steps(inputs_clinician)
+                probs_steps = torch.sigmoid(logits_steps).cpu().numpy().squeeze(-1) # (N_test_eval, 240)
+                
+            targets_list = []
+            predictions_list = []
+            scores_list = []
+            
+            for idx, patient_idx in enumerate(test_indices_eval):
                 patient_y = y[patient_idx, 0]
                 if patient_y == 0:
                     valid_steps = np.where(mask[patient_idx].squeeze() != -1)[0]
                     for t in valid_steps:
                         pred_death_prob = probs_steps[idx, t]
-                        if pred_death_prob > 0.3:
+                        if pred_death_prob > 0.5:
                             clinician_act = int(X[patient_idx, t, 47])
                             cql_act = cql_recommended_actions[idx, t]
                             cql_prob_admin = cql_action_probs[idx, t]
@@ -552,25 +665,81 @@ def main():
                             targets_list.append(clinician_act)
                             predictions_list.append(cql_act)
                             scores_list.append(cql_prob_admin)
-            print(f"Setup B (threshold > 0.3): Found {len(targets_list)} expert demonstration visits.")
+                            
             if len(targets_list) > 0:
                 accuracy = accuracy_score(targets_list, predictions_list)
                 recall = recall_score(targets_list, predictions_list, zero_division=0)
                 precision = precision_score(targets_list, predictions_list, zero_division=0)
                 f1 = f1_score(targets_list, predictions_list, zero_division=0)
                 if len(np.unique(targets_list)) > 1:
-                    auc = roc_auc_score(targets_list, scores_list)
+                    auc_val = roc_auc_score(targets_list, scores_list)
                 else:
-                    auc = 0.5
+                    auc_val = 0.5
             else:
-                accuracy, recall, precision, f1, auc = 0.0, 0.0, 0.0, 0.0, 0.5
-                
-        print(f"Setup B Results:")
-        print(f"  Accuracy: {accuracy:.4f}")
-        print(f"  Recall:   {recall:.4f}")
-        print(f"  Precision: {precision:.4f}")
-        print(f"  F1-score:  {f1:.4f}")
-        print(f"  AUC-ROC:   {auc:.4f}")
+                # Try lower threshold
+                targets_list = []
+                predictions_list = []
+                scores_list = []
+                for idx, patient_idx in enumerate(test_indices_eval):
+                    patient_y = y[patient_idx, 0]
+                    if patient_y == 0:
+                        valid_steps = np.where(mask[patient_idx].squeeze() != -1)[0]
+                        for t in valid_steps:
+                            pred_death_prob = probs_steps[idx, t]
+                            if pred_death_prob > 0.3:
+                                clinician_act = int(X[patient_idx, t, 47])
+                                cql_act = cql_recommended_actions[idx, t]
+                                cql_prob_admin = cql_action_probs[idx, t]
+                                
+                                targets_list.append(clinician_act)
+                                predictions_list.append(cql_act)
+                                scores_list.append(cql_prob_admin)
+                if len(targets_list) > 0:
+                    accuracy = accuracy_score(targets_list, predictions_list)
+                    recall = recall_score(targets_list, predictions_list, zero_division=0)
+                    precision = precision_score(targets_list, predictions_list, zero_division=0)
+                    f1 = f1_score(targets_list, predictions_list, zero_division=0)
+                    if len(np.unique(targets_list)) > 1:
+                        auc_val = roc_auc_score(targets_list, scores_list)
+                    else:
+                        auc_val = 0.5
+                else:
+                    accuracy, recall, precision, f1, auc_val = 0.0, 0.0, 0.0, 0.0, 0.5
+                    
+            split_expert_visits.append(len(targets_list))
+            split_accuracies.append(accuracy)
+            split_recalls.append(recall)
+            split_precisions.append(precision)
+            split_f1s.append(f1)
+            split_aucs.append(auc_val)
+            
+        def get_mean_sem(lst):
+            return float(np.mean(lst)), float(np.std(lst) / np.sqrt(len(lst)))
+            
+        clinician_mort_m, clinician_mort_s = get_mean_sem(split_clinician_morts)
+        cql_mort_m, cql_mort_s = get_mean_sem(split_cql_morts)
+        clinician_admin_m, clinician_admin_s = get_mean_sem(split_clinician_admins)
+        cql_admin_m, cql_admin_s = get_mean_sem(split_cql_admins)
+        agreement_m, agreement_s = get_mean_sem(split_agreements)
+        expert_visits_m, expert_visits_s = get_mean_sem(split_expert_visits)
+        acc_b_m, acc_b_s = get_mean_sem(split_accuracies)
+        rec_b_m, rec_b_s = get_mean_sem(split_recalls)
+        prec_b_m, prec_b_s = get_mean_sem(split_precisions)
+        f1_b_m, f1_b_s = get_mean_sem(split_f1s)
+        auc_b_m, auc_b_s = get_mean_sem(split_aucs)
+        
+        print(f"Setup A Results over {args.n_splits} evaluation splits:")
+        print(f"  Avg Predicted Mortality (Clinician): {clinician_mort_m:.4f} \u00b1 {clinician_mort_s:.4f}")
+        print(f"  Avg Predicted Mortality (CQL Policy): {cql_mort_m:.4f} \u00b1 {cql_mort_s:.4f}")
+        print(f"  Policy Agreement: {agreement_m:.4f} \u00b1 {agreement_s:.4f}")
+        print(f"  Clinician Admin Rate: {clinician_admin_m:.4f} \u00b1 {clinician_admin_s:.4f}, CQL Admin Rate: {cql_admin_m:.4f} \u00b1 {cql_admin_s:.4f}")
+        
+        print(f"Setup B Results over {args.n_splits} evaluation splits:")
+        print(f"  Accuracy:  {acc_b_m:.4f} \u00b1 {acc_b_s:.4f}")
+        print(f"  Recall:    {rec_b_m:.4f} \u00b1 {rec_b_s:.4f}")
+        print(f"  Precision: {prec_b_m:.4f} \u00b1 {prec_b_s:.4f}")
+        print(f"  F1-score:  {f1_b_m:.4f} \u00b1 {f1_b_s:.4f}")
+        print(f"  AUC-ROC:   {auc_b_m:.4f} \u00b1 {auc_b_s:.4f}")
         
         # Parse name
         try:
@@ -582,14 +751,22 @@ def main():
         except Exception:
             checkpoint_name = str(checkpoint_path)
             
-        # Append to CSV summary file
         with open(csv_path, mode="a", newline="") as f_csv:
             writer = csv.writer(f_csv)
             writer.writerow([
-                checkpoint_name, f"{predictor_acc:.6f}", f"{avg_mortality_clinician:.6f}", f"{avg_mortality_cql:.6f}",
-                f"{clinician_admin_rate:.6f}", f"{cql_admin_rate:.6f}", f"{policy_agreement:.6f}",
-                str(len(targets_list)),
-                f"{accuracy:.6f}", f"{recall:.6f}", f"{precision:.6f}", f"{f1:.6f}", f"{auc:.6f}"
+                checkpoint_name,
+                f"{predictor_acc:.6f}", "0.000000",
+                f"{clinician_mort_m:.6f}", f"{clinician_mort_s:.6f}",
+                f"{cql_mort_m:.6f}", f"{cql_mort_s:.6f}",
+                f"{clinician_admin_m:.6f}", f"{clinician_admin_s:.6f}",
+                f"{cql_admin_m:.6f}", f"{cql_admin_s:.6f}",
+                f"{agreement_m:.6f}", f"{agreement_s:.6f}",
+                f"{expert_visits_m:.6f}", f"{expert_visits_s:.6f}",
+                f"{acc_b_m:.6f}", f"{acc_b_s:.6f}",
+                f"{rec_b_m:.6f}", f"{rec_b_s:.6f}",
+                f"{prec_b_m:.6f}", f"{prec_b_s:.6f}",
+                f"{f1_b_m:.6f}", f"{f1_b_s:.6f}",
+                f"{auc_b_m:.6f}", f"{auc_b_s:.6f}"
             ])
             
         print(f"Appended results for {checkpoint_name} to CSV summary file.")

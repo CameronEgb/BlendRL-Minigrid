@@ -225,7 +225,7 @@ def main():
     parser.add_argument("--tau-step", type=int, default=4, help="Step size for tau sweep in hours")
     parser.add_argument("--window-hours", type=int, default=12, help="Fixed observation window length in hours (default: 12)")
     parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs for each model")
-    parser.add_argument("--n-models", type=int, default=20, help="Number of models to train and ensemble (average) per configuration")
+    parser.add_argument("--n-splits", "--n-models", type=int, dest="n_splits", default=20, help="Number of data splits to evaluate (mean and SEM will be computed across splits)")
     parser.add_argument("--output-dir", type=str, default="results/plots/early_prediction", help="Directory to save plots")
     args = parser.parse_args()
 
@@ -233,7 +233,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     print(f"Observation window: {args.window_hours} hours ({w_steps} steps)")
-    print(f"Ensembling configuration: training and averaging {args.n_models} models per setup.")
+    print(f"Evaluation configuration: training and averaging across {args.n_splits} splits per setup.")
 
     # Load dataset
     print(f"Loading dataset from: {args.dataset_path}")
@@ -341,13 +341,13 @@ def main():
     
     results = {}
     for m_cfg, _, _ in model_configs:
-        results[m_cfg] = {"tau": [], "auc": [], "auprc": [], "f1_max": [], "f1_05": []}
-
-    # Split train/test ONCE at the cohort level to keep the test set identical across all taus
-    train_cohort_idxs, test_cohort_idxs = train_test_split(
-        np.arange(len(cohort_indices)), test_size=0.2, random_state=42, stratify=y_cohort
-    )
-    print(f"Train/Test split: Train size={len(train_cohort_idxs)}, Test size={len(test_cohort_idxs)}")
+        results[m_cfg] = {
+            "tau": [],
+            "auc": [], "auc_sem": [],
+            "auprc": [], "auprc_sem": [],
+            "f1_max": [], "f1_max_sem": [],
+            "f1_05": [], "f1_05_sem": []
+        }
 
     # Run the sweep
     for tau in tau_list:
@@ -359,22 +359,30 @@ def main():
         t_cutoffs = cohort_t_lengths - steps_early
         
         for m_cfg_name, m_type, feat_key in model_configs:
-            print(f"  Training Ensemble for: {m_cfg_name}")
+            print(f"  Evaluating: {m_cfg_name} across {args.n_splits} splits")
             feat_func = feat_configs[feat_key]
             
             # Construct patient sliced sequences
             seq_data = [feat_func(cohort_indices[i], t_cutoffs[i]) for i in range(len(cohort_indices))]
             input_dim = seq_data[0].shape[-1]
             
-            X_train = [seq_data[i] for i in train_cohort_idxs]
-            X_test = [seq_data[i] for i in test_cohort_idxs]
-            y_train = y_cohort[train_cohort_idxs]
-            y_test = y_cohort[test_cohort_idxs]
+            split_aucs = []
+            split_auprcs = []
+            split_f1_maxes = []
+            split_f1_05s = []
             
-            prob_predictions = []
-            
-            for m_idx in range(args.n_models):
+            for m_idx in range(args.n_splits):
                 seed_val = 42 + m_idx
+                # Split train/test (80/20) for this specific split
+                train_cohort_idxs, test_cohort_idxs = train_test_split(
+                    np.arange(len(cohort_indices)), test_size=0.2, random_state=seed_val, stratify=y_cohort
+                )
+                
+                X_train = [seq_data[i] for i in train_cohort_idxs]
+                X_test = [seq_data[i] for i in test_cohort_idxs]
+                y_train = y_cohort[train_cohort_idxs]
+                y_test = y_cohort[test_cohort_idxs]
+                
                 if m_type == "lstm":
                     model = train_lstm_model(
                         X_train, y_train, input_dim, epochs=args.epochs, device=device, seed=seed_val
@@ -386,31 +394,45 @@ def main():
                     )
                     probs = evaluate_transformer_model(model, X_test, input_dim, device=device)
                 
-                prob_predictions.append(probs)
+                # Metrics for this split
+                auc_roc = float(roc_auc_score(y_test, probs))
+                precisions, recalls, thresholds = precision_recall_curve(y_test, probs)
+                auprc_val = float(auc(recalls, precisions))
                 
-            avg_probs = np.mean(prob_predictions, axis=0)
+                f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-8)
+                f1_max_val = float(np.max(f1_scores))
+                
+                preds_05 = (probs > 0.5).astype(np.int32)
+                f1_05_val = float(f1_score(y_test, preds_05, zero_division=0))
+                
+                split_aucs.append(auc_roc)
+                split_auprcs.append(auprc_val)
+                split_f1_maxes.append(f1_max_val)
+                split_f1_05s.append(f1_05_val)
+                
+            auc_mean = float(np.mean(split_aucs))
+            auc_sem = float(np.std(split_aucs) / np.sqrt(args.n_splits))
             
-            # 1. AUC-ROC
-            auc_roc = float(roc_auc_score(y_test, avg_probs))
+            auprc_mean = float(np.mean(split_auprcs))
+            auprc_sem = float(np.std(split_auprcs) / np.sqrt(args.n_splits))
             
-            # 2. AUPRC & Optimal F1 (F1_max)
-            precisions, recalls, thresholds = precision_recall_curve(y_test, avg_probs)
-            auprc_val = float(auc(recalls, precisions))
+            f1_max_mean = float(np.mean(split_f1_maxes))
+            f1_max_sem = float(np.std(split_f1_maxes) / np.sqrt(args.n_splits))
             
-            f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-8)
-            f1_max_val = float(np.max(f1_scores))
-            
-            # 3. Standard F1 at 0.5 threshold
-            preds_05 = (avg_probs > 0.5).astype(np.int32)
-            f1_05_val = float(f1_score(y_test, preds_05, zero_division=0))
+            f1_05_mean = float(np.mean(split_f1_05s))
+            f1_05_sem = float(np.std(split_f1_05s) / np.sqrt(args.n_splits))
             
             results[m_cfg_name]["tau"].append(tau)
-            results[m_cfg_name]["auc"].append(auc_roc)
-            results[m_cfg_name]["auprc"].append(auprc_val)
-            results[m_cfg_name]["f1_max"].append(f1_max_val)
-            results[m_cfg_name]["f1_05"].append(f1_05_val)
+            results[m_cfg_name]["auc"].append(auc_mean)
+            results[m_cfg_name]["auc_sem"].append(auc_sem)
+            results[m_cfg_name]["auprc"].append(auprc_mean)
+            results[m_cfg_name]["auprc_sem"].append(auprc_sem)
+            results[m_cfg_name]["f1_max"].append(f1_max_mean)
+            results[m_cfg_name]["f1_max_sem"].append(f1_max_sem)
+            results[m_cfg_name]["f1_05"].append(f1_05_mean)
+            results[m_cfg_name]["f1_05_sem"].append(f1_05_sem)
             
-            print(f"    AUC-ROC: {auc_roc:.4f}, AUPRC: {auprc_val:.4f}, F1-Max (optimal): {f1_max_val:.4f}, F1-0.5: {f1_05_val:.4f}")
+            print(f"    AUC-ROC: {auc_mean:.4f} ± {auc_sem:.4f}, AUPRC: {auprc_mean:.4f} ± {auprc_sem:.4f}, F1-Max (optimal): {f1_max_mean:.4f} ± {f1_max_sem:.4f}, F1-0.5: {f1_05_mean:.4f} ± {f1_05_sem:.4f}")
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -418,15 +440,15 @@ def main():
     # Save text results
     results_file = out_dir / "early_prediction_dl_results.txt"
     with open(results_file, "w") as f:
-        f.write(f"=== Septic Shock Early Prediction DL Ensemble Sweep Results (n_models={args.n_models}) ===\n")
+        f.write(f"=== Septic Shock Early Prediction DL Sweep Results over {args.n_splits} Splits ===\n")
         f.write(f"Cohort Constraint: Patients with stays >= {args.tau_max}h + {args.window_hours}h window (Fixed size = {len(cohort_indices)})\n\n")
         for m_cfg_name, _, _ in model_configs:
             f.write(f"Model Configuration: {m_cfg_name}\n")
             f.write(f"  Taus:   {results[m_cfg_name]['tau']}\n")
-            f.write(f"  AUCs:   {results[m_cfg_name]['auc']}\n")
-            f.write(f"  AUPRCs: {results[m_cfg_name]['auprc']}\n")
-            f.write(f"  F1_max: {results[m_cfg_name]['f1_max']}\n")
-            f.write(f"  F1_0.5: {results[m_cfg_name]['f1_05']}\n\n")
+            f.write(f"  AUCs:   {results[m_cfg_name]['auc']} (SEMs: {results[m_cfg_name]['auc_sem']})\n")
+            f.write(f"  AUPRCs: {results[m_cfg_name]['auprc']} (SEMs: {results[m_cfg_name]['auprc_sem']})\n")
+            f.write(f"  F1_max: {results[m_cfg_name]['f1_max']} (SEMs: {results[m_cfg_name]['f1_max_sem']})\n")
+            f.write(f"  F1_0.5: {results[m_cfg_name]['f1_05']} (SEMs: {results[m_cfg_name]['f1_05_sem']})\n\n")
 
     # Plot 4-panel results
     print(f"Plotting 4-panel results and saving to {out_dir}...")
@@ -438,7 +460,11 @@ def main():
     # Plot 1: AUC-ROC
     for idx, (m_cfg_name, _, _) in enumerate(model_configs):
         res = results[m_cfg_name]
-        axes[0, 0].plot(res["tau"], res["auc"], marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
+        tau_arr = np.array(res["tau"])
+        mean_arr = np.array(res["auc"])
+        sem_arr = np.array(res["auc_sem"])
+        axes[0, 0].plot(tau_arr, mean_arr, marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
+        axes[0, 0].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[idx], alpha=0.15)
     axes[0, 0].set_title(f"AUC-ROC vs. Lead Time (\u03c4)", fontsize=12, fontweight='bold')
     axes[0, 0].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=11)
     axes[0, 0].set_ylabel("AUC-ROC", fontsize=11)
@@ -448,7 +474,11 @@ def main():
     # Plot 2: AUPRC
     for idx, (m_cfg_name, _, _) in enumerate(model_configs):
         res = results[m_cfg_name]
-        axes[0, 1].plot(res["tau"], res["auprc"], marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
+        tau_arr = np.array(res["tau"])
+        mean_arr = np.array(res["auprc"])
+        sem_arr = np.array(res["auprc_sem"])
+        axes[0, 1].plot(tau_arr, mean_arr, marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
+        axes[0, 1].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[idx], alpha=0.15)
     axes[0, 1].set_title(f"AUPRC (PR-AUC) vs. Lead Time (\u03c4)", fontsize=12, fontweight='bold')
     axes[0, 1].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=11)
     axes[0, 1].set_ylabel("AUPRC", fontsize=11)
@@ -458,7 +488,11 @@ def main():
     # Plot 3: F1-Max (Optimal Threshold)
     for idx, (m_cfg_name, _, _) in enumerate(model_configs):
         res = results[m_cfg_name]
-        axes[1, 0].plot(res["tau"], res["f1_max"], marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
+        tau_arr = np.array(res["tau"])
+        mean_arr = np.array(res["f1_max"])
+        sem_arr = np.array(res["f1_max_sem"])
+        axes[1, 0].plot(tau_arr, mean_arr, marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
+        axes[1, 0].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[idx], alpha=0.15)
     axes[1, 0].set_title(f"F1-Max (Optimal Threshold \u03b8*) vs. Lead Time (\u03c4)", fontsize=12, fontweight='bold')
     axes[1, 0].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=11)
     axes[1, 0].set_ylabel("Optimal F1-Score", fontsize=11)
@@ -468,7 +502,11 @@ def main():
     # Plot 4: F1 at 0.5 Threshold
     for idx, (m_cfg_name, _, _) in enumerate(model_configs):
         res = results[m_cfg_name]
-        axes[1, 1].plot(res["tau"], res["f1_05"], marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
+        tau_arr = np.array(res["tau"])
+        mean_arr = np.array(res["f1_05"])
+        sem_arr = np.array(res["f1_05_sem"])
+        axes[1, 1].plot(tau_arr, mean_arr, marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
+        axes[1, 1].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[idx], alpha=0.15)
     axes[1, 1].set_title(f"F1-Score (Standard Threshold \u03b8=0.5) vs. Lead Time (\u03c4)", fontsize=12, fontweight='bold')
     axes[1, 1].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=11)
     axes[1, 1].set_ylabel("F1-Score (\u03b8=0.5)", fontsize=11)
