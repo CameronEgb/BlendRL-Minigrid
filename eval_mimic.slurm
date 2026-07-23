@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=eval_mimic_blendrl
-#SBATCH --partition=rtx4060ti
+#SBATCH --partition=rtx4060ti16g
 #SBATCH --ntasks-per-node=1
 #SBATCH --nodes=1
 #SBATCH --output=results/logs/slurm/%x_%j.out
