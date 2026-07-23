@@ -458,7 +458,9 @@ def main():
         )
         plot_path = None
         if split_idx == 0:
-            plot_path = report_dir / "predictor_convergence.png"
+            convergence_dir = report_dir / "convergence"
+            convergence_dir.mkdir(parents=True, exist_ok=True)
+            plot_path = convergence_dir / "predictor_convergence.png"
             
         pred_model, pred_acc = train_predictor(
             X_train, y_train, mask_train, train_indices, test_indices_pred,

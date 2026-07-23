@@ -32,3 +32,6 @@ optuna.db
 .agents/
 scratch/
 
+# Local datasets
+in/datasets/
+

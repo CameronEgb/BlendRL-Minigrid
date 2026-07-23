@@ -44,11 +44,15 @@ def load_run_data(run_folder):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("experiment", type=str)
+    parser.add_argument("--output-dir", type=str, default=None, help="Custom directory to save plots.")
     args = parser.parse_args()
 
     base_dir = Path("results/logs/tuning") / args.experiment
-    save_dir = Path("results/plots/tuning") / args.experiment / "best_only"
-    save_dir.mkdir(parents=True, exist_ok=True)
+    if args.output_dir:
+        convergence_dir = Path(args.output_dir)
+    else:
+        convergence_dir = Path("results/plots/tuning") / args.experiment / "convergence"
+    convergence_dir.mkdir(parents=True, exist_ok=True)
 
     agent_folders = [f for f in base_dir.iterdir() if f.is_dir()]
     
@@ -87,8 +91,8 @@ def main():
     plt.ylabel("Eval Reward")
     plt.legend()
     plt.grid(True, alpha=0.3)
-    plt.savefig(save_dir / "best_eval_reward.png")
-    print(f"\nSaved best trial plot to: {save_dir / 'best_eval_reward.png'}")
+    plt.savefig(convergence_dir / "best_eval_reward.png")
+    print(f"\nSaved best trial plot to: {convergence_dir / 'best_eval_reward.png'}")
 
 if __name__ == "__main__":
     main()

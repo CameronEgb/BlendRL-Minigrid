@@ -329,6 +329,7 @@ def main():
     parser.add_argument("--style", type=str, default=None, help="Path to a YAML config file defining plot styles and groupings.")
     parser.add_argument("--sources", type=str, default=None, help="Path to a YAML file defining specific run paths to plot together.")
     parser.add_argument("--show-versions", action="store_true", help="Plot each version as a separate line instead of aggregating them.")
+    parser.add_argument("--output-dir", type=str, default=None, help="Custom directory to save plots.")
     args = parser.parse_args()
 
     if getattr(args, "show_versions", False) and args.version is None:
@@ -521,12 +522,16 @@ def main():
     group = list(found_groups)[0] if len(found_groups) == 1 else "combined"
     use_simple_labels = len(found_exp_ids) <= 1
 
-    save_dir = Path("results/plots") / group / experiment_name_for_save
-    if save_dir.exists():
-        import shutil
-        print(f"Clearing existing plots in {save_dir}")
-        shutil.rmtree(save_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
+    if args.output_dir:
+        save_dir = Path(args.output_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        save_dir = Path("results/plots") / group / experiment_name_for_save
+        if save_dir.exists():
+            import shutil
+            print(f"Clearing existing plots in {save_dir}")
+            shutil.rmtree(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
 
     # Load style config if provided, else use defaults
     plot_config = None
@@ -563,6 +568,9 @@ def main():
                 {"metric": "losses/value_loss", "title": f"Value Loss: {experiment_name_for_save}", "ylabel": "Loss", "filename": "offline_value_loss.png", "window": 20, "x_axis": "step", "xlabel": "Training Steps"},
             ]
         }
+
+    convergence_dir = save_dir / "convergence"
+    convergence_dir.mkdir(parents=True, exist_ok=True)
 
     for p_def in plot_config.get("plots", []):
         metric = p_def.get("metric")
@@ -604,13 +612,13 @@ def main():
                 title = title_tmpl.replace("{split_value}", str(split_val)).replace("{experiment}", experiment_name_for_save)
                 filename = filename_tmpl.replace("{split_value}", str(split_val)).replace("{experiment}", experiment_name_for_save)
                 
-                create_plot(current_groups, metric, title, ylabel, save_dir / filename, 
+                create_plot(current_groups, metric, title, ylabel, convergence_dir / filename, 
                            window=window, use_simple_labels=use_simple_labels, 
                            x_axis_col=x_axis, xlabel=xlabel)
                 
                 # Generate an extra all_plots.png for easy version comparison
                 if metric == "eval/reward" and getattr(args, "show_versions", False):
-                    create_plot(current_groups, metric, title, ylabel, save_dir / "all_plots.png", 
+                    create_plot(current_groups, metric, title, ylabel, convergence_dir / "all_plots.png", 
                                window=window, use_simple_labels=use_simple_labels, 
                                x_axis_col=x_axis, xlabel=xlabel)
         else:
@@ -622,13 +630,13 @@ def main():
             title = title_tmpl.replace("{experiment}", experiment_name_for_save)
             filename = filename_tmpl.replace("{experiment}", experiment_name_for_save)
             
-            create_plot(current_groups, metric, title, ylabel, save_dir / filename, 
+            create_plot(current_groups, metric, title, ylabel, convergence_dir / filename, 
                        window=window, use_simple_labels=use_simple_labels, 
                        x_axis_col=x_axis, xlabel=xlabel)
             
             # Generate an extra all_plots.png for easy version comparison
             if metric == "eval/reward" and getattr(args, "show_versions", False):
-                create_plot(current_groups, metric, title, ylabel, save_dir / "all_plots.png", 
+                create_plot(current_groups, metric, title, ylabel, convergence_dir / "all_plots.png", 
                            window=window, use_simple_labels=use_simple_labels, 
                            x_axis_col=x_axis, xlabel=xlabel)
 
