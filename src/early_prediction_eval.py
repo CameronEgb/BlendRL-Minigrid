@@ -9,7 +9,7 @@ from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_sc
 
 # Add root directory to path to allow importing src modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from src.cql.cql_agent import CQLAgent
+from src.methods.cql_agent import CQLAgent
 
 class SepsisPredictorLSTM(nn.Module):
     def __init__(self, input_dim=49, hidden_dim=64):
