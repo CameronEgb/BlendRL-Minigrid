@@ -1,0 +1,41 @@
+# @package _global_
+defaults:
+  - override /env: pyrenees
+  - override /agent: cql_base
+  - override /mode: offline
+  - override /hydra/sweeper: optuna
+
+experiment_id: "tune_pyrenees_cql"
+group: "pyrenees"
+total_timesteps: 979788
+intervals_count: 5
+eval_episodes: 100
+
+online_methods: []
+offline_methods: [cql]
+offline_datasets: [pyrenees]
+
+agent:
+  hidden_sizes: [256, 256]
+  epochs_per_interval: 20
+  eval_interval_epochs: 5
+  batch_size: 256
+
+mode:
+  dataset_path: in/datasets/pyrenees/cql
+
+hydra:
+  sweeper:
+    sampler:
+      _target_: optuna.samplers.TPESampler
+      seed: 42
+    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+    direction: maximize
+    storage: "sqlite:///results/optuna/optuna_${experiment_id}.db"
+    study_name: pyrenees_cql_tuning
+    n_trials: 30
+    n_jobs: 1
+    params:
+      agent.lr: interval(1e-4, 1e-3)
+      agent.cql_alpha: interval(0.1, 5.0)
+      agent.soft_target_tau: interval(0.001, 0.05)
