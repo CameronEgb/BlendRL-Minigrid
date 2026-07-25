@@ -25,16 +25,27 @@ if not datasets_dir or not os.path.exists(datasets_dir):
             datasets_dir = candidate
             break
 
-npz_path = os.path.join(datasets_dir, "mimic_expert_demonstrations.npz")
-out_dir = "/Users/cameronegbert/Documents/NCSU/Research/NeSyRL/in/datasets/mimic/mimic/expert_demo"
-if not os.path.exists("/Users/cameronegbert/Documents/NCSU/Research/NeSyRL"):
-    out_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets/mimic/mimic/expert_demo"))
+# Select NPZ file (default to the full balanced dataset)
+npz_filename = os.environ.get("MIMIC_DATASET_NAME", "mimic_lazy_0_interventions_balanced.npz")
+if len(sys.argv) > 1:
+    npz_filename = sys.argv[1]
+
+npz_path = os.path.join(datasets_dir, npz_filename)
+if not os.path.exists(npz_path):
+    # Fallback to alternate filenames if default doesn't exist
+    for alt in ["mimic_lazy_0_interventions_balanced.npz", "mimic_expert_demonstrations.npz"]:
+        alt_p = os.path.join(datasets_dir, alt)
+        if os.path.exists(alt_p):
+            npz_path = alt_p
+            break
+
+out_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets/mimic/cql"))
 
 if not os.path.exists(npz_path):
-    print(f"Error: Expert NPZ dataset not found at {npz_path}")
+    print(f"Error: NPZ dataset not found at {npz_path}")
     sys.exit(1)
 
-print(f"Loading expert NPZ dataset from {npz_path}...")
+print(f"Loading NPZ dataset from {npz_path}...")
 data = np.load(npz_path, allow_pickle=True)
 X = data['X']  # (N, 240, 49)
 y = data['y']  # (N, 1)

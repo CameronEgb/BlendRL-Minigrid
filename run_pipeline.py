@@ -401,10 +401,14 @@ def main():
     print(f"Detected Online Methods: {online_list}")
     print(f"Detected Offline Methods: {offline_list}")
     
-    # If offline_datasets is not specified, default to using all online_methods as datasets
-    if not dataset_list:
-        dataset_list = online_list if online_list else ["ppo"]
-    
+    # Auto-convert MIMIC dataset if needed
+    if cfg.env.name == "mimic":
+        cql_dir = Path("in/datasets/mimic/cql")
+        if not (cql_dir.exists() and any(cql_dir.glob("*.pkl"))):
+            print("\n=== Auto-Converting MIMIC NPZ Dataset (mimic_lazy_0_interventions_balanced.npz) to PKL Format ===")
+            import subprocess
+            subprocess.run([sys.executable, "src/convert_npz_to_pkl_dataset.py"], check=True)
+
     print(f"Using Datasets for Offline Training: {dataset_list}")
 
     # Slurm log setup
@@ -632,9 +636,13 @@ def main():
                     else:
                         dataset_path = Path("in/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
                         if not (dataset_path.exists() and any(dataset_path.glob("*.pkl"))):
-                            global_match = find_dataset_globally(dataset_name_internal)
-                            if global_match:
-                                dataset_path = Path(global_match)
+                            group_shared_path = Path("in/datasets") / cfg.group / dataset_name_internal
+                            if group_shared_path.exists() and any(group_shared_path.glob("*.pkl")):
+                                dataset_path = group_shared_path
+                            else:
+                                global_match = find_dataset_globally(dataset_name_internal)
+                                if global_match:
+                                    dataset_path = Path(global_match)
                         overrides_slurm.append(f"++mode.dataset_path={dataset_path}")
                         overrides_slurm += sanitized_extra_args
                         script_content = generate_sbatch_script(
