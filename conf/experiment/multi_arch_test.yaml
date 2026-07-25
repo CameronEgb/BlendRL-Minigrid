@@ -3,7 +3,7 @@ defaults:
   - override /env: cartpole
 
 experiment_id: multi_arch_test
-group: cew
+group: ungrouped
 total_timesteps: 50000
 eval_episodes: 100
 online_methods: ppo/cp_tuned

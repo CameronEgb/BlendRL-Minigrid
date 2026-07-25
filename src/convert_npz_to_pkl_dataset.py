@@ -26,9 +26,9 @@ if not datasets_dir or not os.path.exists(datasets_dir):
             break
 
 npz_path = os.path.join(datasets_dir, "mimic_expert_demonstrations.npz")
-out_dir = "/Users/cameronegbert/Documents/NCSU/Research/NeSyRL/results/datasets/sepsis/mimic/expert_demo"
+out_dir = "/Users/cameronegbert/Documents/NCSU/Research/NeSyRL/in/datasets/mimic/mimic/expert_demo"
 if not os.path.exists("/Users/cameronegbert/Documents/NCSU/Research/NeSyRL"):
-    out_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../results/datasets/sepsis/mimic/expert_demo"))
+    out_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets/mimic/mimic/expert_demo"))
 
 if not os.path.exists(npz_path):
     print(f"Error: Expert NPZ dataset not found at {npz_path}")

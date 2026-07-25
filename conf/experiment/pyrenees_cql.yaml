@@ -1,0 +1,32 @@
+# @package _global_
+defaults:
+  - override /agent: cql_base
+  - override /env: pyrenees
+  - override /mode: offline
+
+# Architecture & Setup
+env:
+  name: pyrenees
+  architecture: mlp
+  reward_type: outcome
+
+online_methods: []
+offline_methods: [cql]
+offline_datasets: [pyrenees]
+
+total_timesteps: 979788
+intervals_count: 1
+eval_episodes: 50
+
+agent:
+  epochs_per_interval: 10
+  eval_interval_epochs: 2
+  batch_size: 256
+  lr: 3e-4
+  cql_alpha: 1.0
+
+mode:
+  dataset_path: in/datasets/pyrenees/cql
+
+experiment_id: pyrenees_cql
+group: pyrenees

@@ -3,7 +3,7 @@ defaults:
   - override /env: cartpole
 
 experiment_id: cew_full_run
-group: cew
+group: ungrouped
 total_timesteps: 250000
 intervals_count: 10
 eval_episodes: 100

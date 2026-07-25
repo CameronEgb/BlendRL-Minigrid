@@ -4,7 +4,7 @@ defaults:
 
 # Targeted Hyperparameter Sweep v11-v15
 experiment_id: tune_blendrl_v11_v15
-group: blendrl_tuning
+group: tuning
 total_timesteps: 50000
 
 eval_episodes: 100

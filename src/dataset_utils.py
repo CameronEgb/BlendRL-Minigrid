@@ -163,7 +163,7 @@ class DatasetReader:
             self.dones = torch.tensor(np.concatenate(dones_list, axis=0))
             
             import os
-            reward_type = os.environ.get("MIMIC_REWARD_TYPE", "behavioral")
+            reward_type = os.environ.get("MIMIC_REWARD_TYPE", "outcome")
             if reward_type == "behavioral" and self.obs.shape[-1] == 46:
                 print("MIMIC_REWARD_TYPE=behavioral detected! Zeroing out clinician penalties for death cases in memory...")
                 self.rewards[self.rewards < 0.0] = 0.0

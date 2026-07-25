@@ -4,7 +4,7 @@ defaults:
 
 # Optimized Final Configuration for CartPole
 experiment_id: cp_final
-group: final_demo
+group: ungrouped
 total_timesteps: 100000
 eval_episodes: 100
 online_methods: ppo/cp_tuned,blendrl/cp_tuned

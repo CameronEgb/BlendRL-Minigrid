@@ -25,7 +25,7 @@ agent:
   cql_alpha: 1.0
 
 mode:
-  dataset_path: results/datasets/sepsis/mimic/cql
+  dataset_path: in/datasets/mimic/cql
 
 experiment_id: mimic_cql
-group: sepsis
+group: mimic

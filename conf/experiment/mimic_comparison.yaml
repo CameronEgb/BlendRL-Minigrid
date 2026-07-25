@@ -5,7 +5,7 @@ defaults:
   - override /mode: offline
 
 experiment_id: "mimic_comparison"
-group: "sepsis"
+group: "mimic"
 total_timesteps: 99142
 intervals_count: 5  # Evaluate across 5 data-efficiency intervals (20%, 40%, 60%, 80%, 100%)
 eval_episodes: 100
@@ -30,7 +30,7 @@ agent:
     - type: neural
 
 mode:
-  dataset_path: results/datasets/sepsis/mimic/expert_demo
+  dataset_path: in/datasets/mimic/expert_demo
 
 save_dataset: false
 seed: 1

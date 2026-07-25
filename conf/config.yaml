@@ -17,5 +17,5 @@ recover: false
 # Paths
 results_dir: "results"
 experiment_dir: "${results_dir}/experiments/${experiment_id}"
-dataset_root: "${results_dir}/datasets/${experiment_id}"
+dataset_root: "in/datasets/${group}/${experiment_id}"
 dataset_path: "${dataset_root}/${agent.name}/${hydra:job.num}"

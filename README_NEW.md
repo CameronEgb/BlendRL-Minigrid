@@ -35,5 +35,5 @@ python train.py -m env=seaquest agent=ppo,blendrl seed=1,2,3
 
 ### Offline Training
 ```bash
-python train.py mode=offline agent=iql mode.dataset_path=results/datasets/exp001/ppo
+python train.py mode=offline agent=iql mode.dataset_path=in/datasets/exp001/ppo
 ```

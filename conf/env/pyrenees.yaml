@@ -1,0 +1,10 @@
+name: pyrenees
+env_id: pyrenees
+num_envs: 10
+num_steps: 100
+gamma: 0.99
+gae_lambda: 0.95
+rules: default
+reasoner: nsfr
+architecture: mlp
+reward_type: outcome

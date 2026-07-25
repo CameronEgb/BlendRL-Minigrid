@@ -35,10 +35,10 @@ env:
 mode:
   name: offline
   type: offline
-  dataset_path: results/datasets/sepsis/mimic/expert_demo
+  dataset_path: results/datasets/mimic/mimic/expert_demo
   save_dataset: false
 experiment_id: mimic_expert_compare
-group: sepsis
+group: mimic
 seed: 1
 total_timesteps: 1000
 intervals_count: 2

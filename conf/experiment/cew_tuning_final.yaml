@@ -4,7 +4,7 @@ defaults:
   - override /agent: cew
 
 experiment_id: cew_tuning_final
-group: cew
+group: tuning
 total_timesteps: 100000
 intervals_count: 10
 eval_episodes: 100

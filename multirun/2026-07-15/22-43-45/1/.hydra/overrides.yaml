@@ -5,7 +5,7 @@
 - mode=offline
 - agent=cql
 - ++agent.name=cql
-- ++mode.dataset_path=results/datasets/sepsis/mimic/expert_demo
+- ++mode.dataset_path=results/datasets/mimic/mimic/expert_demo
 - ++total_timesteps=1000
 - ++intervals_count=2
 - ++eval_episodes=2

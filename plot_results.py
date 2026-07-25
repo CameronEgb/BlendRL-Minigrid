@@ -146,7 +146,7 @@ def load_run_data(run_folder, args):
     mode = config.get("mode", {}).get("type") if config else "unknown"
     
     if mode == "offline":
-        # In run_pipeline.py, dataset_path is results/datasets/[EXP_ID]/ppo
+        # In run_pipeline.py, dataset_path is in/datasets/[EXP_ID]/ppo
         dataset_path = config.get("mode", {}).get("dataset_path") or config.get("dataset_path", "")
         if dataset_path:
             raw_source = Path(dataset_path).name.upper()
@@ -233,23 +233,41 @@ def load_run_data(run_folder, args):
     
     return {"folder": run_folder, "label": label, "exp_id": exp_id, "group": group, "data": data, "base_name": get_base_name(exp_id), "source": source, "mode": mode, "config": config}
 
+def get_metric_data(r_data, metric_name):
+    if metric_name in r_data:
+        return metric_name, r_data[metric_name]
+    fallbacks = {
+        "losses/q_loss": ["losses/cql_loss", "losses/bellman_loss", "losses/total_loss"],
+        "losses/actor_loss": ["losses/total_loss", "losses/cql_loss"],
+        "losses/value_loss": ["losses/total_loss", "losses/bellman_loss"]
+    }
+    if metric_name in fallbacks:
+        for fb in fallbacks[metric_name]:
+            if fb in r_data:
+                return fb, r_data[fb]
+    return None, None
+
 def aggregate_runs(runs, metric_name, x_axis_col="transitions"):
     # Find all unique x-axis points
-    all_x = sorted(list(set(s for r in runs for s in r["data"].get(metric_name, {}).get(x_axis_col, []))))
+    all_x_set = set()
+    for r in runs:
+        m_key, m_dict = get_metric_data(r["data"], metric_name)
+        if m_dict:
+            all_x_set.update(m_dict.get(x_axis_col, []))
+    all_x = sorted(list(all_x_set))
     if not all_x: return [], [], [], []
     
     means, stds, valid_x, logged_stds = [], [], [], []
-    std_metric = f"{metric_name}_std"
     
     # Pre-index runs for speed
     run_data = []
     for r in runs:
-        if metric_name in r["data"]:
-            m_data = r["data"][metric_name]
+        m_key, m_data = get_metric_data(r["data"], metric_name)
+        if m_data:
             x_vals = m_data.get(x_axis_col, [])
             y_vals = m_data.get("values", [])
             
-            # Standard deviation for within-run variance
+            std_metric = f"{m_key}_std"
             s_data = r["data"].get(std_metric, {})
             sx_vals = s_data.get(x_axis_col, [])
             sy_vals = s_data.get("values", [])
@@ -475,7 +493,7 @@ def main():
                             with open(hparams_path, "r") as f:
                                 # Simple parsing to avoid full yaml load overhead
                                 for line in f:
-                                    if "dataset_path:" in line and "results/datasets/" in line:
+                                    if "dataset_path:" in line and "in/datasets/" in line:
                                         dataset_key = line.strip().split()[-1]
                                         break
                         except Exception:
@@ -642,6 +660,78 @@ def main():
 
     generate_time_table(all_runs, save_dir)
     generate_hyperparam_report(all_runs, save_dir)
+    generate_methods_comparison_report(all_runs, save_dir)
+
+def generate_methods_comparison_report(all_runs, save_dir):
+    report_path = save_dir / "methods_comparison_report.md"
+    print(f"\n=== Generating Methods Comparison Report: {report_path} ===")
+    
+    methods = defaultdict(list)
+    for r in all_runs:
+        methods[r["label"]].append(r)
+        
+    rows = []
+    for label, runs in methods.items():
+        peak_rewards = []
+        final_rewards = []
+        final_q_losses = []
+        runtimes = []
+        
+        for r in runs:
+            d = r.get("data", {})
+            if "eval/reward" in d and len(d["eval/reward"]["values"]) > 0:
+                vals = d["eval/reward"]["values"]
+                peak_rewards.append(max(vals))
+                final_rewards.append(vals[-1])
+            # Fallback for Q-loss keys across different agent types
+            loss_key = None
+            for k in ["losses/q_loss", "losses/cql_loss", "losses/bellman_loss", "losses/total_loss"]:
+                if k in d and len(d[k]["values"]) > 0:
+                    loss_key = k
+                    break
+            if loss_key:
+                final_q_losses.append(d[loss_key]["values"][-1])
+
+            if "time/total" in d and len(d["time/total"]["values"]) > 0:
+                runtimes.append(d["time/total"]["values"][-1])
+                
+        def fmt_val(v):
+            if v is None or np.isnan(v):
+                return "N/A"
+            return f"{v:.2f}"
+            
+        def fmt_time(secs):
+            if secs is None or np.isnan(secs):
+                return "N/A"
+            if secs < 60.0:
+                return f"{secs:.1f} sec"
+            return f"{secs / 60.0:.1f} min"
+            
+        top_final = fmt_val(max(final_rewards)) if final_rewards else "N/A"
+        mean_final = fmt_val(np.mean(final_rewards)) if final_rewards else "N/A"
+        peak_eval = fmt_val(max(peak_rewards)) if peak_rewards else "N/A"
+        q_loss = f"{np.mean(final_q_losses):.4f}" if final_q_losses else "N/A"
+        avg_runtime = fmt_time(np.mean(runtimes)) if runtimes else "N/A"
+        
+        rows.append({
+            "Method": label,
+            "Top Final Score": top_final,
+            "Mean Final Score": mean_final,
+            "Peak Eval Score": peak_eval,
+            "Q-Loss Stability": q_loss,
+            "Avg Runtime": avg_runtime
+        })
+        
+    with open(report_path, "w") as f:
+        f.write(f"# Head-to-Head Comparison: Methods Evaluation\n\n")
+        f.write(f"This document presents an automated comparison of all evaluated methods in `{save_dir.name}`.\n\n")
+        f.write("## 1. Executive Performance Matrix\n\n")
+        if rows:
+            df = pd.DataFrame(rows)
+            f.write(df.to_markdown(index=False))
+            f.write("\n\n")
+        else:
+            f.write("*No metric data available to compile matrix.*\n\n")
 
 def generate_hyperparam_report(all_runs, save_dir):
     report_path = save_dir / "hyperparameters_report.md"

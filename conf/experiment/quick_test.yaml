@@ -5,7 +5,7 @@ defaults:
   - override /hydra/sweeper: optuna
 
 experiment_id: "quick_test"
-group: "test"
+group: "quick_tests"
 seed: 1
 total_timesteps: 10000
 intervals_count: 5

@@ -4,7 +4,7 @@ defaults:
 
 # Seed Robustness Test for BlendRL v10
 experiment_id: tune_blendrl_seeds
-group: blendrl_tuning
+group: tuning
 total_timesteps: 50000
 
 eval_episodes: 100

@@ -210,7 +210,7 @@ def run_plotting(experiment, style=None):
     subprocess.run(cmd, check=True, env=env)
 
 def find_dataset_globally(agent_name_internal):
-    datasets_root = Path("results/datasets")
+    datasets_root = Path("in/datasets")
     if not datasets_root.exists():
         return None
         
@@ -430,12 +430,12 @@ def main():
             study_name = f"{cfg.experiment_id}_{agent_name_internal}"
             
             if local_val:
-                dataset_path = f"results/datasets/{cfg.group}/{args.experiment}/{agent_name_internal}"
+                dataset_path = f"in/datasets/{cfg.group}/{args.experiment}/{agent_name_internal}"
             else:
                 if is_sweep:
-                    dataset_path = f"results/datasets/{cfg.experiment_id}/{agent_name_internal}"
+                    dataset_path = f"in/datasets/{cfg.experiment_id}/{agent_name_internal}"
                 else:
-                    dataset_path = f"results/datasets/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}"
+                    dataset_path = f"in/datasets/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}"
             
             # Check if dataset already exists to skip training
             has_pkl = False
@@ -537,13 +537,17 @@ def main():
             
             if local_val:
                 best_id = best_online_trial_ids.get(dataset_id, "0")
-                dataset_path = Path("results/datasets") / cfg.group / args.experiment / dataset_name_internal / best_id
+                dataset_path = Path("in/datasets") / cfg.group / args.experiment / dataset_name_internal / best_id
                 if not dataset_path.exists():
-                    alt_path = Path("results/datasets") / cfg.group / args.experiment / dataset_name_internal
+                    alt_path = Path("in/datasets") / cfg.group / args.experiment / dataset_name_internal
                     if alt_path.exists() and any(alt_path.glob("*.pkl")):
                         dataset_path = alt_path
                     else:
-                        global_match = find_dataset_globally(dataset_name_internal)
+                        group_shared_path = Path("in/datasets") / cfg.group / dataset_name_internal
+                        if group_shared_path.exists() and any(group_shared_path.glob("*.pkl")):
+                            dataset_path = group_shared_path
+                        else:
+                            global_match = find_dataset_globally(dataset_name_internal)
                         if global_match:
                             dataset_path = Path(global_match)
                         else:
@@ -594,7 +598,7 @@ def main():
                         storage_url_slurm = storage_url if storage_url else f"sqlite:///results/optuna/optuna.db"
                         study_name_slurm = f"{cfg.experiment_id}_{dataset_name_internal}"
                         best_id_cmd = f"BEST_ID=$($PROJECT_ROOT/venv/bin/python3 -c \"import sys; sys.path.append('$PROJECT_ROOT'); from run_pipeline import get_best_trial_id; print(get_best_trial_id('{storage_url_slurm}', '{study_name_slurm}'))\")"
-                        dataset_path_cmd = f"D_PATH=results/datasets/{cfg.experiment_id}/{dataset_name_internal}/$BEST_ID"
+                        dataset_path_cmd = f"D_PATH=in/datasets/{cfg.experiment_id}/{dataset_name_internal}/$BEST_ID"
                         
                         cmd_args = overrides_slurm + sanitized_extra_args
                         import shlex
@@ -618,15 +622,15 @@ def main():
                         script_content += f"{dataset_path_cmd}\n"
                         script_content += f"if [ ! -d \"$D_PATH\" ] || [ -z \"$(ls $D_PATH/*.pkl 2>/dev/null)\" ]; then\n"
                         script_content += f"    echo \"Best trial dataset not found at $D_PATH. Falling back to parent directory.\"\n"
-                        script_content += f"    D_PATH=results/datasets/{cfg.experiment_id}/{dataset_name_internal}\n"
+                        script_content += f"    D_PATH=in/datasets/{cfg.experiment_id}/{dataset_name_internal}\n"
                         script_content += f"    if [ ! -d \"$D_PATH\" ] || [ -z \"$(ls $D_PATH/*.pkl 2>/dev/null)\" ]; then\n"
-                        script_content += f"        D_PATH=results/datasets/{cfg.group}/{cfg.experiment_id}/{dataset_name_internal}\n"
+                        script_content += f"        D_PATH=in/datasets/{cfg.group}/{cfg.experiment_id}/{dataset_name_internal}\n"
                         script_content += f"    fi\n"
                         script_content += f"fi\n"
                         script_content += f"echo \"Using dataset: $D_PATH\"\n"
                         script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} ++mode.dataset_path=$D_PATH\n"
                     else:
-                        dataset_path = Path("results/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
+                        dataset_path = Path("in/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
                         if not (dataset_path.exists() and any(dataset_path.glob("*.pkl"))):
                             global_match = find_dataset_globally(dataset_name_internal)
                             if global_match:

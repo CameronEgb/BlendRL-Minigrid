@@ -139,7 +139,7 @@ hydra:
     - mode=offline
     - agent=multi_arch/blendrl_cql/human_neural
     - ++agent.name=multi_arch_blendrl_cql_human_neural
-    - ++mode.dataset_path=results/datasets/sepsis/mimic/expert_demo
+    - ++mode.dataset_path=results/datasets/mimic/mimic/expert_demo
     - ++total_timesteps=1000
     - ++intervals_count=2
     - ++eval_episodes=2
@@ -147,7 +147,7 @@ hydra:
   job:
     name: train
     chdir: null
-    override_dirname: ++agent.name=multi_arch_blendrl_cql_human_neural,++eval_episodes=2,++intervals_count=2,++local=True,++mode.dataset_path=results/datasets/sepsis/mimic/expert_demo,++save_dataset=False,++total_timesteps=1000,+experiment=mimic_expert_compare,agent.cql_alpha=2.801442368506167,agent.lr=0.0003041663082077828,agent=multi_arch/blendrl_cql/human_neural,mode=offline
+    override_dirname: ++agent.name=multi_arch_blendrl_cql_human_neural,++eval_episodes=2,++intervals_count=2,++local=True,++mode.dataset_path=results/datasets/mimic/mimic/expert_demo,++save_dataset=False,++total_timesteps=1000,+experiment=mimic_expert_compare,agent.cql_alpha=2.801442368506167,agent.lr=0.0003041663082077828,agent=multi_arch/blendrl_cql/human_neural,mode=offline
     id: '1'
     num: 1
     config_name: config

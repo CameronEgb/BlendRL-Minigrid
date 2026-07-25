@@ -3,7 +3,7 @@ defaults:
   - override /env: cartpole
 
 experiment_id: debug_cew
-group: cew
+group: quick_tests
 total_timesteps: 250000
 intervals_count: 1
 eval_episodes: 100

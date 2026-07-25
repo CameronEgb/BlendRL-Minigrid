@@ -3,7 +3,7 @@ defaults:
   - override /env: cartpole
 
 experiment_id: cew_comparison
-group: cew
+group: ungrouped
 total_timesteps: 50000
 eval_episodes: 20
 online_methods: ppo/cp_tuned
