@@ -39,3 +39,20 @@ plots:
     window: 20
     x_axis: "step"
     xlabel: "Training Steps"
+
+  - metric: "losses/bellman_loss"
+    title: "Bellman Loss: {experiment}"
+    filename: "offline_bellman_loss.png"
+    ylabel: "Loss"
+    window: 20
+    x_axis: "step"
+    xlabel: "Training Steps"
+
+  - metric: "losses/cql_loss"
+    title: "CQL Penalty Loss: {experiment}"
+    filename: "offline_cql_loss.png"
+    ylabel: "Loss"
+    window: 20
+    x_axis: "step"
+    xlabel: "Training Steps"
+

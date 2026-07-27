@@ -208,7 +208,7 @@ def train_lstm_model(X_train, y_train, input_dim, epochs=10, batch_size=64, devi
                 loss.backward()
                 optimizer.step()
                 
-    return model
+    return model, train_losses
 
 def evaluate_lstm_model(model, X_test, input_dim, device="cpu"):
     model.eval()
@@ -364,7 +364,7 @@ def train_transformer_model(X_train, y_train, input_dim, epochs=10, batch_size=6
                 loss.backward()
                 optimizer.step()
                 
-    return model
+    return model, train_losses
 
 def evaluate_transformer_model(model, X_test, input_dim, device="cpu"):
     model.eval()
@@ -712,6 +712,44 @@ def main():
     plt.savefig(plot_path, dpi=200)
     plt.close()
     print(f"Saved 4-panel comparison plot: {plot_path}")
+
+    # Plot 2-panel results (AUC-ROC and Standard F1 @ theta=0.5)
+    print("Plotting 2-panel results (AUC-ROC & Standard F1)...")
+    fig2, axes2 = plt.subplots(1, 2, figsize=(16, 6))
+    
+    # Panel 1: AUC-ROC
+    for idx, (m_cfg_name, _, _) in enumerate(model_configs):
+        res = results[m_cfg_name]
+        tau_arr = np.array(res["tau"])
+        mean_arr = np.array(res["auc"])
+        sem_arr = np.array(res["auc_sem"])
+        axes2[0].plot(tau_arr, mean_arr, marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
+        axes2[0].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[idx], alpha=0.15)
+    axes2[0].set_title(f"AUC-ROC vs. Lead Time (\u03c4)", fontsize=13, fontweight='bold')
+    axes2[0].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=12)
+    axes2[0].set_ylabel("AUC-ROC", fontsize=12)
+    axes2[0].grid(True, linestyle="--", alpha=0.6)
+    axes2[0].legend(fontsize=10)
+    
+    # Panel 2: Standard F1 @ 0.5 Threshold
+    for idx, (m_cfg_name, _, _) in enumerate(model_configs):
+        res = results[m_cfg_name]
+        tau_arr = np.array(res["tau"])
+        mean_arr = np.array(res["f1_05"])
+        sem_arr = np.array(res["f1_05_sem"])
+        axes2[1].plot(tau_arr, mean_arr, marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
+        axes2[1].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[idx], alpha=0.15)
+    axes2[1].set_title(f"F1-Score vs. Lead Time (\u03c4)", fontsize=13, fontweight='bold')
+    axes2[1].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=12)
+    axes2[1].set_ylabel("F1-Score", fontsize=12)
+    axes2[1].grid(True, linestyle="--", alpha=0.6)
+    axes2[1].legend(fontsize=10)
+    
+    plt.tight_layout()
+    plot_path_2panel = out_dir / "early_prediction_dl_comparison_2panel.png"
+    plt.savefig(plot_path_2panel, dpi=200)
+    plt.close()
+    print(f"Saved 2-panel comparison plot: {plot_path_2panel}")
     
     # Plot composite training convergence curves for all tau values on one single PNG
     print("Plotting composite training convergence curves...")
