@@ -1,7 +1,0 @@
-defaults:
-  - /agent: blendrl_iql_base
-  - _self_
-
-blender_mode: neural
-actor_mode: hybrid
-# Using neural-weighted blending

@@ -1,7 +1,0 @@
-name: optuna
-best_params:
-  agent.lr: 0.006995044937418831
-  agent.cql_alpha: 1.5020827412568596
-  agent.ecm_dthr: 0.12115721224645952
-  agent.soft_target_tau: 0.05558016213920623
-best_value: 60.29999923706055

@@ -34,7 +34,7 @@ def merge_move(src_path: Path, dst_path: Path):
             src_path.unlink()
             print(f"DISCARDED (older src): {src_path}")
 
-def parse_experiment_configs(conf_dir="conf/experiment"):
+def parse_experiment_configs(conf_dir="in/config/experiment"):
     exp_to_group = {}
     for c in glob.glob(f"{conf_dir}/*.yaml"):
         try:

@@ -1,5 +1,0 @@
-name: optuna
-best_params:
-  agent.lr: 0.0007268222670380755
-  agent.cql_alpha: 1.5020827412568596
-best_value: -15.197359085083008

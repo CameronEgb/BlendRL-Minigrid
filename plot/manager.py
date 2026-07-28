@@ -20,7 +20,7 @@ def run_experiment_plots(exp_id: str):
     print(f"=== Auto-Generating Plots for Experiment: {exp_id} ===")
     print(f"==================================================")
 
-    exp_path = Path(f"conf/experiment/{exp_id}.yaml")
+    exp_path = Path(f"in/config/experiment/{exp_id}.yaml")
     exp_cfg = {}
     if exp_path.exists():
         with open(exp_path) as f:

@@ -1,8 +1,0 @@
-- agent.lr=0.007408555259427372
-- agent.ent_coef=0.03934920791307214
-- +experiment=quick_test
-- ++local=True
-- mode=online
-- agent=ppo/cp_tuned
-- ++agent.name=ppo_cp_tuned
-- ++dataset_path=results/datasets/test/quick_test/ppo_cp_tuned

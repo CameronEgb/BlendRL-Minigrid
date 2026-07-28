@@ -97,11 +97,11 @@ class BasePlotter:
 
     def get_experiment_config(self, exp_id: str) -> dict:
         """Finds and loads the experiment configuration YAML."""
-        exp_path = Path(f"conf/experiment/{exp_id}.yaml")
+        exp_path = Path(f"in/config/experiment/{exp_id}.yaml")
         if exp_path.exists():
             return self._load_yaml(exp_path)
         # Search recursively
-        matches = list(Path("conf/experiment").glob(f"**/{exp_id}.yaml"))
+        matches = list(Path("in/config/experiment").glob(f"**/{exp_id}.yaml"))
         if matches:
             return self._load_yaml(matches[0])
         return {}

@@ -23,6 +23,7 @@ offline_dataset/
 .DS_Store
 assets/
 outputs/
+multirun/
 
 # Databases / Optuna
 optuna.db

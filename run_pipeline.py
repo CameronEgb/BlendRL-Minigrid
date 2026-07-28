@@ -193,7 +193,7 @@ def run_experiment(overrides):
     env["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
     
     venv_python = get_python_executable()
-    cmd = [venv_python, "train.py"] + overrides
+    cmd = [venv_python, "src/train.py"] + overrides
     print(f"Running: {' '.join(cmd)}")
     subprocess.run(cmd, check=True, env=env)
 
@@ -295,7 +295,7 @@ def run_early_prediction_eval(checkpoint_path, remake=False):
 
 def main():
     parser = argparse.ArgumentParser(description="NeSyRL Unified Experiment Pipeline")
-    parser.add_argument("experiment", type=str, help="Experiment name from conf/experiment/")
+    parser.add_argument("experiment", type=str, help="Experiment name from in/config/experiment/")
     parser.add_argument("--local", type=str, default=None, help="Force local run (true/false)")
     parser.add_argument("--partition", type=str, default="rtx4060ti16g", help="Slurm partition")
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs per job")
@@ -342,7 +342,7 @@ def main():
     # Load configuration to get method lists and Optuna info
     try:
         hydra.core.global_hydra.GlobalHydra.instance().clear()
-        initialize(version_base=None, config_path="conf")
+        initialize(version_base=None, config_path="in/config")
         # return_hydra_config=True is REQUIRED to see the hydra.sweeper node
         cfg = compose(config_name="config", overrides=overrides_for_compose, return_hydra_config=True)
     except Exception as e:
@@ -503,7 +503,7 @@ def main():
                 print(f"\n=== Preparing Slurm Job: Online Training ({agent_config}) ===")
                 job_name = f"{agent_name_internal}_{cfg.experiment_id}"
                 overrides_slurm = [
-                    "train.py",
+                    "src/train.py",
                     f"+experiment={args.experiment}",
                     f"++local=false",
                     f"mode=online",
@@ -748,7 +748,7 @@ def main():
                 all_dependencies = ":".join(jid for jid in job_ids if jid != "99999")
                 
                 project_root = os.getcwd()
-                plot_cmd = f"{project_root}/venv/bin/python3 plot_results.py {actual_exp_id}"
+                plot_cmd = f"{project_root}/venv/bin/python3 plot/manager.py {actual_exp_id}"
                 if args.plot_style:
                     plot_cmd += f" --style {args.plot_style}"
                     
@@ -794,7 +794,7 @@ def main():
             print(f"Group:         {cfg.group}")
             print(f"Job IDs Saved: {ids_file}")
             print(f"To cancel this experiment, run:")
-            print(f"  ./cancel.sh {cfg.experiment_id}")
+            print(f"  ./scripts/cancel.sh {cfg.experiment_id}")
             print("="*40)
 
             print(f"\n=== Submission Complete ===")

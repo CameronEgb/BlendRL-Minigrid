@@ -1,0 +1,29 @@
+defaults:
+  - agent: ppo_base
+  - env: cartpole
+  - mode: online
+  - _self_
+
+experiment_id: "default_exp"
+group: "ungrouped"
+seed: 1
+total_timesteps: 10000
+intervals_count: 4
+eval_episodes: 100
+save_dataset: true
+local: true
+recover: false
+
+# Paths
+results_dir: "results"
+experiment_dir: "${results_dir}/experiments/${experiment_id}"
+dataset_root: "in/datasets/${group}/${experiment_id}"
+dataset_path: "${dataset_root}/${agent.name}/${hydra:job.num}"
+
+# Redirect Hydra output and multirun directories inside results/hydra/
+hydra:
+  run:
+    dir: results/hydra/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: results/hydra/multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
