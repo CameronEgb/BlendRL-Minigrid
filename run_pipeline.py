@@ -228,10 +228,11 @@ def find_dataset_globally(agent_name_internal):
     matches.sort(key=lambda p: len(Path(p).parts))
     return matches[0]
 
-def generate_sbatch_script(job_name, cmd_args, log_dir, partition="rtx4060ti16g", gpus=1, cores=16, nodes=1, dependency=None):
+def generate_sbatch_script(job_name, cmd_args, log_dir, partition="rtx4060ti16g", gpus=1, cores=16, nodes=1, dependency=None, time="04:00:00"):
     script = f"#!/bin/bash\n"
     script += f"#SBATCH --job-name={job_name}\n"
     script += f"#SBATCH --partition={partition}\n"
+    script += f"#SBATCH --time={time}\n"
     script += f"#SBATCH --ntasks-per-node={cores}\n"
     script += f"#SBATCH --nodes={nodes}\n"
     script += f"#SBATCH --output={log_dir}/%x_%j.out\n"
@@ -611,6 +612,7 @@ def main():
                         script_content = f"#!/bin/bash\n"
                         script_content += f"#SBATCH --job-name={job_name}\n"
                         script_content += f"#SBATCH --partition={args.partition}\n"
+                        script_content += f"#SBATCH --time=04:00:00\n"
                         script_content += f"#SBATCH --ntasks-per-node={args.cores}\n"
                         script_content += f"#SBATCH --nodes={args.nodes}\n"
                         script_content += f"#SBATCH --output={log_dir}/%x_%j.out\n"
