@@ -41,24 +41,29 @@ def get_style_info(label):
 def clean_label(label):
     """Cleans up technical folder names into readable legend labels."""
     l = label
-    # Remove common technical prefixes
+    l_lower = l.lower()
+
+    if "fyd" in l_lower:
+        return "CEW+FYD"
+    if ("cew_only" in l_lower or l_lower in ["cew", "cew_only"] or "blendrl_cql_cew_only" in l_lower or l_lower == "blendrl_cql_cew") and "human" not in l_lower:
+        return "CEW"
+
     l = l.replace("multi_arch_", "")
     
-    # Format BlendRL variants
     if "blendrl_cql" in l.lower():
         suffix = l.lower().split("blendrl_cql_")[-1]
-        l = f"BlendRL-CQL ({suffix.replace('_', '+').upper()})"
+        if "human_cew" in suffix:
+            suffix_str = "Human+CEW"
+        elif "human_neural" in suffix:
+            suffix_str = "Human+Neural"
+        else:
+            suffix_str = suffix.replace("_", "+").upper()
+        l = f"BlendRL-CQL ({suffix_str})"
     elif "blendrl_iql" in l.lower():
         suffix = l.lower().split("blendrl_iql_")[-1]
-        l = f"BlendRL-IQL ({suffix.replace('_', '+').upper()})"
-    
-    # Specific common replacements
-    l = l.replace("CEW_ONLY", "CEW")
-    l = l.replace("CEW+ONLY", "CEW")
-    l = l.replace("HUMAN+CEW", "Human+CEW")
-    l = l.replace("HUMAN+NEURAL", "Human+Neural")
-    
-    # Clean other common patterns
+        sub = suffix.replace("_", "+").upper()
+        l = f"BlendRL-IQL ({sub})"
+
     l = l.replace("ppo_cp_tuned", "PPO")
     l = l.replace("ppo_tuned", "PPO")
     l = l.replace("ppo_final_cp", "PPO")

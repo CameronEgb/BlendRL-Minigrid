@@ -199,14 +199,12 @@ def run_experiment(overrides):
 
 def run_plotting(experiment, style=None):
     env = os.environ.copy()
-    env["PYTHONPATH"] = os.path.abspath("src") + ":" + env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = os.path.abspath(".") + ":" + os.path.abspath("src") + ":" + env.get("PYTHONPATH", "")
     
     venv_python = get_python_executable()
-    cmd = [venv_python, "plot_results.py", experiment]
-    if style:
-        cmd += ["--style", style]
+    cmd = [venv_python, "plot/manager.py", experiment]
         
-    print(f"\n=== Generating Plots for experiment: {experiment} ===")
+    print(f"\n=== Auto-Generating Modular Plots for experiment: {experiment} ===")
     subprocess.run(cmd, check=True, env=env)
 
 def find_dataset_globally(agent_name_internal):
