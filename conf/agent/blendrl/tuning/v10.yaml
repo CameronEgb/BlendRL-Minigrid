@@ -1,7 +1,0 @@
-defaults:
-  - /agent: blendrl/cp_tuned
-  - _self_
-lr: 0.01
-logic_lr: 0.01
-blender_lr: 0.01
-blend_ent_coef: 0.001

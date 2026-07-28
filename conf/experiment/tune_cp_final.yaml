@@ -4,7 +4,7 @@ defaults:
   - override /hydra/sweeper: optuna
 
 # Tuning Configuration for CartPole Final Experiment
-experiment_id: cp_final_tune
+experiment_id: tune_cp_final
 group: tuning
 total_timesteps: 100000
 eval_episodes: 100

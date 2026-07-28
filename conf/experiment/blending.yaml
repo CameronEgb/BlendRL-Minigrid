@@ -3,7 +3,7 @@ defaults:
   - override /env: cartpole
 
 experiment_id: blending
-group: ungrouped
+group: cartpole
 total_timesteps: 100000
 eval_episodes: 100
 online_methods: ppo/cp_tuned,blendrl/multi_logic

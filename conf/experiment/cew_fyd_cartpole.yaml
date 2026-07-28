@@ -26,7 +26,7 @@ mode:
   dataset_path: in/datasets/ungrouped/cp_final/ppo_cp_tuned
 
 experiment_id: cew_fyd_cartpole
-group: ungrouped
+group: cew
 seed: 1
 local: true
 recover: false

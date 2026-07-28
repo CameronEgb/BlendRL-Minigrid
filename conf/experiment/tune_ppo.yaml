@@ -4,9 +4,8 @@ defaults:
   - override /agent: ppo
   - override /mode: online
   - override /hydra/sweeper: optuna
-
-experiment_id: "cp_tune_ppo"
-group: "tuning"
+experiment_id: tune_ppo
+group: tuning
 seed: 1
 total_timesteps: 100000
 intervals_count: 5

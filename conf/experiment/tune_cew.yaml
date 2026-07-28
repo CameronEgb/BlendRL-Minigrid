@@ -4,9 +4,8 @@ defaults:
   - override /agent: cew
   - override /mode: offline
   - override /hydra/sweeper: optuna
-
-experiment_id: "tune_cew_v1"
-group: "tuning"
+experiment_id: tune_cew
+group: tuning
 seed: 1
 total_timesteps: 250000
 intervals_count: 1

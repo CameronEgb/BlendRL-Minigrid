@@ -9,7 +9,7 @@ group: tuning
 total_timesteps: 50000
 eval_episodes: 50
 online_methods: ppo/cp_tuned
-offline_methods: multi_arch/blendrl_cql/human_cew
+offline_methods: blendrl_cql/human_cew
 intervals_count: 5
 
 env:

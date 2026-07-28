@@ -51,17 +51,22 @@ def parse_experiment_configs(conf_dir="conf/experiment"):
             
     # Known agent/experiment overrides
     exp_to_group.update({
-        'cp_final_blendrl': 'ungrouped',
-        'cp_final_ppo': 'ungrouped',
-        'cp_final_online_ppo': 'ungrouped',
-        'cp_final_online_blendrl': 'ungrouped',
-        'cp_final_offline_iql': 'ungrouped',
-        'cp_final_offline_blendrl_iql': 'ungrouped',
-        'blendrl_final_cp': 'ungrouped',
-        'ppo_final_cp': 'ungrouped',
+        'cp_final_blendrl': 'cartpole',
+        'cp_final_ppo': 'cartpole',
+        'cp_final_online_ppo': 'cartpole',
+        'cp_final_online_blendrl': 'cartpole',
+        'cp_final_offline_iql': 'cartpole',
+        'cp_final_offline_blendrl_iql': 'cartpole',
+        'blendrl_final_cp': 'cartpole',
+        'ppo_final_cp': 'cartpole',
         'cp_iql_tune': 'tuning',
         'iql_tune': 'tuning',
         'cp_ppo_tuning': 'tuning',
+        'cp_final_tune': 'tuning',
+        'tune_blendrl_v2': 'tuning',
+        'cp_tune_ppo': 'tuning',
+        'cp_blendrl_fast_500': 'quick_tests',
+        'cp_blendrl_ultra_fast': 'quick_tests',
     })
     return exp_to_group
 
@@ -76,22 +81,22 @@ def main(results_dir="results"):
     legacy_group_map = {
         'sepsis': 'mimic',
         'blendrl_tuning': 'tuning',
-        'final_results': 'ungrouped',
-        'final_demo': 'ungrouped',
-        'final_cartpole': 'ungrouped',
-        'cew': 'ungrouped',
-        'verification': 'ungrouped',
-        'multi_module_tests': 'ungrouped',
+        'final_results': 'cartpole',
+        'final_demo': 'cartpole',
+        'final_cartpole': 'cartpole',
+        'cew': 'cew',
+        'verification': 'cew',
+        'multi_module_tests': 'cartpole',
         'quick_test': 'quick_tests',
         'combined': 'mimic'
     }
 
     # Root folders in results/datasets where the group directory was named after experiment_id
     exp_as_group_map = {
-        'cp_final_tune': ('tuning', 'cp_final_tune'),
+        'cp_final_tune': ('tuning', 'tune_cp_final'),
         'tune_human_cew': ('tuning', 'tune_human_cew'),
         'tune_human_cew_poc': ('tuning', 'tune_human_cew_poc'),
-        'final_cartpole': ('ungrouped', 'final_cartpole')
+        'final_cartpole': ('cartpole', 'final_cartpole')
     }
 
     root_types = ['logs', 'datasets', 'checkpoints', 'plots', 'experiments', 'tensorboard']

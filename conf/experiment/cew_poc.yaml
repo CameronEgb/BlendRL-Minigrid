@@ -3,14 +3,14 @@ defaults:
   - override /env: cartpole
 
 experiment_id: cew_poc
-group: ungrouped
+group: cew
 total_timesteps: 10000
 eval_episodes: 20
 online_methods: ppo/cp_tuned
 offline_methods: 
-  - multi_arch/blendrl_cql/human_cew
-  - multi_arch/blendrl_cql/cew_only
-  - multi_arch/blendrl_cql/human_neural
+  - blendrl_cql/human_cew
+  - blendrl_cql/cew_only
+  - blendrl_cql/human_neural
 intervals_count: 2
 
 agent:

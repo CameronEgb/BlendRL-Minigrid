@@ -3,15 +3,15 @@ defaults:
   - override /env: cartpole
 
 experiment_id: multi_arch_test
-group: ungrouped
+group: cartpole
 total_timesteps: 50000
 eval_episodes: 100
 online_methods: ppo/cp_tuned
 offline_methods: 
-  - multi_arch/blendrl_iql/arch1
-  - multi_arch/blendrl_iql/arch2
-  - multi_arch/blendrl_iql/arch3
-  - multi_arch/blendrl_iql/arch4
+  - blendrl_iql/arch1
+  - blendrl_iql/arch2
+  - blendrl_iql/arch3
+  - blendrl_iql/arch4
 intervals_count: 5
 
 env:

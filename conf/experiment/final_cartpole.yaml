@@ -5,7 +5,7 @@ defaults:
 
 # Culminating Experiment for CartPole
 experiment_id: final_cartpole
-group: ungrouped
+group: cartpole
 total_timesteps: 100000
 eval_episodes: 100
 intervals_count: 10

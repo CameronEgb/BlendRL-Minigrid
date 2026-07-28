@@ -1,7 +1,7 @@
 # @package _global_
 defaults:
   - override /env: mimic
-  - override /agent: multi_arch/blendrl_cql/human_neural
+  - override /agent: blendrl_cql/human_neural
   - override /mode: offline
 
 experiment_id: "mimic_comparison"
@@ -13,7 +13,7 @@ eval_episodes: 100
 online_methods: []
 offline_methods: 
   - cql
-  - multi_arch/blendrl_cql/human_neural
+  - blendrl_cql/human_neural
 offline_datasets: [expert_demo]
 
 agent:
