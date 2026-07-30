@@ -6,7 +6,7 @@ defaults:
   - override /hydra/sweeper: optuna
 
 experiment_id: "tune_pyrenees_cql"
-group: tuning
+group: pyrenees
 total_timesteps: 979788
 intervals_count: 5
 eval_episodes: 100
