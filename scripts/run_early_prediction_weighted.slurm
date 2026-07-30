@@ -42,7 +42,7 @@ mkdir -p "$OUTPUT_DIR"
 mkdir -p results/logs
 
 # 4. Weighted loss & 4-metric early prediction sweep (AUC-ROC, AUPRC, F1-Max, F1-0.5)
-$PROJECT_ROOT/venv/bin/python3 -u src/septic_shock_early_prediction.py \
+$PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/model.py \
     --checkpoint "$CHECKPOINT" \
     --dataset-path "$DATASET_PATH" \
     --tau-min 1 \

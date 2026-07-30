@@ -12,5 +12,5 @@ export PROJECT_ROOT=$(pwd)
 export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PYTHONPATH
 
 echo "Starting early prediction evaluation for tune_mimic_blendrl_cql..."
-$PROJECT_ROOT/venv/bin/python3 src/early_prediction_eval.py -e tune_mimic_blendrl_cql
+$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py -e tune_mimic_blendrl_cql
 echo "Evaluation complete."

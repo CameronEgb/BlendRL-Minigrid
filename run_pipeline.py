@@ -10,6 +10,7 @@ from omegaconf import OmegaConf
 import hydra
 from hydra import compose, initialize
 from pathlib import Path
+from plot.base import clean_label
 
 def get_best_trial_id(storage_url, study_name):
     """Queries the optuna database to find the best trial ID for a given study."""
@@ -285,7 +286,7 @@ def run_early_prediction_eval(checkpoint_path, remake=False):
     
     venv_python = get_python_executable()
     cmd = [
-        venv_python, "src/early_prediction_eval.py",
+        venv_python, "src/early_prediction/eval.py",
         "--checkpoint", str(checkpoint_path)
     ]
     if remake:
@@ -406,7 +407,7 @@ def main():
         if not (cql_dir.exists() and any(cql_dir.glob("*.pkl"))):
             print("\n=== Auto-Converting MIMIC NPZ Dataset (mimic_lazy_0_interventions_balanced.npz) to PKL Format ===")
             import subprocess
-            subprocess.run([sys.executable, "src/convert_npz_to_pkl_dataset.py"], check=True)
+            subprocess.run([sys.executable, "scripts/convert_npz_to_pkl.py"], check=True)
 
     print(f"Using Datasets for Offline Training: {dataset_list}")
 
@@ -672,7 +673,7 @@ def main():
                                         f"CKPT_DIR=results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/$BEST_ID\n"
                                         f"if [ -d \"$CKPT_DIR\" ]; then\n"
                                         f"    echo \"Running evaluation on all checkpoints under $CKPT_DIR (--remake)\"\n"
-                                        f"    $PROJECT_ROOT/venv/bin/python3 src/early_prediction_eval.py --checkpoint $CKPT_DIR --remake\n"
+                                        f"    $PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint $CKPT_DIR --remake\n"
                                         f"else\n"
                                         f"    echo \"Checkpoint dir not found at $CKPT_DIR\"\n"
                                         f"fi"
@@ -683,7 +684,7 @@ def main():
                                         f"CKPT_PATH=results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/$BEST_ID/best_model.ckpt\n"
                                         f"if [ -f \"$CKPT_PATH\" ]; then\n"
                                         f"    echo \"Running evaluation on $CKPT_PATH\"\n"
-                                        f"    $PROJECT_ROOT/venv/bin/python3 src/early_prediction_eval.py --checkpoint $CKPT_PATH\n"
+                                        f"    $PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint $CKPT_PATH\n"
                                         f"else\n"
                                         f"    echo \"Checkpoint not found at $CKPT_PATH\"\n"
                                         f"fi"
@@ -692,9 +693,9 @@ def main():
                                 ckpt_path = f"results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/0/best_model.ckpt"
                                 ckpt_dir = f"results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/0"
                                 if args.remake:
-                                    eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction_eval.py --checkpoint {ckpt_dir} --remake"
+                                    eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint {ckpt_dir} --remake"
                                 else:
-                                    eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction_eval.py --checkpoint {ckpt_path}"
+                                    eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint {ckpt_path}"
                                 
                             eval_commands.append(eval_cmd)
     else:
@@ -787,12 +788,18 @@ def main():
                     if jid != "99999":
                         f.write(f"{jid}\n")
             
+            ran_methods = []
+            for m in online_methods + offline_methods:
+                cl = clean_label(m.replace("/", "_"))
+                if cl not in ran_methods:
+                    ran_methods.append(cl)
+
             print(f"\n" + "="*40)
             print(f"SUBMISSION SUMMARY")
-            print(f"Config Name:   {args.experiment}")
-            print(f"Experiment ID: {cfg.experiment_id}")
-            print(f"Group:         {cfg.group}")
-            print(f"Job IDs Saved: {ids_file}")
+            print(f"Experiment:    {cfg.group}/{cfg.experiment_id}")
+            print(f"Methods Ran:")
+            for m in ran_methods:
+                print(f"  - {m}")
             print(f"To cancel this experiment, run:")
             print(f"  ./scripts/cancel.sh {cfg.experiment_id}")
             print("="*40)

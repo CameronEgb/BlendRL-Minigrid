@@ -55,7 +55,7 @@ The project uses a modular configuration system powered by Hydra.
 - **Standard Paths:**
     - Experiments/Logs: `results/logs/[GROUP]/[EXP_ID]/[AGENT]`
     - Datasets: `results/datasets/[GROUP]/[EXP_ID]/[AGENT]`
-- **Auto-Plotting:** `run_pipeline.py` automatically triggers `plot_results.py` at the end of the cycle unless `--no-plot` is passed.
+- **Auto-Plotting:** `run_pipeline.py` automatically triggers `plot/manager.py` at the end of the cycle unless `--no-plot` is passed.
 - **Plots:** Saved in `results/plots/[GROUP]/[EXP_ID]/`.
 
 ## 4. Data Saving & Dataset Schema
@@ -76,15 +76,15 @@ The project uses a modular configuration system powered by Hydra.
 - **State Recovery:** For long Atari runs (e.g., Seaquest), use the `recover=true` Hydra override to resume training from the latest checkpoint. Training states are saved at evaluation intervals in `results/checkpoints/[GROUP]/[EXP_ID]/[AGENT]/`.
 
 ## 6. Hydra & Debugging Heuristics
-- **Hydra Outputs:** Every run generates a timestamped directory in `outputs/YYYY-MM-DD/HH-MM-SS/` containing the exact `.hydra/config.yaml` and logs for that specific execution.
+- **Hydra Outputs:** Every run generates a timestamped directory in `results/hydra/outputs/YYYY-MM-DD/HH-MM-SS/` containing the exact `.hydra/config.yaml` and logs for that specific execution.
 - **Debugging Failures:** 
     - **Primary Resource:** `results/logs/[GROUP]/[EXP_ID]/[AGENT]/version_X/` contains `metrics.csv` and TensorBoard events.
-    - **Configuration Audit:** Check the `.hydra/config.yaml` in the `outputs/` folder for the specific run.
+    - **Configuration Audit:** Check the `.hydra/config.yaml` in the `results/hydra/outputs/` folder for the specific run.
 - **Rule Changes vs. Code Changes:** 
     1. Check if the rules work in other environments. If they do, focus on the environment-specific valuation code.
     2. **MANDATE:** **Always ASK** before modifying logic rules (`in/rules/[env]/[ruleset]/`). Prioritize fixing Python code unless the rules are fundamentally flawed for that specific task.
 - **Surgical Updates:** Do not refactor unrelated code.
-- **Verification:** Ensure `run_pipeline.py` orchestration is never broken and that `train.py` remains compatible with Hydra.
+- **Verification:** Ensure `run_pipeline.py` orchestration is never broken and that `src/train.py` remains compatible with Hydra.
 
 ## 7. Unified Logging Architecture
 - **Dual Loggers:** The project uses `CSVLogger` for data analysis and `TensorBoardLogger` for real-time monitoring.
@@ -111,7 +111,7 @@ Agents are implemented as PyTorch Lightning Modules in `src/methods/`:
 ## 11. Maintenance & Evolution
 - **Living Document:** This codebase is under active research development. 
 - **Updating this Guide:** Update `AGENTS.md` whenever:
-    - New standard paths are introduced in `train.py` or `run_pipeline.py`.
+    - New standard paths are introduced in `src/train.py` or `run_pipeline.py`.
     - Evaluation standards (e.g., episode counts) are modified.
     - New core agent algorithms are added to `src/methods/`.
 - **Syncing:** Always ensure Hydra default configs in `in/config/` match the descriptions here.
@@ -136,12 +136,8 @@ python3 plot/losses.py cp_final --metrics losses/q_loss losses/actor_loss --wind
 
 # Run convergence plotter standalone
 python3 plot/convergence.py cp_final --window 15 --dpi 300
-```
-python plot_results.py --sources in/config/plot_sources/demo_mc.yaml
-
-# Plot each run version as a separate line instead of aggregating them, and output 'all_plots.png'
-python plot_results.py cp_final --show-versions
-```
+# Auto-generate all plots requested in the experiment config
+python3 plot/manager.py cp_final
 
 ### Specifying Versions in Sources (`in/config/plot_sources/`)
 In your sources YAML config, you can specify exactly which versions to plot using the `version` key. It supports integers, strings, or a list of versions to compare side-by-side:
@@ -176,7 +172,7 @@ Agents are modular PyTorch Lightning Modules situated in `src/methods/`. To impl
     *   `training_step(self, batch, batch_idx)`: Sample transitions from the offline data reader via `self.trainer.datamodule.reader.sample(self.cfg.agent.batch_size)` and apply your gradient update manual pipeline (`self.manual_backward()`, `optimizer.step()`).
     *   `get_action_and_value(self, obs, logic_obs=None, action=None)`: Used during evaluation steps.
     *   `configure_optimizers(self)`: Return your model's optimizers.
-2.  **Register the Agent**: Open [train.py](file:///Users/cameronegbert/Documents/NCSU/Research/NeSyRL/train.py) and import your agent. Register it in the `main()` function:
+2.  **Register the Agent**: Open [src/train.py](file:///Users/cameronegbert/Documents/NCSU/Research/NeSyRL/src/train.py) and import your agent. Register it in the `main()` function:
     ```python
     elif base_algo_name.startswith("my_new_agent"):
         from src.methods.my_new_agent import MyNewAgent
@@ -242,8 +238,8 @@ python run_pipeline.py quick_test -m agent.lr="interval(1e-4, 1e-2)" agent.tau="
 
 ### Step 3: Cluster Deployment & Remote Execution
 Once verified locally:
-1.  Submit your runs to the Slurm scheduler using `run_pipeline_slurm.py` or by setting `local=false`.
+1.  Submit your runs to the Slurm scheduler by setting `local=false` (e.g. `python run_pipeline.py cp_final local=false`).
 2.  After execution finishes on the cluster, sync the `results/logs/` and `results/checkpoints/` directories back to your local machine for analysis and plotting.
 
 ---
-*Last Updated: 2026-06-30*
+*Last Updated: 2026-07-28*

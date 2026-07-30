@@ -38,16 +38,18 @@ GYMNASIUM_VERSION = version.parse(gym.__version__)
 
 if GYMNASIUM_VERSION <= version.parse("0.30.0"):
     def make_env(env):
-            env = gym.wrappers.RecordEpisodeStatistics(env)
-            env = gym.wrappers.Autoreset(env)
-            env = NoopResetEnv(env, noop_max=30)        env = MaxAndSkipEnv(env, skip=4)
+        env = gym.wrappers.RecordEpisodeStatistics(env)
+        env = gym.wrappers.Autoreset(env)
+        env = NoopResetEnv(env, noop_max=30)
+        env = MaxAndSkipEnv(env, skip=4)
         env = EpisodicLifeEnv(env)
         if "FIRE" in env.unwrapped.get_action_meanings():
             env = FireResetEnv(env)
         env = ClipRewardEnv(env)
-            env = gym.wrappers.ResizeObservation(env, (84, 84))
-            env = gym.wrappers.GrayscaleObservation(env)
-            env = gym.wrappers.FrameStack(env, 4)        return env
+        env = gym.wrappers.ResizeObservation(env, (84, 84))
+        env = gym.wrappers.GrayscaleObservation(env)
+        env = gym.wrappers.FrameStack(env, 4)
+        return env
 else:
     def make_env(env):
         env = gym.wrappers.RecordEpisodeStatistics(env)
@@ -186,7 +188,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
         start = time.time()
         for i, env in enumerate(self.envs):
             action = actions[i]
-            obs, reward, truncation, done, info = env.step(action)
+            obs, reward, done, truncation, info = env.step(action)
             raw_state = torch.tensor(obs).float()
             state = env.objects
             logic_state, neural_state = self.convert_state(state, raw_state)
@@ -221,6 +223,8 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
 
         for obj in raw_state:
             if obj.category not in self.relevant_objects:
+                continue
+            if obj_count[obj.category] >= MAX_NB_OBJECTS[obj.category]:
                 continue
             idx = self.obj_offsets[obj.category] + obj_count[obj.category]
 

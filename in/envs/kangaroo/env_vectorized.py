@@ -148,7 +148,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
         for i, env in enumerate(self.envs):
             action = actions[i]
             # make a step in the env
-            obs, reward, truncation, done, info = env.step(action)
+            obs, reward, done, truncation, info = env.step(action)
             # Check with multiple envs
             # for obj in env.objects:
             #     if "Player" in str(obj):

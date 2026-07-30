@@ -1,0 +1,23 @@
+# Tracking file for experiments deleted locally.
+# Format: Relative path under results/ directory
+# Used by scripts/clean_deleted.py on the cluster to move deleted experiment outputs to results/legacy_results/
+
+logs/early_prediction/sepsis_early_pred_dl_265026.out
+logs/early_prediction/sepsis_early_pred_dl_265025.out
+logs/early_prediction/sepsis_early_pred_dl_265025.err
+logs/early_prediction/sepsis_early_pred_dl_265026.err
+logs/early_prediction/sepsis_early_pred_dl_258227.err
+logs/early_prediction/sepsis_early_pred_dl_258233.err
+logs/early_prediction/sepsis_early_pred_dl_258234.err
+logs/early_prediction/sepsis_early_pred_dl_258245.out
+logs/early_prediction/sepsis_early_pred_dl_258245.err
+logs/early_prediction/sepsis_early_pred_dl_258234.out
+logs/early_prediction/sepsis_early_pred_dl_258227.out
+logs/early_prediction/sepsis_early_pred_dl_258233.out
+plots/early_prediction/early_prediction_dl_results.txt
+plots/early_prediction/early_prediction_eval_test
+plots/early_prediction/early_prediction_test
+plots/early_prediction/early_prediction_unwindowed_baseline
+plots/early_prediction/combined
+plots/early_prediction/early_prediction_dl_comparison.png
+plots/early_prediction/base

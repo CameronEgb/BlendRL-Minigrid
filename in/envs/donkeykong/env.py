@@ -94,7 +94,7 @@ class NudgeEnv(NudgeBaseEnv):
             truncations (dict): Truncations.
             infos (dict): Additional information.
         """
-        raw_state, reward, truncations, done, infos = self.env.step(action)
+        raw_state, reward, done, truncations, infos = self.env.step(action)
         # save state in the original enviromnt to visualization
         state = self.env.objects
         logic_state, neural_state = self.convert_state(state, raw_state)

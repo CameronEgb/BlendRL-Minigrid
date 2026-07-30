@@ -121,7 +121,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
         for i, env in enumerate(self.envs):
             action = actions[i]
             # make a step in the env
-            obs, reward, truncation, done, info = env.step(action)
+            obs, reward, done, truncation, info = env.step(action)
             raw_state = torch.tensor(obs).float()
             state = env.objects
             logic_state, neural_state = self.convert_state(state, raw_state)

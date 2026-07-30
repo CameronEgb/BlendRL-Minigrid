@@ -43,7 +43,7 @@ mkdir -p results/logs
 # 4. Fast early prediction sweep (LSTM vs Transformer, with vs without V(s))
 # Uses n-models=5 and a step of 5 hours for quick plotting.
 # Using python3 -u for unbuffered, live-updating logs.
-$PROJECT_ROOT/venv/bin/python3 -u src/septic_shock_early_prediction.py \
+$PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/model.py \
     --checkpoint "$CHECKPOINT" \
     --dataset-path "$DATASET_PATH" \
     --tau-min 1 \

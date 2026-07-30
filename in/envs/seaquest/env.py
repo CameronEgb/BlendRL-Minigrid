@@ -68,7 +68,7 @@ class NudgeEnv(NudgeBaseEnv):
         return logic_state, neural_state
 
     def step(self, action, is_mapped: bool = False):
-        obs, reward, truncations, done, infos = self.env.step(action)
+        obs, reward, done, truncations, infos = self.env.step(action)
 
         state = self.env.unwrapped.objects
         raw_state = obs  # self.env.dqn_obs

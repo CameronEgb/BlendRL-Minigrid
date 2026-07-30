@@ -8,7 +8,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score, roc_auc_score
 
 # Add root directory to path to allow importing src modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+if os.path.join(PROJECT_ROOT, "src") not in sys.path:
+    sys.path.insert(0, os.path.join(PROJECT_ROOT, "src"))
 from src.methods.cql_agent import CQLAgent
 
 class SepsisPredictorLSTM(nn.Module):

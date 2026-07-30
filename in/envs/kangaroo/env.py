@@ -113,7 +113,7 @@ class NudgeEnv(NudgeBaseEnv):
             truncations (dict): Truncations.
             infos (dict): Additional information.
         """
-        raw_state, reward, truncations, done, infos = self.env.step(action)
+        raw_state, reward, done, truncations, infos = self.env.step(action)
         # self.raw_state_ori, _, _, _, _ = self.env_ori.step(action)
         state = self.env.objects
         self.ocatari_state = state
