@@ -107,9 +107,10 @@ class SepsisLSTM(nn.Module):
         
         if self.use_dual_pooling:
             B, L, H = out.size()
-            mask_t = torch.arange(L, device=x.device).unsqueeze(0) < lengths.unsqueeze(1)
+            lengths_dev = lengths.to(x.device)
+            mask_t = torch.arange(L, device=x.device).unsqueeze(0) < lengths_dev.unsqueeze(1)
             valid_mask = mask_t.unsqueeze(-1).float()
-            mean_out = (out * valid_mask).sum(dim=1) / lengths.unsqueeze(1).float()
+            mean_out = (out * valid_mask).sum(dim=1) / lengths_dev.unsqueeze(1).float()
             pooled = torch.cat([last_hn, mean_out], dim=-1)
         else:
             pooled = last_hn
