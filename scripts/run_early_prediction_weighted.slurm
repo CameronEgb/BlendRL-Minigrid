@@ -45,12 +45,6 @@ mkdir -p results/logs
 $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/model.py \
     --checkpoint "$CHECKPOINT" \
     --dataset-path "$DATASET_PATH" \
-    --tau-min 1 \
-    --tau-max 36 \
-    --tau-step 4 \
-    --window-hours 12 \
-    --epochs 10 \
-    --n-models 100 \
     --output-dir "$OUTPUT_DIR"
 
 echo "=== Weighted Sepsis Early Prediction Sweep Execution End ==="
