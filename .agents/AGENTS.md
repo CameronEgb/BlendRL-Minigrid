@@ -214,6 +214,32 @@ To specify a new run (e.g., `in/config/experiment/cp_new_run.yaml`):
     python run_pipeline.py cp_new_run ++agent.lr=0.001 ++seed=2
     ```
 
+### Creating Early Prediction Experiments
+Early prediction tasks (`early_prediction_sweep` or `early_prediction_eval`) can also be dispatched through Hydra:
+1.  Create `in/config/experiment/my_early_pred.yaml`:
+    ```yaml
+    # @package _global_
+    defaults:
+      - override /env: mimic
+
+    task: early_prediction_sweep
+    experiment_id: my_early_pred
+    group: early_prediction
+
+    early_prediction:
+      checkpoint: "results/checkpoints/mimic/tune_mimic_cql"
+      dataset_path: "in/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
+      output_dir: "results/plots/early_prediction"
+      tau_step: 5
+      epochs: 20
+    ```
+2.  Run via `run_pipeline.py` (or cluster alias `run`):
+    ```bash
+    run my_early_pred
+    # Or locally:
+    python run_pipeline.py my_early_pred local=true
+    ```
+
 ---
 
 ## 15. Workflow: Local Dev & Cluster Pipeline

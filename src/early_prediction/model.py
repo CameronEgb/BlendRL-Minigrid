@@ -90,22 +90,40 @@ def compute_volatility_features(seq):
     
     return np.concatenate([seq, delta, rolling_min, rolling_max], axis=-1)
 
-# --- Improved Transformer Classifier Model with Temporal Attention & LayerNorm ---
+# --- Improved Transformer Classifier Model with Pre-LN, Learned Pos Embeddings & CLS Token ---
 class SepsisTransformer(nn.Module):
-    def __init__(self, input_dim, d_model=64, nhead=4, num_layers=2, dim_feedforward=128, dropout=0.1, use_dual_pooling=True):
+    def __init__(self, input_dim, d_model=64, nhead=4, num_layers=2, dim_feedforward=128, dropout=0.1, use_dual_pooling=True, norm_first=True, pos_type="learned", max_len=240, use_cls_token=True):
         super().__init__()
         self.use_dual_pooling = use_dual_pooling
+        self.use_cls_token = use_cls_token
+        self.pos_type = pos_type
+        self.d_model = d_model
+        
         self.embedding = nn.Linear(input_dim, d_model)
-        self.pos_encoder = PositionalEncoding(d_model)
+        
+        if pos_type == "learned":
+            self.pos_encoder = nn.Embedding(max_len, d_model)
+        else:
+            self.pos_encoder = PositionalEncoding(d_model, max_len=max_len)
+            
+        if use_cls_token:
+            self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model))
+            nn.init.normal_(self.cls_token, std=0.02)
+            
         self.input_layer_norm = nn.LayerNorm(d_model)
         
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward, dropout=dropout, batch_first=True
+            d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward, dropout=dropout, batch_first=True, norm_first=norm_first
         )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.attn_pool = TemporalAttentionPooling(d_model)
         
-        in_features = d_model * 2 if use_dual_pooling else d_model
+        in_features = d_model
+        if use_dual_pooling:
+            in_features += d_model
+        if use_cls_token:
+            in_features += d_model
+            
         self.classifier = nn.Sequential(
             nn.LayerNorm(in_features),
             nn.Linear(in_features, d_model),
@@ -115,21 +133,47 @@ class SepsisTransformer(nn.Module):
         )
 
     def forward(self, x, padding_mask):
-        x = self.embedding(x)
-        x = self.pos_encoder(x)
-        x = self.input_layer_norm(x)
-        out = self.transformer_encoder(x, src_key_padding_mask=padding_mask)
+        B, L, _ = x.shape
+        x_emb = self.embedding(x)
         
-        valid_lens = (~padding_mask).sum(dim=1).clamp(min=1)
+        if self.pos_type == "learned":
+            pos_ids = torch.arange(L, device=x.device).unsqueeze(0).expand(B, -1)
+            x_emb = x_emb + self.pos_encoder(pos_ids)
+        else:
+            x_emb = self.pos_encoder(x_emb)
+            
+        if self.use_cls_token:
+            cls_tokens = self.cls_token.expand(B, -1, -1)
+            x_emb = torch.cat([cls_tokens, x_emb], dim=1)  # (B, L+1, d_model)
+            cls_mask = torch.zeros((B, 1), dtype=torch.bool, device=x.device)
+            padding_mask = torch.cat([cls_mask, padding_mask], dim=1)  # (B, L+1)
+            
+        x_emb = self.input_layer_norm(x_emb)
+        out = self.transformer_encoder(x_emb, src_key_padding_mask=padding_mask)
+        
+        if self.use_cls_token:
+            cls_repr = out[:, 0]
+            seq_out = out[:, 1:]
+            seq_mask = padding_mask[:, 1:]
+        else:
+            cls_repr = None
+            seq_out = out
+            seq_mask = padding_mask
+            
+        valid_lens = (~seq_mask).sum(dim=1).clamp(min=1)
         last_indices = valid_lens - 1
-        last_repr = out[torch.arange(out.size(0)), last_indices]
+        last_repr = seq_out[torch.arange(seq_out.size(0)), last_indices]
+        
+        to_pool = []
+        if self.use_cls_token:
+            to_pool.append(cls_repr)
+        to_pool.append(last_repr)
         
         if self.use_dual_pooling:
-            attn_repr = self.attn_pool(out, padding_mask)
-            pooled = torch.cat([last_repr, attn_repr], dim=-1)
-        else:
-            pooled = last_repr
+            attn_repr = self.attn_pool(seq_out, seq_mask)
+            to_pool.append(attn_repr)
             
+        pooled = torch.cat(to_pool, dim=-1)
         logits = self.classifier(pooled)
         return logits
 
@@ -179,7 +223,7 @@ def normalize_features(X_train_list, X_test_list):
     return [(s - mean) / std for s in X_train_list], [(s - mean) / std for s in X_test_list]
 
 # --- Training Helper Functions ---
-def train_lstm_model(X_train, y_train, input_dim, hidden_dim=64, num_layers=2, epochs=15, batch_size=64, lr=1e-3, device="cpu", seed=42, use_norm=True):
+def train_lstm_model(X_train, y_train, input_dim, hidden_dim=64, num_layers=2, epochs=15, batch_size=64, lr=1e-3, weight_decay=1e-4, device="cpu", seed=42, use_norm=True):
     torch.manual_seed(seed)
     np.random.seed(seed)
     
@@ -199,7 +243,7 @@ def train_lstm_model(X_train, y_train, input_dim, hidden_dim=64, num_layers=2, e
     pos_weight = torch.tensor([n_neg / max(1, n_pos)], dtype=torch.float32).to(device)
     
     model = SepsisLSTM(input_dim=input_dim, hidden_dim=hidden_dim, num_layers=num_layers, dropout=0.2).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     
     train_losses = []
@@ -246,7 +290,7 @@ def evaluate_lstm_model(model, X_test, input_dim, device="cpu"):
         probs = torch.sigmoid(logits).cpu().numpy().squeeze(1)
     return probs
 
-def train_transformer_model(X_train, y_train, input_dim, d_model=64, nhead=4, num_layers=2, epochs=15, batch_size=64, lr=1e-3, device="cpu", seed=42):
+def train_transformer_model(X_train, y_train, input_dim, d_model=64, nhead=4, num_layers=2, dropout=0.1, weight_decay=1e-3, norm_first=True, pos_type="learned", use_cls_token=True, epochs=20, batch_size=64, lr=1e-3, device="cpu", seed=42):
     torch.manual_seed(seed)
     np.random.seed(seed)
     
@@ -268,12 +312,21 @@ def train_transformer_model(X_train, y_train, input_dim, d_model=64, nhead=4, nu
     n_neg = (y_train == 0).sum()
     pos_weight = torch.tensor([n_neg / max(1, n_pos)], dtype=torch.float32).to(device)
     
-    model = SepsisTransformer(input_dim=input_dim, d_model=d_model, nhead=nhead, num_layers=num_layers, dim_feedforward=d_model*2, dropout=0.1).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    model = SepsisTransformer(
+        input_dim=input_dim, d_model=d_model, nhead=nhead, num_layers=num_layers,
+        dim_feedforward=d_model*2, dropout=dropout, norm_first=norm_first,
+        pos_type=pos_type, max_len=max(240, max_len+5), use_cls_token=use_cls_token
+    ).to(device)
+    
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    dataset_size = len(X_train)
+    total_steps = epochs * math.ceil(dataset_size / batch_size)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer, max_lr=lr, total_steps=total_steps, pct_start=0.2
+    )
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     
     train_losses = []
-    dataset_size = len(X_train)
     
     for epoch in range(epochs):
         model.train()
@@ -292,6 +345,7 @@ def train_transformer_model(X_train, y_train, input_dim, d_model=64, nhead=4, nu
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
+            scheduler.step()
             
             epoch_loss += loss.item()
             batches += 1

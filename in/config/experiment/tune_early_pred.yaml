@@ -1,0 +1,14 @@
+# @package _global_
+defaults:
+  - override /env: mimic
+
+task: early_prediction_tune
+experiment_id: tune_early_pred
+group: early_prediction
+
+early_prediction:
+  checkpoint: "results/checkpoints/mimic/tune_mimic_cql"
+  dataset_path: "in/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
+  output_dir: "results/plots/early_prediction/optuna_study"
+  n_trials: 50
+  window_hours: 12

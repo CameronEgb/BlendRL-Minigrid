@@ -406,7 +406,6 @@ def main():
         cql_dir = Path("in/datasets/mimic/cql")
         if not (cql_dir.exists() and any(cql_dir.glob("*.pkl"))):
             print("\n=== Auto-Converting MIMIC NPZ Dataset (mimic_lazy_0_interventions_balanced.npz) to PKL Format ===")
-            import subprocess
             subprocess.run([sys.executable, "scripts/convert_npz_to_pkl.py"], check=True)
 
     print(f"Using Datasets for Offline Training: {dataset_list}")
@@ -423,6 +422,181 @@ def main():
                 if log_file.is_file():
                     log_file.unlink()
         log_dir.mkdir(parents=True, exist_ok=True)
+
+    # Check for early_prediction task types (standalone sweeps or evaluations)
+    task_name = cfg.get("task", "")
+    if task_name.startswith("early_prediction"):
+        def build_early_pred_args(c):
+            ep_c = c.get("early_prediction", {})
+            a_list = []
+            flag_map = {
+                "checkpoint": "--checkpoint",
+                "dataset_path": "--dataset-path",
+                "output_dir": "--output-dir",
+                "n_splits": "--n-splits",
+                "tau_min": "--tau-min",
+                "tau_max": "--tau-max",
+                "tau_step": "--tau-step",
+                "window_hours": "--window-hours",
+                "epochs": "--epochs",
+                "batch_size": "--batch-size",
+                "lr": "--lr",
+                "d_model": "--d-model",
+                "nhead": "--nhead",
+                "n_layers": "--n-layers",
+            }
+            for k, flag in flag_map.items():
+                if k in ep_c and ep_c[k] is not None:
+                    a_list.extend([flag, str(ep_c[k])])
+            if ep_c.get("use_all_history", False):
+                a_list.append("--use-all-history")
+            if ep_c.get("use_all_trajectories", False):
+                a_list.append("--use-all-trajectories")
+            if ep_c.get("no_norm", False):
+                a_list.append("--no-norm")
+            return a_list
+
+        if task_name in ("early_prediction_sweep", "early_prediction"):
+            print(f"\n=== Running Early Prediction Deep Learning Sweep ({cfg.experiment_id}) ===")
+            ep_args = build_early_pred_args(cfg)
+            if local_val:
+                python_exe = get_python_executable()
+                cmd = [python_exe, "-u", "src/early_prediction/model.py", "--exp-id", cfg.experiment_id] + ep_args
+                print(f"Executing: {' '.join(cmd)}")
+                res = subprocess.run(cmd)
+                sys.exit(res.returncode)
+            else:
+                slurm_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
+                slurm_dir.mkdir(parents=True, exist_ok=True)
+                slurm_script_path = slurm_dir / "early_pred_sweep.slurm"
+                cmd_str = " ".join([f'"{arg}"' if " " in arg else arg for arg in ep_args])
+                script_content = f"""#!/bin/bash
+#SBATCH --job-name=early_pred_{cfg.experiment_id}
+#SBATCH --partition=rtx4060ti8g
+#SBATCH --ntasks-per-node=16
+#SBATCH --nodes=1
+#SBATCH --output=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/early_pred_%j.out
+#SBATCH --error=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/early_pred_%j.err
+
+echo "=== Sepsis Early Prediction Sweep Execution Start ==="
+echo "Node: $(hostname)"
+date
+
+export PROJECT_ROOT=$(pwd)
+export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/nsfr:$PROJECT_ROOT/src/nudge:$PROJECT_ROOT/src/neumann:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
+
+mkdir -p results/plots/early_prediction
+mkdir -p results/logs
+
+$PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/model.py \\
+    --exp-id "{cfg.experiment_id}" \\
+    {cmd_str}
+
+echo "=== Sepsis Early Prediction Sweep Execution End ==="
+date
+"""
+                with open(slurm_script_path, "w") as f:
+                    f.write(script_content)
+                print(f"Submitting Early Prediction Sweep SLURM Job: {slurm_script_path}")
+                res = subprocess.run(["sbatch", str(slurm_script_path)], capture_output=True, text=True)
+                print(res.stdout)
+                if res.stderr:
+                    print(res.stderr)
+                sys.exit(res.returncode)
+
+        elif task_name == "early_prediction_eval":
+            print(f"\n=== Running Early Prediction Checkpoint Evaluation ({cfg.experiment_id}) ===")
+            ep_cfg = cfg.get("early_prediction", {})
+            ckpt = ep_cfg.get("checkpoint", f"results/checkpoints/{cfg.group}/{cfg.experiment_id}")
+            if local_val:
+                python_exe = get_python_executable()
+                cmd = [python_exe, "-u", "src/early_prediction/eval.py", "--checkpoint", str(ckpt), "--remake"]
+                print(f"Executing: {' '.join(cmd)}")
+                res = subprocess.run(cmd)
+                sys.exit(res.returncode)
+            else:
+                slurm_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
+                slurm_dir.mkdir(parents=True, exist_ok=True)
+                slurm_script_path = slurm_dir / "early_pred_eval.slurm"
+                script_content = f"""#!/bin/bash
+#SBATCH --job-name=eval_pred_{cfg.experiment_id}
+#SBATCH --partition=rtx4060ti8g
+#SBATCH --ntasks-per-node=16
+#SBATCH --nodes=1
+#SBATCH --output=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/eval_pred_%j.out
+#SBATCH --error=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/eval_pred_%j.err
+
+export PROJECT_ROOT=$(pwd)
+export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/nsfr:$PROJECT_ROOT/src/nudge:$PROJECT_ROOT/src/neumann:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
+
+$PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/eval.py --checkpoint "{ckpt}" --remake
+"""
+                with open(slurm_script_path, "w") as f:
+                    f.write(script_content)
+                print(f"Submitting Early Prediction Eval SLURM Job: {slurm_script_path}")
+                res = subprocess.run(["sbatch", str(slurm_script_path)], capture_output=True, text=True)
+                print(res.stdout)
+                if res.stderr:
+                    print(res.stderr)
+                sys.exit(res.returncode)
+
+        elif task_name in ("early_prediction_tune", "early_prediction_optuna"):
+            print(f"\n=== Running Early Prediction Optuna Hyperparameter Search ({cfg.experiment_id}) ===")
+            ep_cfg = cfg.get("early_prediction", {})
+            n_trials = ep_cfg.get("n_trials", 50)
+            ckpt = ep_cfg.get("checkpoint", "results/checkpoints/mimic/tune_mimic_cql")
+            dataset_path = ep_cfg.get("dataset_path", "in/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz")
+            out_dir = ep_cfg.get("output_dir", f"results/plots/early_prediction/{cfg.experiment_id}")
+            
+            tune_args = [
+                "--n-trials", str(n_trials),
+                "--checkpoint", str(ckpt),
+                "--dataset-path", str(dataset_path),
+                "--out-dir", str(out_dir)
+            ]
+            if local_val:
+                python_exe = get_python_executable()
+                cmd = [python_exe, "-u", "src/early_prediction/tune_optuna.py"] + tune_args
+                print(f"Executing: {' '.join(cmd)}")
+                res = subprocess.run(cmd)
+                sys.exit(res.returncode)
+            else:
+                slurm_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
+                slurm_dir.mkdir(parents=True, exist_ok=True)
+                slurm_script_path = slurm_dir / "early_pred_tune.slurm"
+                cmd_str = " ".join([f'"{arg}"' if " " in arg else arg for arg in tune_args])
+                script_content = f"""#!/bin/bash
+#SBATCH --job-name=tune_pred_{cfg.experiment_id}
+#SBATCH --partition=rtx4060ti8g
+#SBATCH --ntasks-per-node=16
+#SBATCH --nodes=1
+#SBATCH --output=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/tune_pred_%j.out
+#SBATCH --error=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/tune_pred_%j.err
+
+echo "=== Sepsis Early Prediction Optuna Search Start ==="
+echo "Node: $(hostname)"
+date
+
+export PROJECT_ROOT=$(pwd)
+export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/nsfr:$PROJECT_ROOT/src/nudge:$PROJECT_ROOT/src/neumann:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
+
+mkdir -p {out_dir}
+mkdir -p results/logs
+
+$PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/tune_optuna.py \\
+    {cmd_str}
+
+echo "=== Sepsis Early Prediction Optuna Search End ==="
+date
+"""
+                with open(slurm_script_path, "w") as f:
+                    f.write(script_content)
+                print(f"Submitting Early Prediction Optuna SLURM Job: {slurm_script_path}")
+                res = subprocess.run(["sbatch", str(slurm_script_path)], capture_output=True, text=True)
+                print(res.stdout)
+                if res.stderr:
+                    print(res.stderr)
+                sys.exit(res.returncode)
 
     # Track the best trial ID for each online method to use its dataset later (Local only)
     best_online_trial_ids = {}
