@@ -541,39 +541,46 @@ $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/eval.py --checkpoint "{ck
                 sys.exit(res.returncode)
 
         elif task_name in ("early_prediction_tune", "early_prediction_optuna"):
-            print(f"\n=== Running Early Prediction Optuna Hyperparameter Search ({cfg.experiment_id}) ===")
+            print(f"\n=== Running Early Prediction Modular Optuna Hyperparameter Search ({cfg.experiment_id}) ===")
             ep_cfg = cfg.get("early_prediction", {})
             n_trials = ep_cfg.get("n_trials", 50)
             ckpt = ep_cfg.get("checkpoint", "results/checkpoints/mimic/tune_mimic_cql")
             dataset_path = ep_cfg.get("dataset_path", "in/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz")
             out_dir = ep_cfg.get("output_dir", f"results/plots/early_prediction/{cfg.experiment_id}")
             
-            tune_args = [
-                "--n-trials", str(n_trials),
-                "--checkpoint", str(ckpt),
-                "--dataset-path", str(dataset_path),
-                "--out-dir", str(out_dir)
-            ]
-            if local_val:
-                python_exe = get_python_executable()
-                cmd = [python_exe, "-u", "src/early_prediction/tune_optuna.py"] + tune_args
-                print(f"Executing: {' '.join(cmd)}")
-                res = subprocess.run(cmd)
-                sys.exit(res.returncode)
-            else:
-                slurm_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
-                slurm_dir.mkdir(parents=True, exist_ok=True)
-                slurm_script_path = slurm_dir / "early_pred_tune.slurm"
-                cmd_str = " ".join([f'"{arg}"' if " " in arg else arg for arg in tune_args])
-                script_content = f"""#!/bin/bash
-#SBATCH --job-name=tune_pred_{cfg.experiment_id}
+            target_models = ep_cfg.get("target_models", ["lstm_no_v", "lstm_with_v", "transformer_no_v", "transformer_with_v"])
+            if isinstance(target_models, str):
+                target_models = [m.strip() for m in target_models.split(",")]
+                
+            python_exe = get_python_executable()
+            slurm_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
+            slurm_dir.mkdir(parents=True, exist_ok=True)
+            
+            for m_target in target_models:
+                print(f"\n--> Setting up Optuna Study for architecture target: [{m_target}]")
+                tune_args = [
+                    "--n-trials", str(n_trials),
+                    "--model-target", str(m_target),
+                    "--checkpoint", str(ckpt),
+                    "--dataset-path", str(dataset_path),
+                    "--out-dir", str(out_dir)
+                ]
+                if local_val:
+                    cmd = [python_exe, "-u", "src/early_prediction/tune_optuna.py"] + tune_args
+                    print(f"Executing local: {' '.join(cmd)}")
+                    subprocess.run(cmd, check=True)
+                else:
+                    slurm_script_path = slurm_dir / f"tune_pred_{m_target}.slurm"
+                    cmd_str = " ".join([f'"{arg}"' if " " in arg else arg for arg in tune_args])
+                    script_content = f"""#!/bin/bash
+#SBATCH --job-name=tune_{m_target}_{cfg.experiment_id}
 #SBATCH --partition=rtx4060ti8g
 #SBATCH --ntasks-per-node=16
 #SBATCH --nodes=1
-#SBATCH --output=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/tune_pred_%j.out
-#SBATCH --error=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/tune_pred_%j.err
+#SBATCH --output=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/tune_{m_target}_%j.out
+#SBATCH --error=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/tune_{m_target}_%j.err
 
-echo "=== Sepsis Early Prediction Optuna Search Start ==="
+echo "=== Sepsis Early Prediction Optuna Search [{m_target}] Start ==="
 echo "Node: $(hostname)"
 date
 
@@ -586,17 +593,17 @@ mkdir -p results/logs
 $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/tune_optuna.py \\
     {cmd_str}
 
-echo "=== Sepsis Early Prediction Optuna Search End ==="
+echo "=== Sepsis Early Prediction Optuna Search [{m_target}] End ==="
 date
 """
-                with open(slurm_script_path, "w") as f:
-                    f.write(script_content)
-                print(f"Submitting Early Prediction Optuna SLURM Job: {slurm_script_path}")
-                res = subprocess.run(["sbatch", str(slurm_script_path)], capture_output=True, text=True)
-                print(res.stdout)
-                if res.stderr:
-                    print(res.stderr)
-                sys.exit(res.returncode)
+                    with open(slurm_script_path, "w") as f:
+                        f.write(script_content)
+                    print(f"Submitting Early Prediction Optuna SLURM Job [{m_target}]: {slurm_script_path}")
+                    res = subprocess.run(["sbatch", str(slurm_script_path)], capture_output=True, text=True)
+                    print(res.stdout)
+                    if res.stderr:
+                        print(res.stderr)
+            sys.exit(0)
 
     # Track the best trial ID for each online method to use its dataset later (Local only)
     best_online_trial_ids = {}

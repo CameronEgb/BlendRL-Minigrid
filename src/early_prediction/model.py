@@ -90,15 +90,24 @@ def compute_volatility_features(seq):
     
     return np.concatenate([seq, delta, rolling_min, rolling_max], axis=-1)
 
-# --- Improved Transformer Classifier Model with Pre-LN, Learned Pos Embeddings & CLS Token ---
+# --- Improved Transformer Classifier Model with Pre-LN, Learned Pos Embeddings & CLS Token & TCN Conv ---
 class SepsisTransformer(nn.Module):
-    def __init__(self, input_dim, d_model=64, nhead=4, num_layers=2, dim_feedforward=128, dropout=0.1, use_dual_pooling=True, norm_first=True, pos_type="learned", max_len=240, use_cls_token=True):
+    def __init__(self, input_dim, d_model=64, nhead=4, num_layers=2, dim_feedforward=128, dropout=0.1, use_dual_pooling=True, norm_first=True, pos_type="learned", max_len=240, use_cls_token=True, use_tcn_conv=False):
         super().__init__()
         self.use_dual_pooling = use_dual_pooling
         self.use_cls_token = use_cls_token
         self.pos_type = pos_type
         self.d_model = d_model
         
+        if use_tcn_conv:
+            self.tcn_conv = nn.Sequential(
+                nn.Conv1d(input_dim, input_dim, kernel_size=3, padding=1),
+                nn.BatchNorm1d(input_dim),
+                nn.GELU()
+            )
+        else:
+            self.tcn_conv = None
+            
         self.embedding = nn.Linear(input_dim, d_model)
         
         if pos_type == "learned":
@@ -133,6 +142,10 @@ class SepsisTransformer(nn.Module):
         )
 
     def forward(self, x, padding_mask):
+        if self.tcn_conv is not None:
+            x_conv = x.transpose(1, 2)
+            x = x + self.tcn_conv(x_conv).transpose(1, 2)
+            
         B, L, _ = x.shape
         x_emb = self.embedding(x)
         
@@ -177,11 +190,20 @@ class SepsisTransformer(nn.Module):
         logits = self.classifier(pooled)
         return logits
 
-# --- Improved PyTorch LSTM Model with Temporal Attention & Multi-layer ---
+# --- Improved PyTorch LSTM Model with Temporal Attention & TCN Conv ---
 class SepsisLSTM(nn.Module):
-    def __init__(self, input_dim, hidden_dim=64, num_layers=2, dropout=0.2, use_dual_pooling=True):
+    def __init__(self, input_dim, hidden_dim=64, num_layers=2, dropout=0.2, use_dual_pooling=True, use_tcn_conv=False):
         super().__init__()
         self.use_dual_pooling = use_dual_pooling
+        if use_tcn_conv:
+            self.tcn_conv = nn.Sequential(
+                nn.Conv1d(input_dim, input_dim, kernel_size=3, padding=1),
+                nn.BatchNorm1d(input_dim),
+                nn.GELU()
+            )
+        else:
+            self.tcn_conv = None
+            
         self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers, batch_first=True, dropout=dropout if num_layers > 1 else 0)
         self.attn_pool = TemporalAttentionPooling(hidden_dim)
         
@@ -195,6 +217,10 @@ class SepsisLSTM(nn.Module):
         )
 
     def forward(self, x, lengths):
+        if self.tcn_conv is not None:
+            x_conv = x.transpose(1, 2)
+            x = x + self.tcn_conv(x_conv).transpose(1, 2)
+            
         packed = nn.utils.rnn.pack_padded_sequence(
             x, lengths.cpu(), batch_first=True, enforce_sorted=False
         )
@@ -223,7 +249,7 @@ def normalize_features(X_train_list, X_test_list):
     return [(s - mean) / std for s in X_train_list], [(s - mean) / std for s in X_test_list]
 
 # --- Training Helper Functions ---
-def train_lstm_model(X_train, y_train, input_dim, hidden_dim=64, num_layers=2, epochs=15, batch_size=64, lr=1e-3, weight_decay=1e-4, device="cpu", seed=42, use_norm=True):
+def train_lstm_model(X_train, y_train, input_dim, hidden_dim=64, num_layers=2, epochs=15, batch_size=64, lr=1e-3, weight_decay=1e-4, use_focal_loss=False, use_tcn_conv=False, device="cpu", seed=42, use_norm=True):
     torch.manual_seed(seed)
     np.random.seed(seed)
     
@@ -237,15 +263,18 @@ def train_lstm_model(X_train, y_train, input_dim, hidden_dim=64, num_layers=2, e
     X_train_tensor = torch.tensor(X_train_padded, dtype=torch.float32).to(device)
     y_train_tensor = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1).to(device)
     
-    # Class-weighted loss
     n_pos = (y_train == 1).sum()
     n_neg = (y_train == 0).sum()
     pos_weight = torch.tensor([n_neg / max(1, n_pos)], dtype=torch.float32).to(device)
     
-    model = SepsisLSTM(input_dim=input_dim, hidden_dim=hidden_dim, num_layers=num_layers, dropout=0.2).to(device)
+    model = SepsisLSTM(input_dim=input_dim, hidden_dim=hidden_dim, num_layers=num_layers, dropout=0.2, use_tcn_conv=use_tcn_conv).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     
+    if use_focal_loss:
+        criterion = FocalLoss(pos_weight=pos_weight, gamma=2.0)
+    else:
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        
     train_losses = []
     dataset_size = len(X_train)
     
@@ -290,7 +319,7 @@ def evaluate_lstm_model(model, X_test, input_dim, device="cpu"):
         probs = torch.sigmoid(logits).cpu().numpy().squeeze(1)
     return probs
 
-def train_transformer_model(X_train, y_train, input_dim, d_model=64, nhead=4, num_layers=2, dropout=0.1, weight_decay=1e-3, norm_first=True, pos_type="learned", use_cls_token=True, epochs=20, batch_size=64, lr=1e-3, device="cpu", seed=42):
+def train_transformer_model(X_train, y_train, input_dim, d_model=64, nhead=4, num_layers=2, dropout=0.1, weight_decay=1e-3, norm_first=True, pos_type="learned", use_cls_token=True, use_tcn_conv=False, use_focal_loss=False, epochs=20, batch_size=64, lr=1e-3, device="cpu", seed=42):
     torch.manual_seed(seed)
     np.random.seed(seed)
     
@@ -315,7 +344,8 @@ def train_transformer_model(X_train, y_train, input_dim, d_model=64, nhead=4, nu
     model = SepsisTransformer(
         input_dim=input_dim, d_model=d_model, nhead=nhead, num_layers=num_layers,
         dim_feedforward=d_model*2, dropout=dropout, norm_first=norm_first,
-        pos_type=pos_type, max_len=max(240, max_len+5), use_cls_token=use_cls_token
+        pos_type=pos_type, max_len=max(240, max_len+5), use_cls_token=use_cls_token,
+        use_tcn_conv=use_tcn_conv
     ).to(device)
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -324,8 +354,12 @@ def train_transformer_model(X_train, y_train, input_dim, d_model=64, nhead=4, nu
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer, max_lr=lr, total_steps=total_steps, pct_start=0.2
     )
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     
+    if use_focal_loss:
+        criterion = FocalLoss(pos_weight=pos_weight, gamma=2.0)
+    else:
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        
     train_losses = []
     
     for epoch in range(epochs):

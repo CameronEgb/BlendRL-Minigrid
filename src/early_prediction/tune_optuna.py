@@ -25,7 +25,24 @@ from src.early_prediction.model import (
 )
 
 def objective(trial, X, y, mask, patient_lengths, v_vals_all, args):
-    model_type = trial.suggest_categorical("model_type", ["transformer", "lstm"])
+    model_target = args.model_target.lower()
+    
+    if model_target == "lstm_no_v":
+        model_type = "lstm"
+        use_v_feat = False
+    elif model_target == "lstm_with_v":
+        model_type = "lstm"
+        use_v_feat = True
+    elif model_target == "transformer_no_v":
+        model_type = "transformer"
+        use_v_feat = False
+    elif model_target == "transformer_with_v":
+        model_type = "transformer"
+        use_v_feat = True
+    else:
+        model_type = trial.suggest_categorical("model_type", ["transformer", "lstm"])
+        use_v_feat = trial.suggest_categorical("use_v_feat", [True, False])
+
     tau = trial.suggest_categorical("tau", [9]) # Benchmark at tau=9h early prediction
     steps_early = 2 * tau
     w_steps = 2 * args.window_hours
@@ -34,8 +51,6 @@ def objective(trial, X, y, mask, patient_lengths, v_vals_all, args):
     c_indices = np.array([i for i in range(len(X)) if patient_lengths[i] >= min_stay_steps])
     t_cutoffs = patient_lengths[c_indices] - steps_early
     y_cohort = y[c_indices]
-    
-    use_v_feat = trial.suggest_categorical("use_v_feat", [True, False])
     
     seq_data = []
     for i, original_idx in enumerate(c_indices):
@@ -57,6 +72,8 @@ def objective(trial, X, y, mask, patient_lengths, v_vals_all, args):
     dropout = trial.suggest_float("dropout", 0.05, 0.4)
     epochs = trial.suggest_int("epochs", 15, 25)
     batch_size = trial.suggest_categorical("batch_size", [32, 64, 128])
+    use_focal_loss = trial.suggest_categorical("use_focal_loss", [True, False])
+    use_tcn_conv = trial.suggest_categorical("use_tcn_conv", [True, False])
     
     split_auprcs = []
     n_eval_splits = 5 # 5 stratified splits per trial for speed
@@ -81,8 +98,9 @@ def objective(trial, X, y, mask, patient_lengths, v_vals_all, args):
             model, _ = train_transformer_model(
                 X_tr, y_tr, input_dim, d_model=d_model, nhead=nhead, num_layers=num_layers,
                 dropout=dropout, weight_decay=weight_decay, norm_first=norm_first,
-                pos_type=pos_type, use_cls_token=use_cls_token, epochs=epochs,
-                batch_size=batch_size, lr=lr, device=device, seed=seed_val
+                pos_type=pos_type, use_cls_token=use_cls_token, use_tcn_conv=use_tcn_conv,
+                use_focal_loss=use_focal_loss, epochs=epochs, batch_size=batch_size,
+                lr=lr, device=device, seed=seed_val
             )
             probs = evaluate_transformer_model(model, X_te, input_dim, device=device)
             precisions, recalls, _ = precision_recall_curve(y_te, probs)
@@ -105,6 +123,7 @@ def objective(trial, X, y, mask, patient_lengths, v_vals_all, args):
             model, _ = train_lstm_model(
                 X_tr, y_tr, input_dim, hidden_dim=hidden_dim, num_layers=num_layers,
                 epochs=epochs, batch_size=batch_size, lr=lr, weight_decay=weight_decay,
+                use_focal_loss=use_focal_loss, use_tcn_conv=use_tcn_conv,
                 device=device, seed=seed_val
             )
             probs = evaluate_lstm_model(model, X_te, input_dim, device=device)
@@ -116,13 +135,14 @@ def objective(trial, X, y, mask, patient_lengths, v_vals_all, args):
     return mean_auprc
 
 def main():
-    parser = argparse.ArgumentParser(description="Optuna Hyperparameter Search for Early Prediction Models")
+    parser = argparse.ArgumentParser(description="Modular Optuna Hyperparameter Search for Early Prediction Models")
     parser.add_argument("--n-trials", type=int, default=30, help="Number of Optuna trials")
+    parser.add_argument("--model-target", type=str, default="all", help="Target architecture to tune: lstm_no_v, lstm_with_v, transformer_no_v, transformer_with_v, or all")
     parser.add_argument("--dataset-path", type=str, default=find_default_mimic_npz())
     parser.add_argument("--checkpoint", type=str, default="results/checkpoints/mimic/tune_mimic_cql")
     parser.add_argument("--window-hours", type=int, default=12)
     parser.add_argument("--use-volatility", action="store_true", default=True)
-    parser.add_argument("--out-dir", type=str, default="results/plots/early_prediction/optuna_study")
+    parser.add_argument("--out-dir", type=str, default="results/plots/early_prediction/tune_early_pred")
     args = parser.parse_args()
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -168,10 +188,11 @@ def main():
         v_vals_all = np.zeros((len(X), 240, 1), dtype=np.float32)
         
     study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=42))
-    print(f"Starting Optuna Study for {args.n_trials} trials...")
+    print(f"Starting Optuna Study for Target '{args.model_target}' over {args.n_trials} trials...")
     study.optimize(lambda trial: objective(trial, X, y, mask, patient_lengths, v_vals_all, args), n_trials=args.n_trials)
     
     print("\n=== Optuna Study Complete ===")
+    print(f"Target: {args.model_target}")
     print(f"Best Trial Score (AUPRC at 9h): {study.best_value:.4f}")
     print("Best Hyperparameters:")
     for k, v in study.best_params.items():
@@ -179,7 +200,15 @@ def main():
         
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    best_yaml = out_dir / "best_params.yaml"
+    
+    if args.model_target == "all":
+        param_filename = "best_params.yaml"
+        hist_filename = "optuna_optimization_history.png"
+    else:
+        param_filename = f"best_params_{args.model_target}.yaml"
+        hist_filename = f"optuna_history_{args.model_target}.png"
+        
+    best_yaml = out_dir / param_filename
     with open(best_yaml, "w") as f:
         yaml.dump(study.best_params, f)
     print(f"Saved best parameters to {best_yaml}")
@@ -194,13 +223,13 @@ def main():
         
         ax.plot(trial_numbers, trial_values, 'o', color='tab:blue', alpha=0.6, label='Trial AUPRC')
         ax.plot(trial_numbers, best_values, '-', color='tab:red', linewidth=2.5, label='Best Cumulative AUPRC')
-        ax.set_title("Optuna Hyperparameter Optimization History (\u03c4=9h)", fontsize=13, fontweight='bold')
+        ax.set_title(f"Optuna Optimization History ({args.model_target} - \u03c4=9h)", fontsize=13, fontweight='bold')
         ax.set_xlabel("Trial Number", fontsize=11)
         ax.set_ylabel("Validation AUPRC", fontsize=11)
         ax.grid(True, linestyle="--", alpha=0.5)
         ax.legend(fontsize=10)
         plt.tight_layout()
-        hist_path = out_dir / "optuna_optimization_history.png"
+        hist_path = out_dir / hist_filename
         plt.savefig(hist_path, dpi=200)
         plt.close()
         print(f"Saved optimization history plot to {hist_path}")
