@@ -190,11 +190,12 @@ class SepsisTransformer(nn.Module):
         logits = self.classifier(pooled)
         return logits
 
-# --- Improved PyTorch LSTM Model with Temporal Attention & TCN Conv ---
+# --- Improved PyTorch LSTM Model with Temporal Attention, TCN Conv & Bidirectional Option ---
 class SepsisLSTM(nn.Module):
-    def __init__(self, input_dim, hidden_dim=64, num_layers=2, dropout=0.2, use_dual_pooling=True, use_tcn_conv=False):
+    def __init__(self, input_dim, hidden_dim=64, num_layers=2, dropout=0.2, use_dual_pooling=True, use_tcn_conv=False, bidirectional=False):
         super().__init__()
         self.use_dual_pooling = use_dual_pooling
+        self.bidirectional = bidirectional
         if use_tcn_conv:
             self.tcn_conv = nn.Sequential(
                 nn.Conv1d(input_dim, input_dim, kernel_size=3, padding=1),
@@ -204,14 +205,15 @@ class SepsisLSTM(nn.Module):
         else:
             self.tcn_conv = None
             
-        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers, batch_first=True, dropout=dropout if num_layers > 1 else 0)
-        self.attn_pool = TemporalAttentionPooling(hidden_dim)
+        num_dirs = 2 if bidirectional else 1
+        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers, batch_first=True, dropout=dropout if num_layers > 1 else 0, bidirectional=bidirectional)
+        self.attn_pool = TemporalAttentionPooling(hidden_dim * num_dirs)
         
-        in_features = hidden_dim * 2 if use_dual_pooling else hidden_dim
+        in_features = (hidden_dim * num_dirs) * 2 if use_dual_pooling else (hidden_dim * num_dirs)
         self.classifier = nn.Sequential(
             nn.LayerNorm(in_features),
             nn.Linear(in_features, hidden_dim),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, 1)
         )
@@ -227,7 +229,10 @@ class SepsisLSTM(nn.Module):
         out_packed, (hn, _) = self.lstm(packed)
         out, _ = nn.utils.rnn.pad_packed_sequence(out_packed, batch_first=True)
         
-        last_hn = hn[-1]
+        if self.bidirectional:
+            last_hn = torch.cat([hn[-2], hn[-1]], dim=-1)
+        else:
+            last_hn = hn[-1]
         
         if self.use_dual_pooling:
             B, L, H = out.size()
@@ -249,7 +254,7 @@ def normalize_features(X_train_list, X_test_list):
     return [(s - mean) / std for s in X_train_list], [(s - mean) / std for s in X_test_list]
 
 # --- Training Helper Functions ---
-def train_lstm_model(X_train, y_train, input_dim, hidden_dim=64, num_layers=2, epochs=15, batch_size=64, lr=1e-3, weight_decay=1e-4, use_focal_loss=False, use_tcn_conv=False, device="cpu", seed=42, use_norm=True):
+def train_lstm_model(X_train, y_train, input_dim, hidden_dim=64, num_layers=2, epochs=15, batch_size=64, lr=1e-3, weight_decay=1e-4, use_focal_loss=False, use_tcn_conv=False, bidirectional=False, device="cpu", seed=42, use_norm=True):
     torch.manual_seed(seed)
     np.random.seed(seed)
     
@@ -267,7 +272,7 @@ def train_lstm_model(X_train, y_train, input_dim, hidden_dim=64, num_layers=2, e
     n_neg = (y_train == 0).sum()
     pos_weight = torch.tensor([n_neg / max(1, n_pos)], dtype=torch.float32).to(device)
     
-    model = SepsisLSTM(input_dim=input_dim, hidden_dim=hidden_dim, num_layers=num_layers, dropout=0.2, use_tcn_conv=use_tcn_conv).to(device)
+    model = SepsisLSTM(input_dim=input_dim, hidden_dim=hidden_dim, num_layers=num_layers, dropout=0.2, use_tcn_conv=use_tcn_conv, bidirectional=bidirectional).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     
     if use_focal_loss:

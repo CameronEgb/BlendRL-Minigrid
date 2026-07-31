@@ -10,7 +10,7 @@ early_prediction:
   checkpoint: "results/checkpoints/mimic/tune_mimic_cql"
   dataset_path: "in/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
   output_dir: "results/plots/early_prediction/tune_early_pred"
-  n_trials: 30
+  n_trials: 200
   window_hours: 12
   target_models:
     - lstm_no_v

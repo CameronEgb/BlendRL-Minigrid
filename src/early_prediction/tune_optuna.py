@@ -110,6 +110,7 @@ def objective(trial, X, y, mask, patient_lengths, v_vals_all, args):
     else: # lstm
         hidden_dim = trial.suggest_categorical("hidden_dim", [32, 64, 128])
         num_layers = trial.suggest_int("num_layers", 1, 3)
+        bidirectional = trial.suggest_categorical("bidirectional", [True, False])
         
         for m_idx in range(n_eval_splits):
             seed_val = 100 + m_idx
@@ -124,7 +125,7 @@ def objective(trial, X, y, mask, patient_lengths, v_vals_all, args):
                 X_tr, y_tr, input_dim, hidden_dim=hidden_dim, num_layers=num_layers,
                 epochs=epochs, batch_size=batch_size, lr=lr, weight_decay=weight_decay,
                 use_focal_loss=use_focal_loss, use_tcn_conv=use_tcn_conv,
-                device=device, seed=seed_val
+                bidirectional=bidirectional, device=device, seed=seed_val
             )
             probs = evaluate_lstm_model(model, X_te, input_dim, device=device)
             precisions, recalls, _ = precision_recall_curve(y_te, probs)
