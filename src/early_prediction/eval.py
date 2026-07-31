@@ -162,7 +162,7 @@ def train_predictor(X, y, mask, train_indices, test_indices, epochs=60, batch_si
     model.to(device)
     return model, best_acc
 
-def generate_markdown_report(csv_path, summary_path, exp_id):
+def generate_text_report(csv_path, summary_path, exp_id):
     import csv
     if not os.path.exists(csv_path):
         return
@@ -183,28 +183,26 @@ def generate_markdown_report(csv_path, summary_path, exp_id):
             return float(val)
         except (ValueError, TypeError):
             return default
- 
+
     def format_val(mean_val, sem_val, is_percent=True, digits=2):
         if sem_val is not None:
             if is_percent:
-                return f"{mean_val * 100:.{digits}f}% &plusmn; {sem_val * 100:.{digits}f}%"
+                return f"{mean_val * 100:.{digits}f}% ± {sem_val * 100:.{digits}f}%"
             else:
-                return f"{mean_val:.{digits+2}f} &plusmn; {sem_val:.{digits+2}f}"
+                return f"{mean_val:.{digits+2}f} ± {sem_val:.{digits+2}f}"
         else:
             if is_percent:
                 return f"{mean_val:.{digits}%}"
             else:
                 return f"{mean_val:.{digits+2}f}"
             
-    with open(summary_path, mode="w") as f_md:
-        f_md.write(f"# MIMIC Sepsis Early Prediction Summary Report ({exp_id})\n\n")
-        f_md.write("This document compiles the summary table and detailed early prediction evaluation results for all evaluated checkpoints in this experiment. All values are reported as mean &plusmn; standard error over the random data splits.\n\n")
+    with open(summary_path, mode="w") as f_txt:
+        f_txt.write(f"=== MIMIC Sepsis Early Prediction Summary Report ({exp_id}) ===\n\n")
+        f_txt.write("This document compiles the summary table and detailed early prediction evaluation results for all evaluated checkpoints in this experiment.\n")
+        f_txt.write("All values are reported as mean ± standard error over the random data splits.\n\n")
         
-        # Write Summary Table
-        f_md.write("## Summary Table\n\n")
-        f_md.write("| Checkpoint | Predictor Acc | Clinician Mort | CQL Mort | Clinician Admin | CQL Admin | Agreement | Expert Visits | Accuracy (Setup B) | Recall | Precision | F1-Score | AUC-ROC |\n")
-        f_md.write("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n")
-        
+        # Write Summary Table Section
+        f_txt.write("--- SUMMARY TABLE ---\n")
         for row in rows:
             ckpt = row.get("checkpoint", "N/A")
             
@@ -225,7 +223,7 @@ def generate_markdown_report(csv_path, summary_path, exp_id):
             expert_visits_sem_val = row.get("setup_b_expert_visits_sem")
             if expert_visits_val is not None and expert_visits_val != "":
                 if expert_visits_sem_val is not None and expert_visits_sem_val != "":
-                    expert_visits_str = f"{safe_float(expert_visits_val):.1f} &plusmn; {safe_float(expert_visits_sem_val):.1f}"
+                    expert_visits_str = f"{safe_float(expert_visits_val):.1f} ± {safe_float(expert_visits_sem_val):.1f}"
                 else:
                     expert_visits_str = f"{safe_float(expert_visits_val):.1f}"
             else:
@@ -249,10 +247,14 @@ def generate_markdown_report(csv_path, summary_path, exp_id):
             f1_b_str = format_val(f1_b, f1_b_sem, is_percent=True, digits=2)
             auc_b_str = format_val(auc_b, auc_b_sem, is_percent=False, digits=2)
             
-            f_md.write(f"| `{ckpt}` | {pred_acc_str} | {clin_mort_str} | {cql_mort_str} | {clin_admin_str} | {cql_admin_str} | {agreement_str} | {expert_visits_str} | {acc_b_str} | {rec_b_str} | {prec_b_str} | {f1_b_str} | {auc_b_str} |\n")
+            f_txt.write(f"Checkpoint: {ckpt}\n")
+            f_txt.write(f"  Predictor Acc: {pred_acc_str} | Clinician Mort: {clin_mort_str} | CQL Mort: {cql_mort_str}\n")
+            f_txt.write(f"  Clinician Admin: {clin_admin_str} | CQL Admin: {cql_admin_str} | Agreement: {agreement_str}\n")
+            f_txt.write(f"  Setup B - Expert Visits: {expert_visits_str} | Acc: {acc_b_str} | Rec: {rec_b_str} | Prec: {prec_b_str} | F1: {f1_b_str} | AUC: {auc_b_str}\n\n")
             
-        f_md.write("\n---\n\n")
-        f_md.write("# Detailed Trial Reports\n")
+        f_txt.write("--------------------------------------------------------------------------------\n")
+        f_txt.write("DETAILED TRIAL REPORTS\n")
+        f_txt.write("--------------------------------------------------------------------------------\n\n")
         
         for row in rows:
             ckpt = row.get("checkpoint", "N/A")
@@ -275,7 +277,7 @@ def generate_markdown_report(csv_path, summary_path, exp_id):
             expert_visits_sem_val = row.get("setup_b_expert_visits_sem")
             if expert_visits_val is not None and expert_visits_val != "":
                 if expert_visits_sem_val is not None and expert_visits_sem_val != "":
-                    expert_visits_str = f"{safe_float(expert_visits_val):.1f} &plusmn; {safe_float(expert_visits_sem_val):.1f}"
+                    expert_visits_str = f"{safe_float(expert_visits_val):.1f} ± {safe_float(expert_visits_sem_val):.1f}"
                 else:
                     expert_visits_str = f"{safe_float(expert_visits_val):.1f}"
             else:
@@ -299,34 +301,20 @@ def generate_markdown_report(csv_path, summary_path, exp_id):
             f1_b_str = format_val(f1_b, f1_b_sem, is_percent=True, digits=2)
             auc_b_str = format_val(auc_b, auc_b_sem, is_percent=False, digits=2)
             
-            f_md.write(f"""
-## Checkpoint: `{ckpt}` (Trial `{ckpt_stem}`)
-
-### Predictor Model Details
-- **Architecture**: PyTorch LSTM Sepsis Predictor
-- **Supervised Validation Accuracy**: **{pred_acc_str}**
-
-### Setup A: Counterfactual Evaluation
-| Metric | Clinician Actual | CQL Policy |
-| :--- | :---: | :---: |
-| **Average Predicted Mortality Rate** | **{clin_mort_str}** | **{cql_mort_str}** |
-| **Antibiotics Administration Rate** | **{clin_admin_str}** | **{cql_admin_str}** |
-
-- **Policy Agreement**: The CQL policy agreed with the clinician's decisions on **{agreement_str}** of all patient visits.
-
-### Setup B: Imitation of Effective Interventions
-- **Total Expert Visits Identified**: **{expert_visits_str}**
-
-| Metric | Score |
-| :--- | :---: |
-| **Accuracy** | **{acc_b_str}** |
-| **Precision** | **{prec_b_str}** |
-| **Recall (Sensitivity)** | **{rec_b_str}** |
-| **F1-Score** | **{f1_b_str}** |
-| **AUC-ROC** | **{auc_b_str}** |
-
----
-""")
+            f_txt.write(f"Checkpoint: {ckpt} (Trial: {ckpt_stem})\n")
+            f_txt.write(f"  Predictor Model Supervised Validation Accuracy: {pred_acc_str}\n\n")
+            f_txt.write("  Setup A: Counterfactual Evaluation\n")
+            f_txt.write(f"    - Average Predicted Mortality Rate: Clinician Actual = {clin_mort_str}, CQL Policy = {cql_mort_str}\n")
+            f_txt.write(f"    - Antibiotics Administration Rate:  Clinician Actual = {clin_admin_str}, CQL Policy = {cql_admin_str}\n")
+            f_txt.write(f"    - Policy Agreement: {agreement_str} of patient visits\n\n")
+            f_txt.write("  Setup B: Imitation of Effective Interventions\n")
+            f_txt.write(f"    - Expert Visits Identified: {expert_visits_str}\n")
+            f_txt.write(f"    - Accuracy:  {acc_b_str}\n")
+            f_txt.write(f"    - Precision: {prec_b_str}\n")
+            f_txt.write(f"    - Recall:    {rec_b_str}\n")
+            f_txt.write(f"    - F1-Score:  {f1_b_str}\n")
+            f_txt.write(f"    - AUC-ROC:   {auc_b_str}\n")
+            f_txt.write("--------------------------------------------------------------------------------\n\n")
 
 def main():
     import argparse
@@ -439,13 +427,13 @@ def main():
             
     report_dir.mkdir(parents=True, exist_ok=True)
     csv_path = report_dir / "early_prediction_summary.csv"
-    summary_path = report_dir / "early_prediction_summary.md"
+    summary_path = report_dir / "early_prediction_summary.txt"
     
-    # Clean up old individual report files if present to prevent clutter
-    for old_report in report_dir.glob("early_prediction_report*.md"):
+    # Clean up old markdown report files if present to prevent clutter
+    for old_report in list(report_dir.glob("early_prediction_report*.md")) + list(report_dir.glob("early_prediction_summary.md")):
         try:
             old_report.unlink()
-            print(f"Removed legacy individual report file: {old_report}")
+            print(f"Removed legacy markdown report file: {old_report}")
         except Exception as e:
             print(f"Error removing {old_report}: {e}")
 
@@ -812,9 +800,9 @@ def main():
             
         print(f"Appended results for {checkpoint_name} to CSV summary file.")
 
-    # Re-generate the single summary & detailed reports document
-    generate_markdown_report(csv_path, summary_path, exp_id)
-    print(f"\nMarkdown summary and detailed reports regenerated at: {summary_path}")
+    # Re-generate the single summary & detailed text reports document
+    generate_text_report(csv_path, summary_path, exp_id)
+    print(f"\nText summary and detailed reports regenerated at: {summary_path}")
 
 if __name__ == "__main__":
     main()

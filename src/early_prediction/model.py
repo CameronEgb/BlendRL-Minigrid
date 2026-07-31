@@ -36,7 +36,61 @@ class PositionalEncoding(nn.Module):
     def forward(self, x):
         return x + self.pe[:, :x.size(1)]
 
-# --- Improved Transformer Classifier Model with Dual Pooling & LayerNorm ---
+# --- Soft Temporal Attention Pooling ---
+class TemporalAttentionPooling(nn.Module):
+    def __init__(self, d_model):
+        super().__init__()
+        self.attn = nn.Sequential(
+            nn.Linear(d_model, max(16, d_model // 2)),
+            nn.Tanh(),
+            nn.Linear(max(16, d_model // 2), 1)
+        )
+
+    def forward(self, x, padding_mask=None):
+        # x: (B, L, H), padding_mask: (B, L) where True indicates padding
+        scores = self.attn(x).squeeze(-1)
+        if padding_mask is not None:
+            scores = scores.masked_fill(padding_mask, -1e9)
+        weights = torch.softmax(scores, dim=-1).unsqueeze(-1)
+        context = (x * weights).sum(dim=1)
+        return context
+
+# --- Focal Loss for Class Imbalance ---
+class FocalLoss(nn.Module):
+    def __init__(self, pos_weight=1.0, gamma=2.0):
+        super().__init__()
+        self.pos_weight = pos_weight
+        self.gamma = gamma
+
+    def forward(self, logits, targets):
+        probs = torch.sigmoid(logits)
+        bce_loss = nn.functional.binary_cross_entropy_with_logits(
+            logits, targets, reduction='none'
+        )
+        p_t = probs * targets + (1 - probs) * (1 - targets)
+        focal_factor = (1 - p_t) ** self.gamma
+        weight_factor = targets * self.pos_weight + (1 - targets)
+        loss = focal_factor * weight_factor * bce_loss
+        return loss.mean()
+
+def compute_volatility_features(seq):
+    # seq: (L, D)
+    L, D = seq.shape
+    delta = np.zeros_like(seq, dtype=np.float32)
+    if L > 1:
+        delta[1:] = seq[1:] - seq[:-1]
+    
+    seq_prev = np.zeros_like(seq, dtype=np.float32)
+    seq_prev[0] = seq[0]
+    if L > 1:
+        seq_prev[1:] = seq[:-1]
+        
+    rolling_min = np.minimum(seq, seq_prev)
+    rolling_max = np.maximum(seq, seq_prev)
+    
+    return np.concatenate([seq, delta, rolling_min, rolling_max], axis=-1)
+
+# --- Improved Transformer Classifier Model with Temporal Attention & LayerNorm ---
 class SepsisTransformer(nn.Module):
     def __init__(self, input_dim, d_model=64, nhead=4, num_layers=2, dim_feedforward=128, dropout=0.1, use_dual_pooling=True):
         super().__init__()
@@ -49,6 +103,7 @@ class SepsisTransformer(nn.Module):
             d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward, dropout=dropout, batch_first=True
         )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.attn_pool = TemporalAttentionPooling(d_model)
         
         in_features = d_model * 2 if use_dual_pooling else d_model
         self.classifier = nn.Sequential(
@@ -70,22 +125,21 @@ class SepsisTransformer(nn.Module):
         last_repr = out[torch.arange(out.size(0)), last_indices]
         
         if self.use_dual_pooling:
-            valid_mask_expanded = (~padding_mask).unsqueeze(-1).float()
-            sum_repr = (out * valid_mask_expanded).sum(dim=1)
-            mean_repr = sum_repr / valid_lens.unsqueeze(1).float()
-            pooled = torch.cat([last_repr, mean_repr], dim=-1)
+            attn_repr = self.attn_pool(out, padding_mask)
+            pooled = torch.cat([last_repr, attn_repr], dim=-1)
         else:
             pooled = last_repr
             
         logits = self.classifier(pooled)
         return logits
 
-# --- Improved PyTorch LSTM Model with Dual Pooling & Multi-layer ---
+# --- Improved PyTorch LSTM Model with Temporal Attention & Multi-layer ---
 class SepsisLSTM(nn.Module):
     def __init__(self, input_dim, hidden_dim=64, num_layers=2, dropout=0.2, use_dual_pooling=True):
         super().__init__()
         self.use_dual_pooling = use_dual_pooling
         self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers, batch_first=True, dropout=dropout if num_layers > 1 else 0)
+        self.attn_pool = TemporalAttentionPooling(hidden_dim)
         
         in_features = hidden_dim * 2 if use_dual_pooling else hidden_dim
         self.classifier = nn.Sequential(
@@ -109,9 +163,9 @@ class SepsisLSTM(nn.Module):
             B, L, H = out.size()
             lengths_dev = lengths.to(x.device)
             mask_t = torch.arange(L, device=x.device).unsqueeze(0) < lengths_dev.unsqueeze(1)
-            valid_mask = mask_t.unsqueeze(-1).float()
-            mean_out = (out * valid_mask).sum(dim=1) / lengths_dev.unsqueeze(1).float()
-            pooled = torch.cat([last_hn, mean_out], dim=-1)
+            padding_mask = ~mask_t
+            attn_out = self.attn_pool(out, padding_mask)
+            pooled = torch.cat([last_hn, attn_out], dim=-1)
         else:
             pooled = last_hn
             
@@ -306,6 +360,8 @@ def main():
     parser.add_argument("--nhead", type=int, default=4, help="Transformer attention heads (default: 4)")
     parser.add_argument("--num-layers", type=int, default=2, help="Number of layers for Transformer / LSTM (default: 2)")
     parser.add_argument("--hidden-dim", type=int, default=64, help="LSTM hidden dimension (default: 64)")
+    parser.add_argument("--use-volatility", action="store_true", default=True, help="Compute 1-hour rolling min/max and deltas for feature volatility (default: True)")
+    parser.add_argument("--no-volatility", dest="use_volatility", action="store_false", help="Disable rolling min/max and delta feature expansion")
     parser.add_argument("--n-splits", "--n-models", type=int, dest="n_splits", default=20, help="Number of data splits to evaluate (default: 20)")
     parser.add_argument("--output-dir", type=str, default="results/plots/early_prediction", help="Base directory to save plots")
     args = parser.parse_args()
@@ -426,11 +482,16 @@ def main():
                 tc = t_cutoffs[i]
                 st = 0 if args.use_all_history else max(0, tc - w_steps)
                 raw_seq = X[original_idx, st:tc, :49]
+                if args.use_volatility:
+                    feat_seq = compute_volatility_features(raw_seq)
+                else:
+                    feat_seq = raw_seq
+                    
                 if use_v_feat and v_vals_all is not None:
                     v_seq = v_vals_all[original_idx, st:tc]
-                    seq_data.append(np.concatenate([raw_seq, v_seq], axis=-1))
+                    seq_data.append(np.concatenate([feat_seq, v_seq], axis=-1))
                 else:
-                    seq_data.append(raw_seq)
+                    seq_data.append(feat_seq)
                     
             input_dim = seq_data[0].shape[-1]
             
@@ -547,24 +608,13 @@ def main():
             f.write(f"  F1_max: {results[m_cfg_name]['f1_max']} (SEMs: {results[m_cfg_name]['f1_max_sem']})\n")
             f.write(f"  F1_0.5: {results[m_cfg_name]['f1_05']} (SEMs: {results[m_cfg_name]['f1_05_sem']})\n\n")
 
-    # Save summary markdown report
-    summary_file = out_dir / "early_prediction_results_summary.md"
-    with open(summary_file, "w") as f:
-        f.write("# Septic Shock Early Prediction Deep Learning Results\n\n")
-        f.write(f"Evaluating across **{args.n_splits} dataset splits** per setup.\n\n")
-        f.write("| Model | Metric | " + " | ".join([f"&tau;={t}h" for t in tau_list]) + " |\n")
-        f.write("| :--- | :--- | " + " | ".join([":---:" for _ in tau_list]) + " |\n")
-        for m_cfg_name, _, _ in model_configs:
-            res = results[m_cfg_name]
-            auc_str = " | ".join([f"{m:.4f}±{s:.4f}" for m, s in zip(res['auc'], res['auc_sem'])])
-            auprc_str = " | ".join([f"{m:.4f}±{s:.4f}" for m, s in zip(res['auprc'], res['auprc_sem'])])
-            f1_opt_str = " | ".join([f"{m:.4f}±{s:.4f}" for m, s in zip(res['f1_opt'], res['f1_opt_sem'])])
-            f1_05_str = " | ".join([f"{m:.4f}±{s:.4f}" for m, s in zip(res['f1_05'], res['f1_05_sem'])])
-            
-            f.write(f"| **{m_cfg_name}** | AUC-ROC | {auc_str} |\n")
-            f.write(f"| | AUPRC | {auprc_str} |\n")
-            f.write(f"| | F1-Opt | {f1_opt_str} |\n")
-            f.write(f"| | F1-0.5 | {f1_05_str} |\n")
+    # Clean up legacy markdown summary if present
+    legacy_summary = out_dir / "early_prediction_results_summary.md"
+    if legacy_summary.exists():
+        try:
+            legacy_summary.unlink()
+        except Exception:
+            pass
 
     # Plot 4-panel results
     print(f"Plotting 4-panel results and saving to {out_dir}...")
