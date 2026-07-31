@@ -286,6 +286,7 @@ def find_default_mimic_npz():
 
 def main():
     parser = argparse.ArgumentParser(description="Controlled Septic Shock Early Prediction Sweep with Fixed Cohort")
+    parser.add_argument("--exp-id", type=str, default="", help="Experiment ID to save under results/plots/early_prediction/<exp_id>")
     parser.add_argument("--checkpoint", type=str, default="results/checkpoints/mimic/tune_mimic_cql", help="Path to CQL agent checkpoints (optional for V(s))")
     parser.add_argument("--dataset-path", type=str, default=find_default_mimic_npz(), help="Path to MIMIC dataset")
     parser.add_argument("--tau-min", type=int, default=1, help="Minimum tau in hours")
@@ -294,8 +295,8 @@ def main():
     parser.add_argument("--window-hours", type=int, default=12, help="Observation window length in hours (default: 12)")
     parser.add_argument("--use-all-history", action="store_true", default=False, help="Use full observation sequence from t=0 to cutoff instead of fixed window")
     parser.add_argument("--full-history", dest="use_all_history", action="store_true", help="Use full history from t=0 instead of window")
-    parser.add_argument("--use-all-trajectories", action="store_true", default=True, help="Use all valid trajectories for each tau (default: True)")
-    parser.add_argument("--restricted-cohort", dest="use_all_trajectories", action="store_false", help="Restrict cohort to stays >= tau_max + window_hours")
+    parser.add_argument("--use-all-trajectories", action="store_true", default=False, help="Use all valid trajectories for each tau (dynamic cohort)")
+    parser.add_argument("--restricted-cohort", dest="use_all_trajectories", action="store_false", help="Restrict cohort to stays >= tau_max + window_hours (default: True)")
     parser.add_argument("--use-norm", action="store_true", default=True, help="Apply feature standardization per split (default: True)")
     parser.add_argument("--no-norm", dest="use_norm", action="store_false", help="Disable feature standardization")
     parser.add_argument("--epochs", type=int, default=20, help="Number of training epochs for each model (default: 20)")
@@ -306,7 +307,7 @@ def main():
     parser.add_argument("--num-layers", type=int, default=2, help="Number of layers for Transformer / LSTM (default: 2)")
     parser.add_argument("--hidden-dim", type=int, default=64, help="LSTM hidden dimension (default: 64)")
     parser.add_argument("--n-splits", "--n-models", type=int, dest="n_splits", default=20, help="Number of data splits to evaluate (default: 20)")
-    parser.add_argument("--output-dir", type=str, default="results/plots/early_prediction", help="Directory to save plots")
+    parser.add_argument("--output-dir", type=str, default="results/plots/early_prediction", help="Base directory to save plots")
     args = parser.parse_args()
 
     w_steps = 2 * args.window_hours
@@ -332,12 +333,20 @@ def main():
     checkpoint_arg = Path(args.checkpoint)
     cql_ckpt_path = None
     if checkpoint_arg.is_dir():
-        candidates = list(checkpoint_arg.glob("best_model*.ckpt"))
+        candidates = list(checkpoint_arg.glob("**/*.ckpt"))
         if candidates:
             cql_ckpt_path = str(candidates[-1])
     elif checkpoint_arg.exists():
         cql_ckpt_path = str(checkpoint_arg)
         
+    if not cql_ckpt_path or not os.path.exists(cql_ckpt_path):
+        # Fallback check under results/checkpoints/mimic
+        fallback_dir = Path("results/checkpoints/mimic")
+        if fallback_dir.exists():
+            fallback_candidates = list(fallback_dir.glob("**/*.ckpt"))
+            if fallback_candidates:
+                cql_ckpt_path = str(fallback_candidates[-1])
+
     if cql_ckpt_path and os.path.exists(cql_ckpt_path):
         try:
             from src.methods.cql_agent import CQLAgent
@@ -361,11 +370,15 @@ def main():
                     v_vals_all[i:i+batch_sz] = v_vals
             print("CQL V(s) pre-computation complete.")
         except Exception as e:
-            print(f"Warning: Could not compute V(s) from checkpoint: {e}")
+            print(f"Warning: Could not compute V(s) from checkpoint {cql_ckpt_path}: {e}")
 
     # Set up tau sweep list
     tau_list = list(range(args.tau_min, args.tau_max + 1, args.tau_step))
     print(f"Sweeping tau (hours early): {tau_list}")
+
+    if v_vals_all is None:
+        print("WARNING: CQL checkpoint for V(s) feature was not found. Using zero-padded V(s) feature placeholder for (with V) models.")
+        v_vals_all = np.zeros((len(X), 240, 1), dtype=np.float32)
 
     model_configs = [
         ("LSTM (no V)", "lstm", False),
@@ -515,6 +528,8 @@ def main():
             print(f"    AUC-ROC: {auc_mean:.4f} ± {auc_sem:.4f}, AUPRC: {auprc_mean:.4f} ± {auprc_sem:.4f}, F1-Opt: {f1_opt_mean:.4f} ± {f1_opt_sem:.4f}, F1-Max: {f1_max_mean:.4f} ± {f1_max_sem:.4f}, F1-0.5: {f1_05_mean:.4f} ± {f1_05_sem:.4f}")
 
     out_dir = Path(args.output_dir)
+    if args.exp_id:
+        out_dir = out_dir / args.exp_id
     out_dir.mkdir(parents=True, exist_ok=True)
     
     # Save text results

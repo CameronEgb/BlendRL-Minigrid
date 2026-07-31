@@ -46,6 +46,7 @@ mkdir -p results/logs
 $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/model.py \
     --checkpoint "$CHECKPOINT" \
     --dataset-path "$DATASET_PATH" \
+    --exp-id "improved_sweep" \
     --output-dir "results/plots/early_prediction"
 
 echo "=== Sepsis Early Prediction Sweep Execution End ==="
