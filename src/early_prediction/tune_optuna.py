@@ -184,5 +184,28 @@ def main():
         yaml.dump(study.best_params, f)
     print(f"Saved best parameters to {best_yaml}")
 
+    # Plot Optuna optimization history
+    try:
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(figsize=(10, 6))
+        trial_numbers = [t.number for t in study.trials if t.value is not None]
+        trial_values = [t.value for t in study.trials if t.value is not None]
+        best_values = np.maximum.accumulate(trial_values)
+        
+        ax.plot(trial_numbers, trial_values, 'o', color='tab:blue', alpha=0.6, label='Trial AUPRC')
+        ax.plot(trial_numbers, best_values, '-', color='tab:red', linewidth=2.5, label='Best Cumulative AUPRC')
+        ax.set_title("Optuna Hyperparameter Optimization History (\u03c4=9h)", fontsize=13, fontweight='bold')
+        ax.set_xlabel("Trial Number", fontsize=11)
+        ax.set_ylabel("Validation AUPRC", fontsize=11)
+        ax.grid(True, linestyle="--", alpha=0.5)
+        ax.legend(fontsize=10)
+        plt.tight_layout()
+        hist_path = out_dir / "optuna_optimization_history.png"
+        plt.savefig(hist_path, dpi=200)
+        plt.close()
+        print(f"Saved optimization history plot to {hist_path}")
+    except Exception as e:
+        print(f"Warning: Could not save optimization history plot: {e}")
+
 if __name__ == "__main__":
     main()

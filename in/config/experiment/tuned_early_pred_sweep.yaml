@@ -2,13 +2,19 @@
 defaults:
   - override /env: mimic
 
-task: early_prediction_tune
-experiment_id: tune_early_pred
+task: early_prediction_sweep
+experiment_id: tuned_early_pred_sweep
 group: early_prediction
 
 early_prediction:
   checkpoint: "results/checkpoints/mimic/tune_mimic_cql"
   dataset_path: "in/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
-  output_dir: "results/plots/early_prediction/tune_early_pred"
-  n_trials: 50
-  window_hours: 12
+  output_dir: "results/plots/early_prediction"
+  tau_step: 4
+  epochs: 24
+  batch_size: 64
+  lr: 0.0003
+  d_model: 64
+  nhead: 8
+  num_layers: 2
+  n_splits: 20
