@@ -16,39 +16,22 @@ if os.path.join(PROJECT_ROOT, "src") not in sys.path:
 from src.methods.cql_agent import CQLAgent
 
 class SepsisPredictorLSTM(nn.Module):
-    def __init__(self, input_dim=49, hidden_dim=64):
+    def __init__(self, input_dim=49, hidden_dim=64, num_layers=2, dropout=0.2, bidirectional=False):
         super().__init__()
-        self.lstm = nn.LSTM(input_dim, hidden_dim, batch_first=True)
-        self.classifier = nn.Linear(hidden_dim, 1)
+        self.bidirectional = bidirectional
+        num_dirs = 2 if bidirectional else 1
+        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers, batch_first=True, dropout=dropout if num_layers > 1 else 0.0, bidirectional=bidirectional)
+        self.classifier = nn.Linear(hidden_dim * num_dirs, 1)
         
     def forward(self, x, mask):
-        # x shape: (batch_size, seq_len, input_dim)
-        # mask shape: (batch_size, seq_len, 1) or (batch_size, seq_len)
         if mask.ndim == 2:
             mask = mask.unsqueeze(-1)
-            
-        out, _ = self.lstm(x)
-        # Apply mask: zero out hidden states where mask == -1 (or padded)
-        m = (mask != -1).float()
-        out = out * m
-        
-        # Take the last valid timestep for classification
-        batch_size = x.size(0)
-        last_outputs = []
-        for i in range(batch_size):
-            valid_steps = torch.where(mask[i].squeeze() != -1)[0]
-            if len(valid_steps) > 0:
-                last_idx = valid_steps[-1]
-                last_outputs.append(out[i, last_idx])
-            else:
-                last_outputs.append(out[i, -1])
-        last_outputs = torch.stack(last_outputs)
-        return self.classifier(last_outputs)
-        
-    def predict_all_steps(self, x):
-        # For evaluation Setup B: return prediction for every step
-        out, _ = self.lstm(x)
-        return self.classifier(out)
+        out, (hn, _) = self.lstm(x)
+        if self.bidirectional:
+            last_hn = torch.cat([hn[-2], hn[-1]], dim=-1)
+        else:
+            last_hn = hn[-1]
+        return self.classifier(last_hn)
 
 class PatientDataset(torch.utils.data.Dataset):
     def __init__(self, X, y, mask):
@@ -75,6 +58,9 @@ def train_predictor(X, y, mask, train_indices, test_indices, epochs=60, batch_si
     lr = tp.get("lr", 1e-3)
     weight_decay = tp.get("weight_decay", 1e-4)
     hidden_dim = tp.get("hidden_dim", 64)
+    num_layers = tp.get("num_layers", 2)
+    dropout = tp.get("dropout", 0.2)
+    bidirectional = tp.get("bidirectional", False)
     epochs = tp.get("epochs", epochs)
     
     train_dataset = PatientDataset(X_sa[train_indices], y[train_indices], mask[train_indices])
@@ -83,7 +69,7 @@ def train_predictor(X, y, mask, train_indices, test_indices, epochs=60, batch_si
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     
-    model = SepsisPredictorLSTM(input_dim=49, hidden_dim=hidden_dim).to(device)
+    model = SepsisPredictorLSTM(input_dim=49, hidden_dim=hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     criterion = nn.BCEWithLogitsLoss()
     
@@ -486,7 +472,10 @@ def main():
             print(f"Loading cached predictor split {split_idx + 1}/{args.n_splits} from: {ckpt_path}")
             ckpt_data = torch.load(ckpt_path, map_location=device)
             h_dim = tuned_params.get("hidden_dim", 64)
-            pred_model = SepsisPredictorLSTM(input_dim=49, hidden_dim=h_dim).to(device)
+            n_layers = tuned_params.get("num_layers", 2)
+            d_out = tuned_params.get("dropout", 0.2)
+            b_dir = tuned_params.get("bidirectional", False)
+            pred_model = SepsisPredictorLSTM(input_dim=49, hidden_dim=h_dim, num_layers=n_layers, dropout=d_out, bidirectional=b_dir).to(device)
             pred_model.load_state_dict(ckpt_data["model_state_dict"])
             pred_model.eval()
             pred_acc = ckpt_data.get("pred_acc", 0.80)
