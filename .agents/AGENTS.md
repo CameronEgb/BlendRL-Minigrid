@@ -73,6 +73,7 @@ The project uses a modular configuration system powered by Hydra.
 - **Execution Mode (`--local`):** 
     - **Local (Default):** `run_pipeline.py` defaults to local execution (`--local=True`), running experiments as standard subprocesses.
     - **Cluster:** Historically used for Slurm (`sbatch`) job submission.
+    - **Cluster Push Mandate:** Whenever recommending or generating a command to run on the cluster (e.g., `local=false` or Slurm submission), the agent MUST push changes to GitHub so the codebase is ready to be pulled and run on the cluster.
 - **State Recovery:** For long Atari runs (e.g., Seaquest), use the `recover=true` Hydra override to resume training from the latest checkpoint. Training states are saved at evaluation intervals in `results/checkpoints/[GROUP]/[EXP_ID]/[AGENT]/`.
 
 ## 6. Hydra & Debugging Heuristics
@@ -264,8 +265,9 @@ python run_pipeline.py quick_test -m agent.lr="interval(1e-4, 1e-2)" agent.tau="
 
 ### Step 3: Cluster Deployment & Remote Execution
 Once verified locally:
-1.  Submit your runs to the Slurm scheduler by setting `local=false` (e.g. `python run_pipeline.py cp_final local=false`).
-2.  After execution finishes on the cluster, sync the `results/logs/` and `results/checkpoints/` directories back to your local machine for analysis and plotting.
+1.  **GitHub Push Mandate**: **MANDATORY**: Whenever suggesting or executing a command to run on the cluster (e.g., `local=false` or Slurm batch jobs), the agent MUST commit and push all recent code changes, configs, and scripts to GitHub first so that the remote repository is ready to be pulled and executed on the cluster.
+2.  Submit your runs to the Slurm scheduler by setting `local=false` (e.g. `python run_pipeline.py cp_final local=false`).
+3.  After execution finishes on the cluster, sync the `results/logs/` and `results/checkpoints/` directories back to your local machine for analysis and plotting.
 
 ---
 *Last Updated: 2026-07-28*
