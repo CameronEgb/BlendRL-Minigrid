@@ -479,16 +479,21 @@ def main():
 
         if found_ckpt and found_ckpt.exists():
             print(f"Loading pre-trained EP model split {split_idx + 1}/{args.n_splits} from: {found_ckpt}")
-            ckpt_data = torch.load(found_ckpt, map_location=device)
-            h_dim = tuned_params.get("hidden_dim", 64)
-            n_layers = tuned_params.get("num_layers", 2)
-            d_out = tuned_params.get("dropout", 0.2)
-            b_dir = tuned_params.get("bidirectional", False)
-            pred_model = SepsisPredictorLSTM(input_dim=49, hidden_dim=h_dim, num_layers=n_layers, dropout=d_out, bidirectional=b_dir).to(device)
-            pred_model.load_state_dict(ckpt_data["model_state_dict"])
-            pred_model.eval()
-            pred_acc = ckpt_data.get("pred_acc", 0.80)
-        else:
+            try:
+                ckpt_data = torch.load(found_ckpt, map_location=device)
+                h_dim = tuned_params.get("hidden_dim", 64)
+                n_layers = tuned_params.get("num_layers", 2)
+                d_out = tuned_params.get("dropout", 0.2)
+                b_dir = tuned_params.get("bidirectional", False)
+                pred_model = SepsisPredictorLSTM(input_dim=49, hidden_dim=h_dim, num_layers=n_layers, dropout=d_out, bidirectional=b_dir).to(device)
+                pred_model.load_state_dict(ckpt_data["model_state_dict"])
+                pred_model.eval()
+                pred_acc = ckpt_data.get("pred_acc", 0.80)
+            except Exception as err:
+                print(f"Notice: Checkpoint {found_ckpt} format mismatch ({err}). Training split {split_idx + 1} fresh with tuned hyperparameters...")
+                found_ckpt = None
+
+        if found_ckpt is None or not found_ckpt.exists():
             print(f"\nTraining predictor split {split_idx + 1}/{args.n_splits}...")
             seed_val = 42 + split_idx
             train_indices, test_indices_pred = train_test_split(
