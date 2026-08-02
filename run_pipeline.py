@@ -433,6 +433,8 @@ def main():
                 "checkpoint": "--checkpoint",
                 "dataset_path": "--dataset-path",
                 "output_dir": "--output-dir",
+                "tune_dir": "--tune-dir",
+                "use_tuned_params": "--use-tuned-params",
                 "n_splits": "--n-splits",
                 "tau_min": "--tau-min",
                 "tau_max": "--tau-max",

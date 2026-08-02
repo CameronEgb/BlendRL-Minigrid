@@ -8,6 +8,7 @@ import torch.nn as nn
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import f1_score, roc_auc_score, precision_recall_curve, auc
 import matplotlib.pyplot as plt
+import yaml
 from pathlib import Path
 
 # Add project root and src to PYTHONPATH
@@ -431,11 +432,26 @@ def find_default_mimic_npz():
             return candidate_file
     return "in/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
 
+def load_target_params(tune_dir, m_cfg_name):
+    target_key = m_cfg_name.lower().replace(" ", "_").replace("(", "").replace(")", "")
+    yaml_path = Path(tune_dir) / f"best_params_{target_key}.yaml"
+    if yaml_path.exists():
+        with open(yaml_path, "r") as f:
+            return yaml.safe_load(f)
+    gen_path = Path(tune_dir) / "best_params.yaml"
+    if gen_path.exists():
+        with open(gen_path, "r") as f:
+            return yaml.safe_load(f)
+    return {}
+
 def main():
     parser = argparse.ArgumentParser(description="Controlled Septic Shock Early Prediction Sweep with Fixed Cohort")
     parser.add_argument("--exp-id", type=str, default="", help="Experiment ID to save under results/plots/early_prediction/<exp_id>")
     parser.add_argument("--checkpoint", type=str, default="results/checkpoints/mimic/tune_mimic_cql", help="Path to CQL agent checkpoints (optional for V(s))")
     parser.add_argument("--dataset-path", type=str, default=find_default_mimic_npz(), help="Path to MIMIC dataset")
+    parser.add_argument("--tune-dir", type=str, default="results/plots/early_prediction/tune_early_pred", help="Path to directory containing tuned hyperparameter YAML files")
+    parser.add_argument("--use-tuned-params", action="store_true", default=True, help="Load optimal hyperparameters per model from tune-dir (default: True)")
+    parser.add_argument("--no-tuned-params", dest="use_tuned_params", action="store_false", help="Disable loading tuned hyperparameters and use CLI defaults")
     parser.add_argument("--tau-min", type=int, default=1, help="Minimum tau in hours")
     parser.add_argument("--tau-max", type=int, default=36, help="Maximum tau in hours")
     parser.add_argument("--tau-step", type=int, default=4, help="Step size for tau sweep in hours")
@@ -609,17 +625,48 @@ def main():
                 if args.use_norm:
                     X_train, X_test = normalize_features(X_train, X_test)
                 
+                params = load_target_params(args.tune_dir, m_cfg_name) if args.use_tuned_params else {}
+                
                 if m_type == "lstm":
+                    hidden_dim = params.get("hidden_dim", args.hidden_dim)
+                    num_layers = params.get("num_layers", args.num_layers)
+                    epochs = params.get("epochs", args.epochs)
+                    batch_size = params.get("batch_size", args.batch_size)
+                    lr = params.get("lr", args.lr)
+                    weight_decay = params.get("weight_decay", 1e-4)
+                    use_focal_loss = params.get("use_focal_loss", False)
+                    use_tcn_conv = params.get("use_tcn_conv", False)
+                    bidirectional = params.get("bidirectional", False)
+                    
                     model, train_losses = train_lstm_model(
-                        X_train, y_train, input_dim, hidden_dim=args.hidden_dim, num_layers=args.num_layers,
-                        epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, device=device, seed=seed_val
+                        X_train, y_train, input_dim, hidden_dim=hidden_dim, num_layers=num_layers,
+                        epochs=epochs, batch_size=batch_size, lr=lr, weight_decay=weight_decay,
+                        use_focal_loss=use_focal_loss, use_tcn_conv=use_tcn_conv,
+                        bidirectional=bidirectional, device=device, seed=seed_val
                     )
                     probs_test = evaluate_lstm_model(model, X_test, input_dim, device=device)
                     probs_train = evaluate_lstm_model(model, X_train, input_dim, device=device)
                 elif m_type == "transformer":
+                    d_model = params.get("d_model", args.d_model)
+                    nhead = params.get("nhead", args.nhead)
+                    num_layers = params.get("num_layers", args.num_layers)
+                    dropout = params.get("dropout", 0.1)
+                    weight_decay = params.get("weight_decay", 1e-3)
+                    norm_first = params.get("norm_first", True)
+                    pos_type = params.get("pos_type", "learned")
+                    use_cls_token = params.get("use_cls_token", True)
+                    use_tcn_conv = params.get("use_tcn_conv", False)
+                    use_focal_loss = params.get("use_focal_loss", False)
+                    epochs = params.get("epochs", args.epochs)
+                    batch_size = params.get("batch_size", args.batch_size)
+                    lr = params.get("lr", args.lr)
+                    
                     model, train_losses = train_transformer_model(
-                        X_train, y_train, input_dim, d_model=args.d_model, nhead=args.nhead, num_layers=args.num_layers,
-                        epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, device=device, seed=seed_val
+                        X_train, y_train, input_dim, d_model=d_model, nhead=nhead, num_layers=num_layers,
+                        dropout=dropout, weight_decay=weight_decay, norm_first=norm_first,
+                        pos_type=pos_type, use_cls_token=use_cls_token, use_tcn_conv=use_tcn_conv,
+                        use_focal_loss=use_focal_loss, epochs=epochs, batch_size=batch_size,
+                        lr=lr, device=device, seed=seed_val
                     )
                     probs_test = evaluate_transformer_model(model, X_test, input_dim, device=device)
                     probs_train = evaluate_transformer_model(model, X_train, input_dim, device=device)
