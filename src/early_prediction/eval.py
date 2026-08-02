@@ -451,28 +451,48 @@ def main():
         except Exception as e:
             print(f"Error removing {old_report}: {e}")
 
-    # 3. Train predictor models over n_splits random splits
-    print(f"Training {args.n_splits} Sepsis Predictors over random train/test splits...")
+    # 3. Train or load cached predictor models over n_splits random splits
+    ckpt_save_dir = Path("results/checkpoints/early_prediction") / "eval"
+    ckpt_save_dir.mkdir(parents=True, exist_ok=True)
+    
+    print(f"Loading/Training {args.n_splits} Sepsis Predictor models over random train/test splits...")
     predictors = []
     predictor_accs = []
     
     for split_idx in range(args.n_splits):
-        print(f"\nTraining predictor split {split_idx + 1}/{args.n_splits}...")
-        seed_val = 42 + split_idx
-        train_indices, test_indices_pred = train_test_split(
-            np.arange(len(X_train)), test_size=0.2, random_state=seed_val
-        )
-        plot_path = None
-        if split_idx == 0:
-            convergence_dir = report_dir / "convergence"
-            convergence_dir.mkdir(parents=True, exist_ok=True)
-            plot_path = convergence_dir / "predictor_convergence.png"
+        ckpt_path = ckpt_save_dir / f"predictor_tau{args.tau}_split{split_idx}.pt"
+        if ckpt_path.exists():
+            print(f"Loading cached predictor split {split_idx + 1}/{args.n_splits} from: {ckpt_path}")
+            ckpt_data = torch.load(ckpt_path, map_location=device)
+            pred_model = SepsisPredictorLSTM(input_dim=49, hidden_dim=64).to(device)
+            pred_model.load_state_dict(ckpt_data["model_state_dict"])
+            pred_model.eval()
+            pred_acc = ckpt_data.get("pred_acc", 0.80)
+        else:
+            print(f"\nTraining predictor split {split_idx + 1}/{args.n_splits}...")
+            seed_val = 42 + split_idx
+            train_indices, test_indices_pred = train_test_split(
+                np.arange(len(X_train)), test_size=0.2, random_state=seed_val
+            )
+            plot_path = None
+            if split_idx == 0:
+                convergence_dir = report_dir / "convergence"
+                convergence_dir.mkdir(parents=True, exist_ok=True)
+                plot_path = convergence_dir / "predictor_convergence.png"
+                
+            pred_model, pred_acc = train_predictor(
+                X_train, y_train, mask_train, train_indices, test_indices_pred,
+                epochs=args.predictor_epochs, device=device,
+                plot_convergence=(split_idx == 0), plot_path=plot_path
+            )
+            torch.save({
+                "model_state_dict": pred_model.state_dict(),
+                "pred_acc": float(pred_acc),
+                "tau": args.tau,
+                "split_idx": split_idx
+            }, ckpt_path)
+            print(f"Saved trained predictor checkpoint to: {ckpt_path}")
             
-        pred_model, pred_acc = train_predictor(
-            X_train, y_train, mask_train, train_indices, test_indices_pred,
-            epochs=args.predictor_epochs, device=device,
-            plot_convergence=(split_idx == 0), plot_path=plot_path
-        )
         predictors.append(pred_model)
         predictor_accs.append(pred_acc)
         
