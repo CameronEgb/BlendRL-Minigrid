@@ -14,6 +14,7 @@ if PROJECT_ROOT not in sys.path:
 if os.path.join(PROJECT_ROOT, "src") not in sys.path:
     sys.path.insert(0, os.path.join(PROJECT_ROOT, "src"))
 from src.methods.cql_agent import CQLAgent
+from src.early_prediction.model import SepsisLSTM, SepsisTransformer, compute_volatility_features
 
 class SepsisPredictorLSTM(nn.Module):
     def __init__(self, input_dim=49, hidden_dim=64, num_layers=2, dropout=0.2, bidirectional=False):
