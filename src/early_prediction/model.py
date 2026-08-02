@@ -452,6 +452,8 @@ def main():
     parser.add_argument("--tune-dir", type=str, default="results/plots/early_prediction/tune_early_pred", help="Path to directory containing tuned hyperparameter YAML files")
     parser.add_argument("--use-tuned-params", action="store_true", default=True, help="Load optimal hyperparameters per model from tune-dir (default: True)")
     parser.add_argument("--no-tuned-params", dest="use_tuned_params", action="store_false", help="Disable loading tuned hyperparameters and use CLI defaults")
+    parser.add_argument("--save-checkpoints", action="store_true", default=True, help="Save PyTorch model checkpoints (.pt) for evaluation against clinician policies (default: True)")
+    parser.add_argument("--no-save-checkpoints", dest="save_checkpoints", action="store_false", help="Disable saving PyTorch model checkpoints")
     parser.add_argument("--tau-min", type=int, default=1, help="Minimum tau in hours")
     parser.add_argument("--tau-max", type=int, default=36, help="Maximum tau in hours")
     parser.add_argument("--tau-step", type=int, default=4, help="Step size for tau sweep in hours")
@@ -692,6 +694,22 @@ def main():
                 
                 preds_05 = (probs_test >= 0.5).astype(np.int32)
                 f1_05_val = float(f1_score(y_test, preds_05, zero_division=0))
+                
+                if args.save_checkpoints:
+                    ckpt_dir = Path("results/checkpoints/early_prediction") / (args.exp_id or "default")
+                    ckpt_dir.mkdir(parents=True, exist_ok=True)
+                    clean_name = m_cfg_name.lower().replace(" ", "_").replace("(", "").replace(")", "")
+                    ckpt_path = ckpt_dir / f"{clean_name}_tau{tau}_split{m_idx}.pt"
+                    torch.save({
+                        "model_state_dict": model.state_dict(),
+                        "model_type": m_type,
+                        "model_name": m_cfg_name,
+                        "tau": tau,
+                        "split_idx": m_idx,
+                        "input_dim": input_dim,
+                        "opt_thresh": float(opt_thresh),
+                        "hyperparams": params
+                    }, ckpt_path)
                 
                 split_aucs.append(auc_roc)
                 split_auprcs.append(auprc_val)

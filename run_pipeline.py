@@ -435,6 +435,7 @@ def main():
                 "output_dir": "--output-dir",
                 "tune_dir": "--tune-dir",
                 "use_tuned_params": "--use-tuned-params",
+                "save_checkpoints": "--save-checkpoints",
                 "n_splits": "--n-splits",
                 "tau_min": "--tau-min",
                 "tau_max": "--tau-max",
