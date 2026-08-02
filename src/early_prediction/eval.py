@@ -595,6 +595,9 @@ def main():
         split_f1s = []
         split_aucs = []
         
+        patient_agreements_all = []
+        patient_true_outcomes_all = []
+        
         for split_idx in range(args.n_splits):
             predictor = predictors[split_idx]
             pred_acc = predictor_accs[split_idx]
@@ -621,6 +624,7 @@ def main():
             
             for idx, patient_idx in enumerate(test_indices_eval):
                 valid_steps = np.where(mask[patient_idx].squeeze() != -1)[0]
+                patient_matches = 0
                 for t in valid_steps:
                     obs = X[patient_idx, t, :46]
                     obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(device)
@@ -637,10 +641,15 @@ def main():
                     clin_act = int(X[patient_idx, t, 47])
                     if action == clin_act:
                         agreement_count += 1
+                        patient_matches += 1
                     if action == 1:
                         cql_actions_count += 1
                     if clin_act == 1:
                         clinician_actions_count += 1
+                        
+                p_aggr = (patient_matches / max(1, len(valid_steps))) * 100.0
+                patient_agreements_all.append(p_aggr)
+                patient_true_outcomes_all.append(float(y[patient_idx, 0]))
                         
             X_cql = X_cql * m_test
             
@@ -799,6 +808,69 @@ def main():
             ])
             
         print(f"Appended results for {checkpoint_name} to CSV summary file.")
+
+        # Generate Septic Shock Rate vs. Policy Agreement Plot
+        try:
+            import matplotlib.pyplot as plt
+            agreements_np = np.array(patient_agreements_all)
+            outcomes_np = np.array(patient_true_outcomes_all)
+            
+            bins = np.linspace(0, 100, 11)
+            bin_centers = (bins[:-1] + bins[1:]) / 2.0
+            
+            bin_shock_means = []
+            bin_shock_sems = []
+            bin_patient_counts = []
+            
+            for b_idx in range(10):
+                low, high = bins[b_idx], bins[b_idx+1]
+                if b_idx == 9:
+                    idx_mask = (agreements_np >= low) & (agreements_np <= high)
+                else:
+                    idx_mask = (agreements_np >= low) & (agreements_np < high)
+                    
+                pts_in_bin = outcomes_np[idx_mask]
+                bin_patient_counts.append(len(pts_in_bin))
+                if len(pts_in_bin) > 0:
+                    mean_val = float(np.mean(pts_in_bin))
+                    sem_val = float(np.std(pts_in_bin) / np.sqrt(len(pts_in_bin))) if len(pts_in_bin) > 1 else 0.0
+                    bin_shock_means.append(mean_val)
+                    bin_shock_sems.append(sem_val)
+                else:
+                    bin_shock_means.append(np.nan)
+                    bin_shock_sems.append(0.0)
+                    
+            fig, ax1 = plt.subplots(figsize=(10, 6))
+            
+            means_arr = np.array(bin_shock_means)
+            sems_arr = np.array(bin_shock_sems)
+            valid_mask = ~np.isnan(means_arr)
+            
+            ax1.plot(bin_centers[valid_mask], means_arr[valid_mask] * 100.0, 'o-', color='tab:red', linewidth=2.5, label='True Septic Shock Rate (%)')
+            ax1.fill_between(bin_centers[valid_mask], (means_arr[valid_mask] - sems_arr[valid_mask]) * 100.0, (means_arr[valid_mask] + sems_arr[valid_mask]) * 100.0, color='tab:red', alpha=0.2)
+            
+            ax1.set_xlabel("Clinician - RL Policy Agreement (%)", fontsize=12, fontweight='bold')
+            ax1.set_ylabel("True Patient Septic Shock Rate (%)", fontsize=12, fontweight='bold', color='tab:red')
+            ax1.tick_params(axis='y', labelcolor='tab:red')
+            ax1.set_xticks(np.arange(0, 101, 10))
+            ax1.grid(True, linestyle="--", alpha=0.5)
+            
+            ax2 = ax1.twinx()
+            ax2.bar(bin_centers, bin_patient_counts, width=8, color='tab:blue', alpha=0.2, label='Patient Count')
+            ax2.set_ylabel("Patient Count in Bin", fontsize=12, fontweight='bold', color='tab:blue')
+            ax2.tick_params(axis='y', labelcolor='tab:blue')
+            
+            plt.title("True Septic Shock Rate vs. Clinician-RL Policy Agreement %", fontsize=13, fontweight='bold')
+            fig.tight_layout()
+            
+            plot_out_dir = Path("results/plots/early_prediction") / (exp_id or "default")
+            plot_out_dir.mkdir(parents=True, exist_ok=True)
+            plot_path = plot_out_dir / "septic_shock_vs_agreement.png"
+            plt.savefig(plot_path, dpi=200)
+            plt.close()
+            print(f"Saved Septic Shock vs. Policy Agreement plot to: {plot_path}")
+        except Exception as e:
+            print(f"Warning: Could not save septic shock vs agreement plot: {e}")
 
     # Re-generate the single summary & detailed text reports document
     generate_text_report(csv_path, summary_path, exp_id)
