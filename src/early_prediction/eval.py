@@ -62,7 +62,7 @@ class PatientDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx], self.mask[idx]
 
-def train_predictor(X, y, mask, train_indices, test_indices, epochs=60, batch_size=32, device='cpu', plot_convergence=False, plot_path=None):
+def train_predictor(X, y, mask, train_indices, test_indices, epochs=60, batch_size=32, device='cpu', plot_convergence=False, plot_path=None, tuned_params=None):
     # States + action are features 0 to 48
     X_sa = X[:, :, :49].copy()
     
@@ -70,14 +70,21 @@ def train_predictor(X, y, mask, train_indices, test_indices, epochs=60, batch_si
     m = (mask != -1).astype(np.float32)
     X_sa = X_sa * m
     
+    tp = tuned_params or {}
+    batch_size = tp.get("batch_size", batch_size)
+    lr = tp.get("lr", 1e-3)
+    weight_decay = tp.get("weight_decay", 1e-4)
+    hidden_dim = tp.get("hidden_dim", 64)
+    epochs = tp.get("epochs", epochs)
+    
     train_dataset = PatientDataset(X_sa[train_indices], y[train_indices], mask[train_indices])
     test_dataset = PatientDataset(X_sa[test_indices], y[test_indices], mask[test_indices])
     
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     
-    model = SepsisPredictorLSTM(input_dim=49, hidden_dim=64).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    model = SepsisPredictorLSTM(input_dim=49, hidden_dim=hidden_dim).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     criterion = nn.BCEWithLogitsLoss()
     
     best_acc = 0.0
@@ -451,6 +458,20 @@ def main():
         except Exception as e:
             print(f"Error removing {old_report}: {e}")
 
+    # Load tuned predictor hyperparameters if available
+    tuned_params = {}
+    for t_yaml in [
+        Path("results/plots/early_prediction/tune_early_pred/best_params_lstm_with_v.yaml"),
+        Path("results/plots/early_prediction/tune_early_pred/best_params_transformer_with_v.yaml"),
+        Path("results/plots/early_prediction/optuna_study/best_params.yaml")
+    ]:
+        if t_yaml.exists():
+            import yaml
+            with open(t_yaml, "r") as f:
+                tuned_params = yaml.safe_load(f)
+                print(f"Loaded tuned predictor hyperparameters from {t_yaml}: {tuned_params}")
+                break
+
     # 3. Train or load cached predictor models over n_splits random splits
     ckpt_save_dir = Path("results/checkpoints/early_prediction") / "eval"
     ckpt_save_dir.mkdir(parents=True, exist_ok=True)
@@ -464,7 +485,8 @@ def main():
         if ckpt_path.exists():
             print(f"Loading cached predictor split {split_idx + 1}/{args.n_splits} from: {ckpt_path}")
             ckpt_data = torch.load(ckpt_path, map_location=device)
-            pred_model = SepsisPredictorLSTM(input_dim=49, hidden_dim=64).to(device)
+            h_dim = tuned_params.get("hidden_dim", 64)
+            pred_model = SepsisPredictorLSTM(input_dim=49, hidden_dim=h_dim).to(device)
             pred_model.load_state_dict(ckpt_data["model_state_dict"])
             pred_model.eval()
             pred_acc = ckpt_data.get("pred_acc", 0.80)
@@ -483,7 +505,8 @@ def main():
             pred_model, pred_acc = train_predictor(
                 X_train, y_train, mask_train, train_indices, test_indices_pred,
                 epochs=args.predictor_epochs, device=device,
-                plot_convergence=(split_idx == 0), plot_path=plot_path
+                plot_convergence=(split_idx == 0), plot_path=plot_path,
+                tuned_params=tuned_params
             )
             torch.save({
                 "model_state_dict": pred_model.state_dict(),
