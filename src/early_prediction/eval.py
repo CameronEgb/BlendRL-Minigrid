@@ -467,10 +467,19 @@ def main():
     predictor_accs = []
     
     for split_idx in range(args.n_splits):
-        ckpt_path = ckpt_save_dir / f"predictor_tau{args.tau}_split{split_idx}.pt"
-        if ckpt_path.exists():
-            print(f"Loading cached predictor split {split_idx + 1}/{args.n_splits} from: {ckpt_path}")
-            ckpt_data = torch.load(ckpt_path, map_location=device)
+        # Search for pre-trained predictor checkpoint from tuned_early_pred_sweep or eval cache
+        found_ckpt = None
+        ep_ckpt_root = Path("results/checkpoints/early_prediction")
+        if ep_ckpt_root.exists():
+            candidates = list(ep_ckpt_root.glob(f"**/*tau{args.tau}*split{split_idx}.pt"))
+            if not candidates:
+                candidates = list(ep_ckpt_root.glob(f"**/*split{split_idx}.pt"))
+            if candidates:
+                found_ckpt = candidates[0]
+
+        if found_ckpt and found_ckpt.exists():
+            print(f"Loading pre-trained EP model split {split_idx + 1}/{args.n_splits} from: {found_ckpt}")
+            ckpt_data = torch.load(found_ckpt, map_location=device)
             h_dim = tuned_params.get("hidden_dim", 64)
             n_layers = tuned_params.get("num_layers", 2)
             d_out = tuned_params.get("dropout", 0.2)
