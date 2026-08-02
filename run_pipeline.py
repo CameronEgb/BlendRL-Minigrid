@@ -450,7 +450,11 @@ def main():
             }
             for k, flag in flag_map.items():
                 if k in ep_c and ep_c[k] is not None:
-                    a_list.extend([flag, str(ep_c[k])])
+                    if isinstance(ep_c[k], bool):
+                        if ep_c[k]:
+                            a_list.append(flag)
+                    else:
+                        a_list.extend([flag, str(ep_c[k])])
             if ep_c.get("use_all_history", False):
                 a_list.append("--use-all-history")
             if ep_c.get("use_all_trajectories", False):
