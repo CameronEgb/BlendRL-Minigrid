@@ -1,0 +1,13 @@
+# @package _global_
+defaults:
+  - override /env: mimic
+
+task: early_prediction_eval
+experiment_id: early_pred_eval
+group: early_prediction
+
+early_prediction:
+  checkpoint: "results/checkpoints/mimic/tune_mimic_cql"
+  dataset_path: "in/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
+  output_dir: "results/plots/early_prediction"
+  n_splits: 20
