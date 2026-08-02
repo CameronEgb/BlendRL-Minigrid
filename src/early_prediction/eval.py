@@ -373,12 +373,26 @@ def main():
                     break
             
     # Load predictor training dataset
-    if args.dataset_path is not None:
+    dataset_path = None
+    if args.dataset_path is not None and os.path.exists(args.dataset_path):
         dataset_path = os.path.abspath(args.dataset_path)
     else:
-        dataset_path = os.path.join(mimic_dir, args.dataset_name)
-    if not os.path.exists(dataset_path):
-        raise FileNotFoundError(f"Predictor training dataset not found at {dataset_path}")
+        fname = os.path.basename(args.dataset_path) if args.dataset_path else args.dataset_name
+        candidates = [
+            os.path.join(mimic_dir, fname),
+            os.path.abspath(os.path.join(os.getcwd(), "in/datasets/mimic", fname)),
+            os.path.abspath(os.path.join(os.getcwd(), "in/datasets/MIMIC 2", fname)),
+            os.path.abspath(os.path.join(os.getcwd(), "in/datasets", fname)),
+            os.path.join("/mnt/beegfs/cegbert/NeSyRL/in/datasets/mimic", fname),
+            os.path.join("/mnt/beegfs/cegbert/MIMIC 2", fname),
+            os.path.join("/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2", fname),
+        ]
+        for cand in candidates:
+            if os.path.exists(cand):
+                dataset_path = cand
+                break
+    if dataset_path is None or not os.path.exists(dataset_path):
+        raise FileNotFoundError(f"Predictor training dataset not found at {args.dataset_path} or candidate fallback locations.")
         
     print(f"Loading predictor training dataset from: {dataset_path}")
     data_train = np.load(dataset_path, allow_pickle=True)
