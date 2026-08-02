@@ -418,19 +418,19 @@ def find_default_mimic_npz():
     if env_dir and os.path.exists(os.path.join(env_dir, "mimic_lazy_12_clean_with_interventions_corrected.npz")):
         return os.path.join(env_dir, "mimic_lazy_12_clean_with_interventions_corrected.npz")
     for candidate_dir in [
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../in/datasets/MIMIC 2")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../in/datasets/mimic")),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "../../in/datasets")),
-        os.path.abspath(os.path.join(os.getcwd(), "in/datasets/MIMIC 2")),
+        os.path.abspath(os.path.join(os.getcwd(), "in/datasets/mimic")),
         os.path.abspath(os.path.join(os.getcwd(), "in/datasets")),
         "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2",
-        "/mnt/beegfs/cegbert/NeSyRL/in/datasets/MIMIC 2",
+        "/mnt/beegfs/cegbert/NeSyRL/in/datasets/mimic",
         "/mnt/beegfs/cegbert/NeSyRL/in/datasets",
         "/mnt/beegfs/cegbert/MIMIC 2"
     ]:
         candidate_file = os.path.join(candidate_dir, "mimic_lazy_12_clean_with_interventions_corrected.npz")
         if os.path.exists(candidate_file):
             return candidate_file
-    return "in/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
+    return "in/datasets/mimic/mimic_lazy_12_clean_with_interventions_corrected.npz"
 
 def load_target_params(tune_dir, m_cfg_name):
     target_key = m_cfg_name.lower().replace(" ", "_").replace("(", "").replace(")", "")

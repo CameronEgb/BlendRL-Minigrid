@@ -90,8 +90,8 @@ python3 plot/losses.py cp_final --metrics losses/q_loss losses/actor_loss --wind
 Run multi-trial sweeps locally or submit Slurm batch jobs to the cluster:
 
 ```bash
-# Run hyperparameter sweep for MIMIC BlendRL-CQL
-python3 run_pipeline.py tune_mimic_blendrl_cql -m
+# Run hyperparameter sweep for all 4 MIMIC architectures (Neural, NeSy x2, Symbolic)
+python3 run_pipeline.py tune_mimic_all -m
 
 # Optuna SQLite databases are saved automatically in results/optuna/
 ```

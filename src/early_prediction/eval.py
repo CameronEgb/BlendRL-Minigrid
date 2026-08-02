@@ -320,7 +320,7 @@ def main():
     import argparse
     import csv
     parser = argparse.ArgumentParser(description="MIMIC Sepsis Early Prediction Evaluation")
-    parser.add_argument("--experiment", "-e", type=str, default=None, help="Experiment ID to evaluate (e.g., tune_mimic_blendrl_cql)")
+    parser.add_argument("--experiment", "-e", type=str, default=None, help="Experiment ID to evaluate (e.g., tune_mimic_all)")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to trained CQL checkpoint or directory of checkpoints")
     parser.add_argument("--dataset-name", type=str, default=os.environ.get("MIMIC_DATASET_NAME", "mimic_lazy_12_clean_with_interventions_corrected.npz"), help="Predictor training dataset name")
     parser.add_argument("--eval-dataset-name", type=str, default=os.environ.get("MIMIC_EVAL_DATASET_NAME", "mimic_lazy_12_clean_with_interventions_corrected.npz"), help="Evaluation dataset name")
@@ -359,12 +359,12 @@ def main():
         mimic_dir = os.environ.get("MIMIC_DATASET_DIR", "")
         if not mimic_dir or not os.path.exists(mimic_dir):
             for candidate in [
-                os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets/MIMIC 2")),
+                os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets/mimic")),
                 os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets")),
-                os.path.abspath(os.path.join(os.getcwd(), "in/datasets/MIMIC 2")),
+                os.path.abspath(os.path.join(os.getcwd(), "in/datasets/mimic")),
                 os.path.abspath(os.path.join(os.getcwd(), "in/datasets")),
                 "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2",
-                "/mnt/beegfs/cegbert/NeSyRL/in/datasets/MIMIC 2",
+                "/mnt/beegfs/cegbert/NeSyRL/in/datasets/mimic",
                 "/mnt/beegfs/cegbert/NeSyRL/in/datasets",
                 "/mnt/beegfs/cegbert/MIMIC 2"
             ]:

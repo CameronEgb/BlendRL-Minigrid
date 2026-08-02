@@ -551,8 +551,8 @@ $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/eval.py --checkpoint "{ck
             print(f"\n=== Running Early Prediction Modular Optuna Hyperparameter Search ({cfg.experiment_id}) ===")
             ep_cfg = cfg.get("early_prediction", {})
             n_trials = ep_cfg.get("n_trials", 50)
-            ckpt = ep_cfg.get("checkpoint", "results/checkpoints/mimic/tune_mimic_cql")
-            dataset_path = ep_cfg.get("dataset_path", "in/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz")
+            ckpt = ep_cfg.get("checkpoint", "results/checkpoints/mimic/tune_mimic_all")
+            dataset_path = ep_cfg.get("dataset_path", "in/datasets/mimic/mimic_lazy_12_clean_with_interventions_corrected.npz")
             out_dir = ep_cfg.get("output_dir", f"results/plots/early_prediction/{cfg.experiment_id}")
             
             target_models = ep_cfg.get("target_models", ["lstm_no_v", "lstm_with_v", "transformer_no_v", "transformer_with_v"])

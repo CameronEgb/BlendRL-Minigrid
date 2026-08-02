@@ -17,21 +17,18 @@ export PROJECT_ROOT=$(pwd)
 export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/nsfr:$PROJECT_ROOT/src/nudge:$PROJECT_ROOT/src/neumann:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
 
 # 2. Paths Configuration (Defaults for Cluster)
-DATASET_PATH="in/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
+DATASET_PATH="in/datasets/mimic/mimic_lazy_12_clean_with_interventions_corrected.npz"
 if [ ! -f "$DATASET_PATH" ]; then
     DATASET_PATH="in/datasets/mimic_lazy_12_clean_with_interventions_corrected.npz"
 fi
 if [ ! -f "$DATASET_PATH" ]; then
-    DATASET_PATH="/mnt/beegfs/cegbert/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
-fi
-if [ ! -f "$DATASET_PATH" ]; then
-    DATASET_PATH="datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
+    DATASET_PATH="/mnt/beegfs/cegbert/NeSyRL/in/datasets/mimic/mimic_lazy_12_clean_with_interventions_corrected.npz"
 fi
 if [ ! -f "$DATASET_PATH" ]; then
     DATASET_PATH="/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
 fi
 
-CHECKPOINT="results/checkpoints/mimic/tune_mimic_cql"
+CHECKPOINT="results/checkpoints/mimic/tune_mimic_all"
 
 echo "Using Dataset Path: $DATASET_PATH"
 echo "Using Checkpoint: $CHECKPOINT"

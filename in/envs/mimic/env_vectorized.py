@@ -27,30 +27,18 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
         # Load dataset
         mimic_dir = os.environ.get("MIMIC_DATASET_DIR", "")
         if not mimic_dir or not os.path.exists(mimic_dir):
-            # Check project in/datasets folder (e.g. NeSyRL/in/datasets/MIMIC 2 or NeSyRL/in/datasets)
-            project_in_datasets = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../datasets/MIMIC 2"))
-            if os.path.exists(project_in_datasets):
-                mimic_dir = project_in_datasets
-            else:
-                project_in_datasets_plain = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../datasets"))
-                if os.path.exists(project_in_datasets_plain):
-                    mimic_dir = project_in_datasets_plain
-
-        if not mimic_dir or not os.path.exists(mimic_dir):
-            cwd_in_datasets = os.path.abspath(os.path.join(os.getcwd(), "in/datasets/MIMIC 2"))
-            if os.path.exists(cwd_in_datasets):
-                mimic_dir = cwd_in_datasets
-            else:
-                cwd_in_datasets_plain = os.path.abspath(os.path.join(os.getcwd(), "in/datasets"))
-                if os.path.exists(cwd_in_datasets_plain):
-                    mimic_dir = cwd_in_datasets_plain
-
-        if not mimic_dir or not os.path.exists(mimic_dir):
-            mimic_dir = "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2"
-        if not os.path.exists(mimic_dir):
-            mimic_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../datasets/MIMIC 2"))
-        if not os.path.exists(mimic_dir):
-            mimic_dir = "/mnt/beegfs/cegbert/MIMIC 2"
+            for candidate in [
+                os.path.abspath(os.path.join(os.path.dirname(__file__), "../../datasets/mimic")),
+                os.path.abspath(os.path.join(os.getcwd(), "in/datasets/mimic")),
+                os.path.abspath(os.path.join(os.path.dirname(__file__), "../../datasets")),
+                os.path.abspath(os.path.join(os.getcwd(), "in/datasets")),
+                "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2",
+                "/mnt/beegfs/cegbert/NeSyRL/in/datasets/mimic",
+                "/mnt/beegfs/cegbert/MIMIC 2"
+            ]:
+                if os.path.exists(candidate):
+                    mimic_dir = candidate
+                    break
             
         path = os.path.join(mimic_dir, dataset_name)
         if not os.path.exists(path):

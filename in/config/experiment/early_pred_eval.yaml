@@ -7,7 +7,7 @@ experiment_id: early_pred_eval
 group: early_prediction
 
 early_prediction:
-  checkpoint: "results/checkpoints/mimic/tune_mimic_cql"
-  dataset_path: "in/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
+  checkpoint: "results/checkpoints/mimic/tune_mimic_all"
+  dataset_path: "in/datasets/mimic/mimic_lazy_12_clean_with_interventions_corrected.npz"
   output_dir: "results/plots/early_prediction"
   n_splits: 20
