@@ -3,6 +3,104 @@ from blendrl.env_vectorized import VectorizedNudgeBaseEnv
 import numpy as np
 import os
 
+def compute_tqn_stage_severity(obs):
+    """
+    Computes septic stage severity penalty for a clinical state observation.
+    Penalties:
+      - Infection: -1.0
+      - Inflammation (SIRS): -2.0
+      - Single Organ Failure L1: -5.0, L2: -10.0
+      - Multiple Organ Failure L1: -20.0, L2: -30.0
+      - Septic Shock: -50.0
+    """
+    hr = obs[0]
+    rr = obs[1]
+    spo2 = obs[2]
+    fio2 = obs[4]
+    temp = obs[7]
+    bands = obs[8]
+    bun = obs[9]
+    lactate = obs[10]
+    platelets = obs[11]
+    creatinine = obs[12]
+    bilirubin = obs[13]
+    wbc = obs[14]
+    map_bp = obs[15]
+    crp = obs[16]
+
+    severity = 0.0
+
+    # 1. Infection (-1.0)
+    is_infection = (bands > 10.0) or (wbc > 12.0) or (0 < wbc < 4.0) or (crp > 10.0)
+    if is_infection:
+        severity += -1.0
+
+    # 2. Inflammation (-2.0)
+    is_sirs = ((temp > 38.0) or (0 < temp < 36.0)) or (hr > 90.0) or (rr > 20.0) or (wbc > 12.0) or (0 < wbc < 4.0)
+    if is_sirs:
+        severity += -2.0
+
+    # 3. Organ Failures (OF)
+    l1_count, l2_count = 0, 0
+
+    # Cardio
+    if 0 < map_bp < 55: l2_count += 1
+    elif 0 < map_bp < 65: l1_count += 1
+
+    # Meta
+    if lactate > 4.0: l2_count += 1
+    elif lactate > 2.0: l1_count += 1
+
+    # Hema
+    if 0 < platelets < 100: l2_count += 1
+    elif 0 < platelets < 150: l1_count += 1
+
+    # Renal
+    if creatinine > 2.0 or bun > 40: l2_count += 1
+    elif creatinine > 1.2 or bun > 20: l1_count += 1
+
+    # Resp
+    if (0 < spo2 < 88) or fio2 > 0.6: l2_count += 1
+    elif (0 < spo2 < 92) or fio2 > 0.4 or rr > 24: l1_count += 1
+
+    # Gastro
+    if bilirubin > 2.0: l2_count += 1
+    elif bilirubin > 1.2: l1_count += 1
+
+    total_of = l1_count + l2_count
+    if l2_count >= 2 or (total_of >= 2 and l2_count >= 1):
+        severity += -30.0  # Multiple OF Level-2
+    elif total_of >= 2:
+        severity += -20.0  # Multiple OF Level-1
+    elif l2_count == 1:
+        severity += -10.0  # Single OF Level-2
+    elif l1_count == 1:
+        severity += -5.0   # Single OF Level-1
+
+    # 4. Septic Shock (-50.0)
+    is_shock = (0 < map_bp < 65) and (lactate > 2.0)
+    if is_shock:
+        severity += -50.0
+
+    return severity
+
+def compute_tqn_action_cost(policy_action, obs=None):
+    """
+    Action costs to prevent over-treatment:
+      - Oxygen control: -0.01
+      - Anti-infection drug: -0.1
+      - Vasopressor: -0.2
+    """
+    cost = 0.0
+    if isinstance(policy_action, (int, np.integer)):
+        if policy_action == 1:
+            cost += 0.1  # Anti-infection drug
+    elif isinstance(policy_action, (list, tuple, np.ndarray)):
+        if len(policy_action) >= 1 and policy_action[0] == 1: cost += 0.01
+        if len(policy_action) >= 2 and policy_action[1] == 1: cost += 0.1
+        if len(policy_action) >= 3 and policy_action[2] == 1: cost += 0.2
+    return cost
+
 class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
     name = "mimic"
     pred2action = {
@@ -124,6 +222,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
             valid_steps = self.valid_steps_by_patient[traj]
             
             t = valid_steps[step_idx]
+            obs = self.states[traj, t]
             
             # Action taken by policy
             policy_action = actions[i]
@@ -135,13 +234,25 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
             
             is_done = (step_idx == len(valid_steps) - 1)
             
-            reward_type = os.environ.get("MIMIC_REWARD_TYPE", "outcome")
+            reward_type = os.environ.get("MIMIC_REWARD_TYPE", "outcome").lower()
             if reward_type == "outcome":
                 outcome = self.y[traj, 0]
                 terminal_reward = 15.0 if outcome == 0 else -15.0
                 reward = 0.0
                 if is_done:
                     reward = terminal_reward
+            elif reward_type == "tqn":
+                curr_sev = compute_tqn_stage_severity(obs)
+                if step_idx > 0:
+                    prev_t = valid_steps[step_idx - 1]
+                    prev_obs = self.states[traj, prev_t]
+                    prev_sev = compute_tqn_stage_severity(prev_obs)
+                else:
+                    prev_sev = 0.0
+                
+                stage_reward = curr_sev - prev_sev
+                act_cost = compute_tqn_action_cost(policy_action, obs)
+                reward = stage_reward - act_cost
             else:
                 # Default behavioral copying reward
                 T = len(valid_steps)

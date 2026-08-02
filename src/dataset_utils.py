@@ -163,13 +163,40 @@ class DatasetReader:
             self.dones = torch.tensor(np.concatenate(dones_list, axis=0))
             
             import os
-            reward_type = os.environ.get("MIMIC_REWARD_TYPE", "outcome")
+            reward_type = os.environ.get("MIMIC_REWARD_TYPE", "outcome").lower()
             if reward_type == "behavioral" and self.obs.shape[-1] == 46:
                 print("MIMIC_REWARD_TYPE=behavioral detected! Zeroing out clinician penalties for death cases in memory...")
                 self.rewards[self.rewards < 0.0] = 0.0
-                
-            # If MIMIC_REWARD_TYPE is set to "outcome", recompute rewards in the loaded dataset
-            if reward_type == "outcome" and self.obs.shape[-1] == 46:
+            elif reward_type == "tqn" and self.obs.shape[-1] == 46:
+                print("MIMIC_REWARD_TYPE=tqn detected! Recomputing TQN stage-severity & action-cost rewards in memory...")
+                import sys, importlib
+                if "src" not in sys.path:
+                    sys.path.append("src")
+                mimic_env_mod = importlib.import_module("in.envs.mimic.env_vectorized")
+                compute_sev = mimic_env_mod.compute_tqn_stage_severity
+                compute_cost = mimic_env_mod.compute_tqn_action_cost
+
+                n_transitions = len(self.obs)
+                new_rewards = self.rewards.clone().float()
+                start_idx = 0
+
+                for idx in range(n_transitions):
+                    obs_curr = self.obs[idx].numpy()
+                    curr_sev = compute_sev(obs_curr)
+                    if idx > start_idx:
+                        obs_prev = self.obs[idx - 1].numpy()
+                        prev_sev = compute_sev(obs_prev)
+                    else:
+                        prev_sev = 0.0
+
+                    act = int(self.actions[idx].item())
+                    act_cost = compute_cost(act, obs_curr)
+                    new_rewards[idx] = (curr_sev - prev_sev) - act_cost
+
+                    if self.dones[idx] == 1.0:
+                        start_idx = idx + 1
+                self.rewards = new_rewards
+            elif reward_type == "outcome" and self.obs.shape[-1] == 46:
                 print("MIMIC_REWARD_TYPE=outcome detected! Recomputing offline dataset rewards in memory...")
                 n_transitions = len(self.obs)
                 new_rewards = self.rewards.clone().float()
