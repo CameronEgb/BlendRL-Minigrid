@@ -933,6 +933,47 @@ def main():
         except Exception as e:
             print(f"Warning: Could not save septic shock vs agreement plot: {e}")
 
+        # Generate Cohort Breakdown Mortality Comparison (All vs Septic Shock vs Non-Shock)
+        try:
+            import matplotlib.pyplot as plt
+            outcomes_np = np.array(patient_true_outcomes_all)
+            clin_mort_np = np.array(patient_clinician_mort_all)
+            cql_mort_np = np.array(patient_cql_mort_all)
+            
+            shock_mask = (outcomes_np == 1)
+            non_shock_mask = (outcomes_np == 0)
+            
+            cohorts = [
+                ("All Patients", np.ones(len(outcomes_np), dtype=bool), "mortality_all_patients.png"),
+                ("Septic Shock Cohort (y=1)", shock_mask, "mortality_septic_shock_cohort.png"),
+                ("Non-Shock Cohort (y=0)", non_shock_mask, "mortality_non_shock_cohort.png")
+            ]
+            
+            for cohort_name, c_mask, fname in cohorts:
+                if np.sum(c_mask) == 0:
+                    continue
+                clin_mean = np.mean(clin_mort_np[c_mask]) * 100.0
+                cql_mean = np.mean(cql_mort_np[c_mask]) * 100.0
+                
+                fig, ax = plt.subplots(figsize=(7, 5))
+                bars = ax.bar(["Clinician Care", "RL Policy"], [clin_mean, cql_mean], color=['tab:blue', 'tab:orange'], alpha=0.85, width=0.5)
+                ax.set_ylabel("Predicted Patient Mortality Rate (%)", fontsize=12, fontweight='bold')
+                ax.set_title(f"Predicted Mortality: {cohort_name}\n(Evaluated at {args.tau}h Lead Time Cutoff)", fontsize=12, fontweight='bold')
+                ax.set_ylim(0, max(clin_mean, cql_mean, 1.0) * 1.25)
+                ax.grid(True, linestyle="--", alpha=0.5, axis='y')
+                
+                for bar in bars:
+                    yval = bar.get_height()
+                    ax.text(bar.get_x() + bar.get_width()/2.0, yval + 0.5, f"{yval:.2f}%", ha='center', va='bottom', fontweight='bold')
+                    
+                fig.tight_layout()
+                c_path = report_dir / fname
+                plt.savefig(c_path, dpi=200)
+                plt.close()
+                print(f"Saved cohort breakdown plot ({cohort_name}) to: {c_path}")
+        except Exception as e:
+            print(f"Warning: Could not save cohort breakdown mortality plot: {e}")
+
     # Re-generate the single summary & detailed text reports document
     generate_text_report(csv_path, summary_path, exp_id)
     print(f"\nText summary and detailed reports regenerated at: {summary_path}")
