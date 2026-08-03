@@ -918,8 +918,10 @@ def main():
         out_dir = out_dir / args.exp_id
     out_dir.mkdir(parents=True, exist_ok=True)
     
+    target_suffix = f"_{args.target_model}" if getattr(args, "target_model", "all") != "all" else ""
+    
     # Save text results
-    results_file = out_dir / "early_prediction_dl_results.txt"
+    results_file = out_dir / f"early_prediction_dl_results{target_suffix}.txt"
     with open(results_file, "w") as f:
         f.write(f"=== Septic Shock Early Prediction DL Sweep Results over {args.n_splits} Splits ===\n")
         f.write(f"Observation: {'Full History' if args.use_all_history else f'{args.window_hours}h window'}\n")
@@ -1004,7 +1006,7 @@ def main():
     axes[1, 1].legend(fontsize=10)
     
     plt.tight_layout()
-    plot_path = out_dir / "early_prediction_dl_comparison.png"
+    plot_path = out_dir / f"early_prediction_dl_comparison{target_suffix}.png"
     plt.savefig(plot_path, dpi=200)
     plt.close()
 
@@ -1032,14 +1034,14 @@ def main():
         sem_arr = np.array(res["f1_opt_sem"])
         axes2[1].plot(tau_arr, mean_arr, marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
         axes2[1].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[idx], alpha=0.15)
-    axes2[1].set_title(f"Optimal F1-Score vs. Lead Time (\u03c4)", fontsize=13, fontweight='bold')
+    axes2[1].set_title(f"Optimal F1-Score vs. Lead Time (\u03b8*)", fontsize=13, fontweight='bold')
     axes2[1].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=12)
     axes2[1].set_ylabel("F1-Score (\u03b8*)", fontsize=12)
     axes2[1].grid(True, linestyle="--", alpha=0.6)
     axes2[1].legend(fontsize=10)
     
     plt.tight_layout()
-    plot_path_2panel = out_dir / "early_prediction_dl_comparison_2panel.png"
+    plot_path_2panel = out_dir / f"early_prediction_dl_comparison_2panel{target_suffix}.png"
     plt.savefig(plot_path_2panel, dpi=200)
     plt.close()
     
