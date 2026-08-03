@@ -184,6 +184,13 @@ def main(cfg: DictConfig):
 
     trainer.fit(model, datamodule=datamodule, ckpt_path=ckpt_path)
 
+    # Guarantee final model checkpoint is saved to disk
+    os.makedirs(ckpt_dir, exist_ok=True)
+    final_ckpt_target = os.path.join(ckpt_dir, "best_model.ckpt")
+    if not os.path.exists(final_ckpt_target):
+        print(f"Saving final trained model checkpoint to: {final_ckpt_target}")
+        trainer.save_checkpoint(final_ckpt_target)
+
     # Return metric for Optuna
     if "eval/reward" in trainer.callback_metrics:
         return trainer.callback_metrics["eval/reward"].item()
