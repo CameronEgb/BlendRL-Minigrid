@@ -8,11 +8,13 @@ from plot.base import BasePlotter
 from plot.convergence import ConvergencePlotter
 from plot.losses import LossesPlotter
 from plot.reports import ReportsPlotter
+from plot.early_prediction import EarlyPredictionPlotter
 
 PLOTTER_REGISTRY = {
     "convergence": ConvergencePlotter,
     "losses": LossesPlotter,
-    "reports": ReportsPlotter
+    "reports": ReportsPlotter,
+    "early_prediction": EarlyPredictionPlotter
 }
 
 def run_experiment_plots(exp_id: str):
@@ -34,6 +36,13 @@ def run_experiment_plots(exp_id: str):
         requested_modules = plots_req
     else:
         requested_modules = {"convergence": {}, "losses": {}, "reports": {}}
+
+    # Auto-include early_prediction plotter for MIMIC or early_prediction experiments
+    env_name = exp_cfg.get("env", {}).get("name", "") if isinstance(exp_cfg.get("env"), dict) else ""
+    task_name = exp_cfg.get("task", "")
+    if "early_prediction" not in requested_modules:
+        if env_name == "mimic" or "early_pred" in exp_id or "early_prediction" in task_name:
+            requested_modules["early_prediction"] = {}
 
     for module_name, overrides in requested_modules.items():
         if module_name in PLOTTER_REGISTRY:

@@ -472,6 +472,8 @@ def main():
                 cmd = [python_exe, "-u", "src/early_prediction/model.py", "--exp-id", cfg.experiment_id] + ep_args
                 print(f"Executing: {' '.join(cmd)}")
                 res = subprocess.run(cmd)
+                if not args.no_plot and res.returncode == 0:
+                    run_plotting(args.experiment, style=args.plot_style)
                 sys.exit(res.returncode)
             else:
                 slurm_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
@@ -479,6 +481,9 @@ def main():
                 
                 slurm_script_path = slurm_dir / "early_pred_sweep.slurm"
                 cmd_str = " ".join([f'"{arg}"' if " " in arg else arg for arg in ep_args])
+                plot_cmd_str = f"$PROJECT_ROOT/venv/bin/python3 plot/manager.py {cfg.experiment_id}"
+                if args.plot_style:
+                    plot_cmd_str += f" --style {args.plot_style}"
                 script_content = f"""#!/bin/bash
 #SBATCH --job-name=ep_{cfg.experiment_id}
 #SBATCH --partition=rtx4060ti8g
@@ -500,6 +505,8 @@ mkdir -p results/logs
 $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/model.py \\
     --exp-id "{cfg.experiment_id}" \\
     {cmd_str}
+
+{plot_cmd_str if not args.no_plot else ""}
 
 echo "=== Sepsis Early Prediction Sweep Execution End ==="
 date
@@ -536,12 +543,17 @@ date
                 cmd = [python_exe, "-u", "src/early_prediction/eval.py"] + eval_cmd_args
                 print(f"Executing: {' '.join(cmd)}")
                 res = subprocess.run(cmd)
+                if not args.no_plot and res.returncode == 0:
+                    run_plotting(args.experiment, style=args.plot_style)
                 sys.exit(res.returncode)
             else:
                 slurm_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
                 slurm_dir.mkdir(parents=True, exist_ok=True)
                 slurm_script_path = slurm_dir / "early_pred_eval.slurm"
                 eval_args_str = " ".join(eval_cmd_args)
+                plot_cmd_str = f"$PROJECT_ROOT/venv/bin/python3 plot/manager.py {cfg.experiment_id}"
+                if args.plot_style:
+                    plot_cmd_str += f" --style {args.plot_style}"
                 script_content = f"""#!/bin/bash
 #SBATCH --job-name=eval_pred_{cfg.experiment_id}
 #SBATCH --partition=rtx4060ti8g
@@ -554,6 +566,7 @@ export PROJECT_ROOT=$(pwd)
 export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/nsfr:$PROJECT_ROOT/src/nudge:$PROJECT_ROOT/src/neumann:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
 
 $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/eval.py {eval_args_str}
+{plot_cmd_str if not args.no_plot else ""}
 """
                 with open(slurm_script_path, "w") as f:
                     f.write(script_content)

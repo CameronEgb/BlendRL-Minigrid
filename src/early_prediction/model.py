@@ -918,12 +918,13 @@ def main():
         out_dir = out_dir / args.exp_id
     out_dir.mkdir(parents=True, exist_ok=True)
     
-    # Save results dictionary to JSON for multi-model consolidation
+    # Save results dictionary to JSON for multi-model consolidation (only if non-empty)
     for m_cfg_name, _, _ in model_configs:
-        clean_key = m_cfg_name.lower().replace(" ", "_").replace("(", "").replace(")", "")
-        json_path = out_dir / f"metrics_{clean_key}.json"
-        with open(json_path, "w") as f:
-            json.dump(results[m_cfg_name], f, indent=2)
+        if results[m_cfg_name].get("tau"):
+            clean_key = m_cfg_name.lower().replace(" ", "_").replace("(", "").replace(")", "")
+            json_path = out_dir / f"metrics_{clean_key}.json"
+            with open(json_path, "w") as f:
+                json.dump(results[m_cfg_name], f, indent=2)
 
     # Clean up any stray per-architecture plots or txt files from previous runs
     for stray_file in list(out_dir.glob("early_prediction_dl_comparison_*.png")) + list(out_dir.glob("early_prediction_dl_results_*.txt")):
@@ -933,9 +934,15 @@ def main():
             except Exception:
                 pass
             
-    # Load all available metrics JSON files in out_dir to build consolidated plots
+    # Load all available non-empty metrics JSON files in out_dir to build consolidated plots
     all_results = {}
     for json_file in out_dir.glob("metrics_*.json"):
+        if json_file.stat().st_size == 0:
+            try:
+                json_file.unlink()
+            except Exception:
+                pass
+            continue
         try:
             m_key = json_file.stem.replace("metrics_", "")
             disp_map = {
@@ -946,13 +953,20 @@ def main():
             }
             disp_name = disp_map.get(m_key, m_key)
             with open(json_file, "r") as f:
-                all_results[disp_name] = json.load(f)
+                data = json.load(f)
+                if data.get("tau"):
+                    all_results[disp_name] = data
         except Exception as e:
             print(f"Warning loading {json_file}: {e}")
 
     # Fallback if no json files read
     if not all_results:
-        all_results = results
+        # Check if in-memory results have valid taus
+        all_results = {k: v for k, v in results.items() if v.get("tau")}
+
+    if not all_results:
+        print(f"No completed model evaluation metrics found in {out_dir}. Skipping plot generation.")
+        return
 
     # Save consolidated text results
     results_file = out_dir / "early_prediction_dl_results.txt"
