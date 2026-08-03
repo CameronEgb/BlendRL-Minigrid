@@ -99,12 +99,13 @@ def resolve_mimic_dataset(args):
 
 
 def discover_policy_checkpoints(checkpoint_root):
-    """Auto-discover trained RL policy checkpoints under a root directory.
+    """Auto-discover trained RL policy checkpoints under a root directory or single file path.
 
     Returns dict: { method_key: Path_to_best_ckpt }
-    Looks for patterns like:
-      checkpoint_root/<method>/best_model*.ckpt
-      checkpoint_root/<method>/<trial>/best_model*.ckpt
+    Handles:
+      1. Single file path: e.g. results/checkpoints/mimic/tune_mimic_blendrl_cql/cql/0/best_model.ckpt
+      2. Method dir with ckpts: e.g. results/checkpoints/mimic/tune_mimic_blendrl_cql/cql
+      3. Experiment root dir with subdirs: e.g. results/checkpoints/mimic/tune_mimic_blendrl_cql
     """
     root = Path(checkpoint_root)
     policies = {}
@@ -112,17 +113,29 @@ def discover_policy_checkpoints(checkpoint_root):
         print(f"WARNING: Checkpoint root {root} does not exist. No policies found.")
         return policies
 
-    # Walk one level down for method dirs
+    # 1. Direct file
+    if root.is_file():
+        method_name = root.parent.parent.name if root.parent.name.isdigit() else root.parent.name
+        policies[method_name] = root
+        return policies
+
+    # 2. Check if root itself contains .ckpt files (e.g. root is a single method directory like cql/ or cql/0/)
+    direct_ckpts = list(root.glob("*.ckpt")) + list(root.glob("best_model*.ckpt"))
+    if direct_ckpts:
+        direct_ckpts.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        method_name = root.parent.name if root.name.isdigit() else root.name
+        policies[method_name] = direct_ckpts[0]
+        return policies
+
+    # 3. Walk subdirectories for multi-method experiment dirs
     for method_dir in sorted(root.iterdir()):
         if not method_dir.is_dir():
             continue
         method_key = method_dir.name
-        # Search for best_model ckpts directly or in trial subdirs
-        ckpts = list(method_dir.glob("best_model*.ckpt"))
+        ckpts = list(method_dir.glob("best_model*.ckpt")) + list(method_dir.glob("*.ckpt"))
         if not ckpts:
-            ckpts = list(method_dir.rglob("best_model*.ckpt"))
+            ckpts = list(method_dir.rglob("best_model*.ckpt")) + list(method_dir.rglob("*.ckpt"))
         if ckpts:
-            # Pick the newest one
             ckpts.sort(key=lambda p: p.stat().st_mtime, reverse=True)
             policies[method_key] = ckpts[0]
 
