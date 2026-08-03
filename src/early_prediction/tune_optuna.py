@@ -92,7 +92,7 @@ def objective(trial, X, y, mask, patient_lengths, v_vals_all, args):
     use_tcn_conv = trial.suggest_categorical("use_tcn_conv", [True, False])
     
     split_scores = []
-    n_eval_splits = 5 # 5 stratified splits per trial for speed
+    n_eval_splits = getattr(args, "n_eval_splits", 5) # 5 stratified cross-validation splits per trial for robust evaluation
     
     if model_type == "transformer":
         d_model = trial.suggest_categorical("d_model", [32, 64, 128])
@@ -158,6 +158,7 @@ def main():
     parser.add_argument("--window-hours", type=int, default=12)
     parser.add_argument("--use-volatility", action="store_true", default=True)
     parser.add_argument("--metric", type=str, default="auprc", choices=["auprc", "accuracy", "f1", "roc_auc"], help="Optimization metric for Optuna (auprc, accuracy, f1, roc_auc)")
+    parser.add_argument("--n-eval-splits", type=int, default=5, help="Number of stratified cross-validation splits evaluated and averaged per trial (default: 5)")
     parser.add_argument("--out-dir", type=str, default="results/plots/early_prediction/tune_early_pred")
     args = parser.parse_args()
     

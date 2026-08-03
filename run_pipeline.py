@@ -630,6 +630,7 @@ $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/eval.py {eval_args_str}
             out_dir = ep_cfg.get("output_dir", f"results/plots/early_prediction/{cfg.experiment_id}")
             
             metric = ep_cfg.get("metric", "auprc")
+            n_eval_splits = ep_cfg.get("n_eval_splits", 5)
             target_models = ep_cfg.get("target_models", ["lstm_no_v", "lstm_with_v", "transformer_no_v", "transformer_with_v"])
             if isinstance(target_models, str):
                 target_models = [m.strip() for m in target_models.split(",")]
@@ -639,7 +640,7 @@ $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/eval.py {eval_args_str}
             slurm_dir.mkdir(parents=True, exist_ok=True)
             
             for m_target in target_models:
-                print(f"\n--> Setting up Optuna Study for architecture target: [{m_target}] (metric: {metric})")
+                print(f"\n--> Setting up Optuna Study for architecture target: [{m_target}] (metric: {metric}, eval_splits: {n_eval_splits})")
                 
                 # Ensure no stray 'optuna_study' folders are leftover in output_dir
                 stray_study_dir = Path(out_dir) / "optuna_study"
@@ -653,7 +654,8 @@ $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/eval.py {eval_args_str}
                     "--checkpoint", str(ckpt),
                     "--dataset-path", str(dataset_path),
                     "--out-dir", str(out_dir),
-                    "--metric", str(metric)
+                    "--metric", str(metric),
+                    "--n-eval-splits", str(n_eval_splits)
                 ]
                 if local_val:
                     cmd = [python_exe, "-u", "src/early_prediction/tune_optuna.py"] + tune_args
