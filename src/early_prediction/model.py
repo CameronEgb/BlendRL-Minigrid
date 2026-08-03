@@ -415,7 +415,7 @@ def evaluate_transformer_model(model, X_test, input_dim, device="cpu"):
 
 def find_default_mimic_npz():
     env_dir = os.environ.get("MIMIC_DATASET_DIR", "")
-    for filename in ["mimic_lazy_0_interventions_flag.npz", "mimic_lazy_12_clean_with_interventions_corrected.npz"]:
+    for filename in ["mimic_lazy_12_clean_with_interventions.npz", "mimic_lazy_0_interventions_flag.npz", "mimic_lazy_12_clean_with_interventions_corrected.npz"]:
         if env_dir and os.path.exists(os.path.join(env_dir, filename)):
             return os.path.join(env_dir, filename)
     for candidate_dir in [
@@ -428,11 +428,11 @@ def find_default_mimic_npz():
         "/mnt/beegfs/cegbert/NeSyRL/in/datasets",
         "/mnt/beegfs/cegbert/MIMIC 2"
     ]:
-        for filename in ["mimic_lazy_0_interventions_flag.npz", "mimic_lazy_12_clean_with_interventions_corrected.npz"]:
+        for filename in ["mimic_lazy_12_clean_with_interventions.npz", "mimic_lazy_0_interventions_flag.npz", "mimic_lazy_12_clean_with_interventions_corrected.npz"]:
             candidate_file = os.path.join(candidate_dir, filename)
             if os.path.exists(candidate_file):
                 return candidate_file
-    return "in/datasets/mimic/mimic_lazy_0_interventions_flag.npz"
+    return "in/datasets/mimic/mimic_lazy_12_clean_with_interventions.npz"
 
 def load_target_params(tune_dir, m_cfg_name):
     target_key = m_cfg_name.lower().replace(" ", "_").replace("(", "").replace(")", "")
@@ -456,6 +456,7 @@ def main():
     parser.add_argument("--no-tuned-params", dest="use_tuned_params", action="store_false", help="Disable loading tuned hyperparameters and use CLI defaults")
     parser.add_argument("--save-checkpoints", action="store_true", default=True, help="Save PyTorch model checkpoints (.pt) for evaluation against clinician policies (default: True)")
     parser.add_argument("--no-save-checkpoints", dest="save_checkpoints", action="store_false", help="Disable saving PyTorch model checkpoints")
+    parser.add_argument("--target-model", type=str, default="all", help="Specific architecture to run ('all', 'lstm_no_v', 'lstm_with_v', 'transformer_no_v', 'transformer_with_v')")
     parser.add_argument("--tau-min", type=int, default=1, help="Minimum tau in hours")
     parser.add_argument("--tau-max", type=int, default=36, help="Maximum tau in hours")
     parser.add_argument("--tau-step", type=int, default=4, help="Step size for tau sweep in hours")
@@ -551,12 +552,19 @@ def main():
         print("WARNING: CQL checkpoint for V(s) feature was not found. Using zero-padded V(s) feature placeholder for (with V) models.")
         v_vals_all = np.zeros((len(X), 240, 1), dtype=np.float32)
 
-    model_configs = [
-        ("LSTM (no V)", "lstm", False),
-        ("LSTM (with V)", "lstm", True),
-        ("Transformer (no V)", "transformer", False),
-        ("Transformer (with V)", "transformer", True),
+    all_configs = [
+        ("LSTM (no V)", "lstm", False, "lstm_no_v"),
+        ("LSTM (with V)", "lstm", True, "lstm_with_v"),
+        ("Transformer (no V)", "transformer", False, "transformer_no_v"),
+        ("Transformer (with V)", "transformer", True, "transformer_with_v"),
     ]
+    target_model = getattr(args, "target_model", "all").lower()
+    if target_model and target_model != "all":
+        model_configs = [(name, m_type, use_v) for name, m_type, use_v, key in all_configs if key == target_model]
+        if not model_configs:
+            model_configs = [(name, m_type, use_v) for name, m_type, use_v, key in all_configs]
+    else:
+        model_configs = [(name, m_type, use_v) for name, m_type, use_v, key in all_configs]
     
     results = {}
     for m_cfg, _, _ in model_configs:
