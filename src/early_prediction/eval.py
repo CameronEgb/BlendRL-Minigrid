@@ -297,7 +297,8 @@ def predict_shock_probs_with_ep_models(ep_ckpts_for_tau, X_sequences, device):
 # ---------------------------------------------------------------------------
 
 def plot_agreement_vs_shock(agreements, outcomes, report_dir):
-    """Generate single agreement vs shock rate plot for All Patients.
+    """Generate single agreement vs shock rate plot for All Patients,
+    overlaying trajectory counts per bucket in a background bar plot.
 
     agreements: dict { method_key: np.array of per-patient agreement % }
     outcomes: np.array of true labels (1=shock, 0=non-shock)
@@ -306,13 +307,17 @@ def plot_agreement_vs_shock(agreements, outcomes, report_dir):
     bin_centers = (bins[:-1] + bins[1:]) / 2.0
 
     fig, ax1 = plt.subplots(figsize=(12, 7))
+    ax2 = ax1.twinx()
 
-    for method_key, patient_agreements in agreements.items():
+    first_method_counts = None
+
+    for idx, (method_key, patient_agreements) in enumerate(agreements.items()):
         agr = patient_agreements
         out = outcomes
 
         means = []
         sems = []
+        counts = []
         for b_idx in range(10):
             low, high = bins[b_idx], bins[b_idx + 1]
             if b_idx == 9:
@@ -320,12 +325,16 @@ def plot_agreement_vs_shock(agreements, outcomes, report_dir):
             else:
                 idx_mask = (agr >= low) & (agr < high)
             pts = out[idx_mask]
+            counts.append(len(pts))
             if len(pts) > 0:
                 means.append(float(np.mean(pts)) * 100.0)
                 sems.append(float(np.std(pts) / np.sqrt(len(pts))) * 100.0 if len(pts) > 1 else 0.0)
             else:
                 means.append(np.nan)
                 sems.append(0.0)
+
+        if first_method_counts is None:
+            first_method_counts = counts
 
         means_arr = np.array(means)
         sems_arr = np.array(sems)
@@ -335,17 +344,28 @@ def plot_agreement_vs_shock(agreements, outcomes, report_dir):
         color = COLORS.get(method_key, None)
         marker = MARKERS.get(method_key, "o")
         ax1.plot(bin_centers[valid], means_arr[valid], marker=marker, color=color,
-                 label=label, linewidth=2, markersize=6)
+                 label=label, linewidth=2.5, markersize=7)
         ax1.fill_between(bin_centers[valid],
                          means_arr[valid] - sems_arr[valid],
                          means_arr[valid] + sems_arr[valid],
                          color=color, alpha=0.12)
 
+    # Background bar chart for trajectory count
+    if first_method_counts is not None:
+        ax2.bar(bin_centers, first_method_counts, width=8, color='tab:blue', alpha=0.15,
+                label='Trajectory Count in Bucket', zorder=1)
+        ax2.set_ylabel("Trajectory Count in Bucket", fontsize=13, fontweight="bold", color="tab:blue")
+        ax2.tick_params(axis='y', labelcolor="tab:blue")
+
     ax1.set_xlabel("Clinician – RL Policy Agreement (%)", fontsize=13, fontweight="bold")
     ax1.set_ylabel("True Septic Shock Rate (%)", fontsize=13, fontweight="bold")
     ax1.set_xticks(np.arange(0, 101, 10))
     ax1.grid(True, linestyle="--", alpha=0.5)
-    ax1.legend(fontsize=10, loc="best")
+
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, fontsize=10, loc="best")
+
     ax1.set_title("True Septic Shock Rate vs. Policy Agreement — All Patients", fontsize=14, fontweight="bold")
 
     fig.tight_layout()
