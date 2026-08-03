@@ -293,120 +293,121 @@ def predict_shock_probs_with_ep_models(ep_ckpts_for_tau, X_sequences, device):
 
 
 # ---------------------------------------------------------------------------
-#  Graph 1: Agreement vs Shock Rate (3 cohort plots)
+#  Graph 1: Agreement vs Shock Rate (All Patients)
 # ---------------------------------------------------------------------------
 
-def plot_agreement_vs_shock(agreements, outcomes, policy_name, report_dir):
-    """Generate 3 plots: shock cohort, non-shock cohort, all patients.
+def plot_agreement_vs_shock(agreements, outcomes, report_dir):
+    """Generate single agreement vs shock rate plot for All Patients.
 
     agreements: dict { method_key: np.array of per-patient agreement % }
     outcomes: np.array of true labels (1=shock, 0=non-shock)
     """
-    cohorts = [
-        ("All Patients", np.ones(len(outcomes), dtype=bool), "agreement_vs_shock_all.png"),
-        ("Septic Shock Cohort (y=1)", outcomes == 1, "agreement_vs_shock_shock.png"),
-        ("Non-Shock Cohort (y=0)", outcomes == 0, "agreement_vs_shock_non_shock.png"),
-    ]
-
     bins = np.linspace(0, 100, 11)
     bin_centers = (bins[:-1] + bins[1:]) / 2.0
 
-    for cohort_name, c_mask, fname in cohorts:
-        if np.sum(c_mask) < 5:
-            print(f"  Skipping '{cohort_name}' — too few patients ({np.sum(c_mask)}).")
-            continue
+    fig, ax1 = plt.subplots(figsize=(12, 7))
 
-        fig, ax1 = plt.subplots(figsize=(12, 7))
+    for method_key, patient_agreements in agreements.items():
+        agr = patient_agreements
+        out = outcomes
 
-        for method_key, patient_agreements in agreements.items():
-            agr = patient_agreements[c_mask]
-            out = outcomes[c_mask]
+        means = []
+        sems = []
+        for b_idx in range(10):
+            low, high = bins[b_idx], bins[b_idx + 1]
+            if b_idx == 9:
+                idx_mask = (agr >= low) & (agr <= high)
+            else:
+                idx_mask = (agr >= low) & (agr < high)
+            pts = out[idx_mask]
+            if len(pts) > 0:
+                means.append(float(np.mean(pts)) * 100.0)
+                sems.append(float(np.std(pts) / np.sqrt(len(pts))) * 100.0 if len(pts) > 1 else 0.0)
+            else:
+                means.append(np.nan)
+                sems.append(0.0)
 
-            means = []
-            sems = []
-            for b_idx in range(10):
-                low, high = bins[b_idx], bins[b_idx + 1]
-                if b_idx == 9:
-                    idx_mask = (agr >= low) & (agr <= high)
-                else:
-                    idx_mask = (agr >= low) & (agr < high)
-                pts = out[idx_mask]
-                if len(pts) > 0:
-                    means.append(float(np.mean(pts)) * 100.0)
-                    sems.append(float(np.std(pts) / np.sqrt(len(pts))) * 100.0 if len(pts) > 1 else 0.0)
-                else:
-                    means.append(np.nan)
-                    sems.append(0.0)
+        means_arr = np.array(means)
+        sems_arr = np.array(sems)
+        valid = ~np.isnan(means_arr)
 
-            means_arr = np.array(means)
-            sems_arr = np.array(sems)
-            valid = ~np.isnan(means_arr)
+        label = pretty(method_key)
+        color = COLORS.get(method_key, None)
+        marker = MARKERS.get(method_key, "o")
+        ax1.plot(bin_centers[valid], means_arr[valid], marker=marker, color=color,
+                 label=label, linewidth=2, markersize=6)
+        ax1.fill_between(bin_centers[valid],
+                         means_arr[valid] - sems_arr[valid],
+                         means_arr[valid] + sems_arr[valid],
+                         color=color, alpha=0.12)
 
-            label = pretty(method_key)
-            color = COLORS.get(method_key, None)
-            marker = MARKERS.get(method_key, "o")
-            ax1.plot(bin_centers[valid], means_arr[valid], marker=marker, color=color,
-                     label=label, linewidth=2, markersize=6)
-            ax1.fill_between(bin_centers[valid],
-                             means_arr[valid] - sems_arr[valid],
-                             means_arr[valid] + sems_arr[valid],
-                             color=color, alpha=0.12)
+    ax1.set_xlabel("Clinician – RL Policy Agreement (%)", fontsize=13, fontweight="bold")
+    ax1.set_ylabel("True Septic Shock Rate (%)", fontsize=13, fontweight="bold")
+    ax1.set_xticks(np.arange(0, 101, 10))
+    ax1.grid(True, linestyle="--", alpha=0.5)
+    ax1.legend(fontsize=10, loc="best")
+    ax1.set_title("True Septic Shock Rate vs. Policy Agreement — All Patients", fontsize=14, fontweight="bold")
 
-        ax1.set_xlabel("Clinician – RL Policy Agreement (%)", fontsize=13, fontweight="bold")
-        ax1.set_ylabel("True Septic Shock Rate (%)", fontsize=13, fontweight="bold")
-        ax1.set_xticks(np.arange(0, 101, 10))
-        ax1.grid(True, linestyle="--", alpha=0.5)
-        ax1.legend(fontsize=10, loc="best")
-        ax1.set_title(f"True Shock Rate vs. Policy Agreement — {cohort_name}", fontsize=14, fontweight="bold")
+    fig.tight_layout()
+    out_path = report_dir / "agreement_vs_shock.png"
+    plt.savefig(out_path, dpi=200)
+    plt.close()
+    print(f"  Saved agreement plot: {out_path}")
+
+
+# ---------------------------------------------------------------------------
+#  Graph 2: EP Predicted Shock % over tau timesteps (3 cohort graphs)
+# ---------------------------------------------------------------------------
+
+def plot_ep_shock_over_tau(ep_shock_results, report_dir):
+    """Plot average predicted shock% at each tau across 3 cohorts:
+      1. All Patients
+      2. Septic Shock Cohort (y=1)
+      3. Non-Shock Cohort (y=0)
+
+    ep_shock_results: dict { line_label: { "tau": [..], "all": {...}, "shock": {...}, "non_shock": {...} } }
+    """
+    cohort_configs = [
+        ("All Patients", "all", "ep_shock_over_tau_all.png"),
+        ("Septic Shock Cohort (y=1)", "shock", "ep_shock_over_tau_shock.png"),
+        ("Non-Shock Cohort (y=0)", "non_shock", "ep_shock_over_tau_non_shock.png"),
+    ]
+
+    all_colors = list(COLORS.values()) + ["tab:brown", "tab:pink", "tab:gray", "tab:olive"]
+    all_markers = list(MARKERS.values()) + ["v", "<", ">", "p"]
+
+    for cohort_title, cohort_key, fname in cohort_configs:
+        fig, ax = plt.subplots(figsize=(12, 7))
+
+        for idx, (label, data) in enumerate(ep_shock_results.items()):
+            if cohort_key not in data:
+                continue
+            tau_arr = np.array(data["tau"])
+            mean_arr = np.array(data[cohort_key]["means"])
+            sem_arr = np.array(data[cohort_key]["sems"])
+
+            color = all_colors[idx % len(all_colors)]
+            marker = all_markers[idx % len(all_markers)]
+
+            ax.plot(tau_arr, mean_arr * 100.0, marker=marker, color=color,
+                    label=label, linewidth=2, markersize=6)
+            ax.fill_between(tau_arr,
+                            (mean_arr - sem_arr) * 100.0,
+                            (mean_arr + sem_arr) * 100.0,
+                            color=color, alpha=0.12)
+
+        ax.set_xlabel("Lead Time τ (hours before end-of-stay)", fontsize=13, fontweight="bold")
+        ax.set_ylabel("Average Predicted Septic Shock Probability (%)", fontsize=13, fontweight="bold")
+        ax.set_title(f"EP Model Predicted Shock % at Each Lead Time\n({cohort_title})",
+                     fontsize=14, fontweight="bold")
+        ax.grid(True, linestyle="--", alpha=0.5)
+        ax.legend(fontsize=10, loc="best")
 
         fig.tight_layout()
         out_path = report_dir / fname
         plt.savefig(out_path, dpi=200)
         plt.close()
-        print(f"  Saved agreement plot ({cohort_name}): {out_path}")
-
-
-# ---------------------------------------------------------------------------
-#  Graph 2: EP Predicted Shock % over tau timesteps (5 lines)
-# ---------------------------------------------------------------------------
-
-def plot_ep_shock_over_tau(ep_shock_results, report_dir):
-    """Plot average predicted shock% at each tau for 4 EP architectures + clinician.
-
-    ep_shock_results: dict { line_label: { "tau": [..], "shock_pct": [..], "shock_sem": [..] } }
-    """
-    fig, ax = plt.subplots(figsize=(12, 7))
-
-    all_colors = list(COLORS.values()) + ["tab:brown", "tab:pink", "tab:gray", "tab:olive"]
-    all_markers = list(MARKERS.values()) + ["v", "<", ">", "p"]
-
-    for idx, (label, data) in enumerate(ep_shock_results.items()):
-        tau_arr = np.array(data["tau"])
-        mean_arr = np.array(data["shock_pct"])
-        sem_arr = np.array(data["shock_sem"])
-
-        color = all_colors[idx % len(all_colors)]
-        marker = all_markers[idx % len(all_markers)]
-
-        ax.plot(tau_arr, mean_arr * 100.0, marker=marker, color=color,
-                label=label, linewidth=2, markersize=6)
-        ax.fill_between(tau_arr,
-                        (mean_arr - sem_arr) * 100.0,
-                        (mean_arr + sem_arr) * 100.0,
-                        color=color, alpha=0.12)
-
-    ax.set_xlabel("Lead Time τ (hours before end-of-stay)", fontsize=13, fontweight="bold")
-    ax.set_ylabel("Average Predicted Septic Shock Probability (%)", fontsize=13, fontweight="bold")
-    ax.set_title("EP Model Predicted Shock % at Each Lead Time\n(4 architectures + Clinician trajectories)",
-                 fontsize=14, fontweight="bold")
-    ax.grid(True, linestyle="--", alpha=0.5)
-    ax.legend(fontsize=10, loc="best")
-
-    fig.tight_layout()
-    out_path = report_dir / "ep_shock_over_tau.png"
-    plt.savefig(out_path, dpi=200)
-    plt.close()
-    print(f"  Saved EP shock-over-tau plot: {out_path}")
+        print(f"  Saved EP shock-over-tau plot ({cohort_title}): {out_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -741,9 +742,10 @@ def main():
                 ep_cfg_name, ep_type, use_v = EP_KEY_TO_CONFIG[ep_key]
                 line_label = f"{pretty(method_key)} × {ep_cfg_name}"
 
-                tau_means = []
-                tau_sems = []
                 tau_vals = []
+                tau_all_means, tau_all_sems = [], []
+                tau_shock_means, tau_shock_sems = [], []
+                tau_non_shock_means, tau_non_shock_sems = [], []
 
                 for tau in tau_sweep_available:
                     if tau not in ep_models[ep_key]:
@@ -789,14 +791,37 @@ def main():
                     probs = predict_shock_probs_with_ep_models(ep_ckpt_list, seq_data, device)
 
                     tau_vals.append(tau)
-                    tau_means.append(float(np.mean(probs)))
-                    tau_sems.append(float(np.std(probs) / np.sqrt(len(probs))))
+
+                    # All patients
+                    tau_all_means.append(float(np.mean(probs)))
+                    tau_all_sems.append(float(np.std(probs) / np.sqrt(len(probs))))
+
+                    # Shock cohort (y=1)
+                    s_mask = (y_cohort == 1)
+                    if np.sum(s_mask) > 0:
+                        p_s = probs[s_mask]
+                        tau_shock_means.append(float(np.mean(p_s)))
+                        tau_shock_sems.append(float(np.std(p_s) / np.sqrt(len(p_s))))
+                    else:
+                        tau_shock_means.append(0.0)
+                        tau_shock_sems.append(0.0)
+
+                    # Non-shock cohort (y=0)
+                    ns_mask = (y_cohort == 0)
+                    if np.sum(ns_mask) > 0:
+                        p_ns = probs[ns_mask]
+                        tau_non_shock_means.append(float(np.mean(p_ns)))
+                        tau_non_shock_sems.append(float(np.std(p_ns) / np.sqrt(len(p_ns))))
+                    else:
+                        tau_non_shock_means.append(0.0)
+                        tau_non_shock_sems.append(0.0)
 
                 if tau_vals:
                     ep_shock_results[line_label] = {
                         "tau": tau_vals,
-                        "shock_pct": tau_means,
-                        "shock_sem": tau_sems,
+                        "all": {"means": tau_all_means, "sems": tau_all_sems},
+                        "shock": {"means": tau_shock_means, "sems": tau_shock_sems},
+                        "non_shock": {"means": tau_non_shock_means, "sems": tau_non_shock_sems},
                     }
                     print(f"    {line_label}: taus={tau_vals}")
 
@@ -807,11 +832,10 @@ def main():
     print("Generating plots and tables...")
     print(f"{'='*60}")
 
-    # 7a. Agreement vs Shock Rate (3 plots)
-    # Only plot RL policies (not clinician — clinician is always 100% agreement)
+    # 7a. Agreement vs Shock Rate (All Patients)
     rl_agreements = {k: v for k, v in patient_agreements.items() if k != "clinician"}
     if rl_agreements:
-        plot_agreement_vs_shock(rl_agreements, y, "all_policies", report_dir)
+        plot_agreement_vs_shock(rl_agreements, y, report_dir)
     else:
         print("  No RL policies found — skipping agreement plots.")
 
