@@ -9,5 +9,6 @@ group: early_prediction
 early_prediction:
   checkpoint: "results/checkpoints/mimic/tune_mimic_all"
   dataset_path: "in/datasets/mimic/mimic_lazy_12_clean_with_interventions_corrected.npz"
-  output_dir: "results/plots/early_prediction"
+  output_dir: "results/plots/early_prediction/early_pred_eval"
+  ep_ckpt_root: "results/checkpoints/early_prediction"
   n_splits: 20

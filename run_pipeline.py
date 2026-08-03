@@ -287,7 +287,8 @@ def run_early_prediction_eval(checkpoint_path, remake=False):
     venv_python = get_python_executable()
     cmd = [
         venv_python, "src/early_prediction/eval.py",
-        "--checkpoint", str(checkpoint_path)
+        "--checkpoint", str(checkpoint_path),
+        "--ep-ckpt-root", "results/checkpoints/early_prediction",
     ]
     if remake:
         cmd.append("--remake")
@@ -515,9 +516,23 @@ date
             print(f"\n=== Running Early Prediction Checkpoint Evaluation ({cfg.experiment_id}) ===")
             ep_cfg = cfg.get("early_prediction", {})
             ckpt = ep_cfg.get("checkpoint", f"results/checkpoints/{cfg.group}/{cfg.experiment_id}")
+            dataset_path = ep_cfg.get("dataset_path", "in/datasets/mimic/mimic_lazy_12_clean_with_interventions_corrected.npz")
+            output_dir = ep_cfg.get("output_dir", f"results/plots/{cfg.group}/{cfg.experiment_id}")
+            n_splits = ep_cfg.get("n_splits", 20)
+            ep_ckpt_root = ep_cfg.get("ep_ckpt_root", "results/checkpoints/early_prediction")
+
+            eval_cmd_args = [
+                "--checkpoint", str(ckpt),
+                "--dataset-path", str(dataset_path),
+                "--output-dir", str(output_dir),
+                "--n-splits", str(n_splits),
+                "--ep-ckpt-root", str(ep_ckpt_root),
+                "--remake",
+            ]
+
             if local_val:
                 python_exe = get_python_executable()
-                cmd = [python_exe, "-u", "src/early_prediction/eval.py", "--checkpoint", str(ckpt), "--remake"]
+                cmd = [python_exe, "-u", "src/early_prediction/eval.py"] + eval_cmd_args
                 print(f"Executing: {' '.join(cmd)}")
                 res = subprocess.run(cmd)
                 sys.exit(res.returncode)
@@ -525,6 +540,7 @@ date
                 slurm_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
                 slurm_dir.mkdir(parents=True, exist_ok=True)
                 slurm_script_path = slurm_dir / "early_pred_eval.slurm"
+                eval_args_str = " ".join(eval_cmd_args)
                 script_content = f"""#!/bin/bash
 #SBATCH --job-name=eval_pred_{cfg.experiment_id}
 #SBATCH --partition=rtx4060ti8g
@@ -536,7 +552,7 @@ date
 export PROJECT_ROOT=$(pwd)
 export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/nsfr:$PROJECT_ROOT/src/nudge:$PROJECT_ROOT/src/neumann:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
 
-$PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/eval.py --checkpoint "{ckpt}" --remake
+$PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/eval.py {eval_args_str}
 """
                 with open(slurm_script_path, "w") as f:
                     f.write(script_content)

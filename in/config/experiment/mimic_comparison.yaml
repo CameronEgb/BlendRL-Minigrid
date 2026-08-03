@@ -14,7 +14,7 @@ online_methods: []
 offline_methods: 
   - cql
   - blendrl_cql/human_neural
-offline_datasets: [expert_demo]
+offline_datasets: [cql]
 
 agent:
   blender_mode: neural
@@ -30,7 +30,7 @@ agent:
     - type: neural
 
 mode:
-  dataset_path: in/datasets/mimic/expert_demo
+  dataset_path: in/datasets/mimic/cql
 
 save_dataset: false
 seed: 1
