@@ -198,19 +198,27 @@ def discover_ep_checkpoints(ep_ckpt_root):
 
     ep_models = {}
     for pt_file in sorted(root.rglob("*.pt")):
-        name = pt_file.stem  # e.g. lstm_no_v_tau5_split3
-        parts = name.split("_tau")
-        if len(parts) != 2:
-            continue
-        model_key = parts[0]  # e.g. "lstm_no_v"
-        tau_split = parts[1]  # e.g. "5_split3"
-        ts = tau_split.split("_split")
-        if len(ts) != 2:
-            continue
-        try:
-            tau = int(ts[0])
-            split_idx = int(ts[1])
-        except ValueError:
+        name = pt_file.stem  # e.g. lstm_no_v_tau5_split3 or lstm_no_v_split3
+        if "_tau" in name:
+            parts = name.split("_tau")
+            if len(parts) != 2:
+                continue
+            model_key = parts[0]
+            tau_split = parts[1]
+            ts = tau_split.split("_split")
+            if len(ts) != 2:
+                continue
+            try:
+                tau = int(ts[0])
+            except ValueError:
+                continue
+        elif "_split" in name:
+            parts = name.split("_split")
+            if len(parts) != 2:
+                continue
+            model_key = parts[0]
+            tau = "single_model"
+        else:
             continue
 
         if model_key not in ep_models:
@@ -585,8 +593,12 @@ def main():
     ep_model_keys = sorted(ep_models.keys())
     all_taus = set()
     for mk in ep_model_keys:
-        all_taus.update(ep_models[mk].keys())
+        for k in ep_models[mk].keys():
+            if isinstance(k, int):
+                all_taus.add(k)
     all_taus = sorted(all_taus)
+    if not all_taus and ep_models:
+        all_taus = list(range(args.tau_min, args.tau_max + 1, args.tau_step))
     print(f"\nDiscovered EP models: {ep_model_keys}")
     print(f"Available taus: {all_taus}")
 
@@ -777,9 +789,12 @@ def main():
                 tau_non_shock_means, tau_non_shock_sems = [], []
 
                 for tau in tau_sweep_available:
-                    if tau not in ep_models[ep_key]:
+                    if tau in ep_models[ep_key]:
+                        ep_ckpt_list = ep_models[ep_key][tau]
+                    elif "single_model" in ep_models[ep_key]:
+                        ep_ckpt_list = ep_models[ep_key]["single_model"]
+                    else:
                         continue
-                    ep_ckpt_list = ep_models[ep_key][tau]
                     steps_early = 2 * tau
 
                     # Build sequences with counterfactual actions

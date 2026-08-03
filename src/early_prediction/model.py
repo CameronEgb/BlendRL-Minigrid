@@ -415,8 +415,9 @@ def evaluate_transformer_model(model, X_test, input_dim, device="cpu"):
 
 def find_default_mimic_npz():
     env_dir = os.environ.get("MIMIC_DATASET_DIR", "")
-    if env_dir and os.path.exists(os.path.join(env_dir, "mimic_lazy_12_clean_with_interventions_corrected.npz")):
-        return os.path.join(env_dir, "mimic_lazy_12_clean_with_interventions_corrected.npz")
+    for filename in ["mimic_lazy_0_interventions_flag.npz", "mimic_lazy_12_clean_with_interventions_corrected.npz"]:
+        if env_dir and os.path.exists(os.path.join(env_dir, filename)):
+            return os.path.join(env_dir, filename)
     for candidate_dir in [
         os.path.abspath(os.path.join(os.path.dirname(__file__), "../../in/datasets/mimic")),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "../../in/datasets")),
@@ -427,10 +428,11 @@ def find_default_mimic_npz():
         "/mnt/beegfs/cegbert/NeSyRL/in/datasets",
         "/mnt/beegfs/cegbert/MIMIC 2"
     ]:
-        candidate_file = os.path.join(candidate_dir, "mimic_lazy_12_clean_with_interventions_corrected.npz")
-        if os.path.exists(candidate_file):
-            return candidate_file
-    return "in/datasets/mimic/mimic_lazy_12_clean_with_interventions_corrected.npz"
+        for filename in ["mimic_lazy_0_interventions_flag.npz", "mimic_lazy_12_clean_with_interventions_corrected.npz"]:
+            candidate_file = os.path.join(candidate_dir, filename)
+            if os.path.exists(candidate_file):
+                return candidate_file
+    return "in/datasets/mimic/mimic_lazy_0_interventions_flag.npz"
 
 def load_target_params(tune_dir, m_cfg_name):
     target_key = m_cfg_name.lower().replace(" ", "_").replace("(", "").replace(")", "")
@@ -457,6 +459,8 @@ def main():
     parser.add_argument("--tau-min", type=int, default=1, help="Minimum tau in hours")
     parser.add_argument("--tau-max", type=int, default=36, help="Maximum tau in hours")
     parser.add_argument("--tau-step", type=int, default=4, help="Step size for tau sweep in hours")
+    parser.add_argument("--tau-train", type=int, default=12, help="Lead time tau in hours used to train the single model (default: 12)")
+    parser.add_argument("--per-tau-training", action="store_true", default=False, help="Train a separate model for each tau instead of a single model")
     parser.add_argument("--window-hours", type=int, default=12, help="Observation window length in hours (default: 12)")
     parser.add_argument("--use-all-history", action="store_true", default=False, help="Use full observation sequence from t=0 to cutoff instead of fixed window")
     parser.add_argument("--full-history", dest="use_all_history", action="store_true", help="Use full history from t=0 instead of window")
@@ -567,65 +571,58 @@ def main():
         
     results_losses = {}
 
-    # Run the sweep
-    for tau in tau_list:
-        print(f"\n--- Evaluating Lead Time: {tau} Hours Early ---")
-        steps_early = 2 * tau
+    tau_train = getattr(args, "tau_train", 12)
+    per_tau_training = getattr(args, "per_tau_training", False)
+    
+    if not per_tau_training:
+        print(f"\n=========================================================================")
+        print(f" Single-Model Paradigm (Min Chi Paper Protocol)")
+        print(f" Training 1 model per split on data up to tau={tau_train}h early.")
+        print(f" Evaluating each trained model across test taus: {tau_list}")
+        print(f"=========================================================================\n")
         
-        # Select cohort dynamically or fixed
+        steps_early_train = 2 * tau_train
         if args.use_all_trajectories:
-            c_indices = np.array([i for i in range(len(X)) if patient_lengths[i] - steps_early >= 1])
+            c_indices_train = np.array([i for i in range(len(X)) if patient_lengths[i] - steps_early_train >= 1])
         else:
-            min_stay_steps = 2 * args.tau_max + w_steps
-            c_indices = np.array([i for i in range(len(X)) if patient_lengths[i] >= min_stay_steps])
+            min_stay_steps = 2 * max(args.tau_max, tau_train) + w_steps
+            c_indices_train = np.array([i for i in range(len(X)) if patient_lengths[i] >= min_stay_steps])
             
-        t_cutoffs = patient_lengths[c_indices] - steps_early
-        y_cohort = y[c_indices]
-        print(f"  Cohort size at tau={tau}h: {len(c_indices)} patients (positive ratio: {y_cohort.mean():.3f})")
-        results_losses[tau] = {}
+        t_cutoffs_train = patient_lengths[c_indices_train] - steps_early_train
+        y_cohort_train = y[c_indices_train]
         
         for m_cfg_name, m_type, use_v_feat in model_configs:
-            print(f"  Evaluating: {m_cfg_name} across {args.n_splits} splits")
+            print(f"\n--- Training & Evaluating Model Architecture: {m_cfg_name} across {args.n_splits} splits ---")
             
-            # Construct patient sliced sequences
-            seq_data = []
-            for i, original_idx in enumerate(c_indices):
-                tc = t_cutoffs[i]
+            # Construct patient sliced sequences at training tau
+            seq_data_train_all = []
+            for i, original_idx in enumerate(c_indices_train):
+                tc = t_cutoffs_train[i]
                 st = 0 if args.use_all_history else max(0, tc - w_steps)
                 raw_seq = X[original_idx, st:tc, :49]
-                if args.use_volatility:
-                    feat_seq = compute_volatility_features(raw_seq)
-                else:
-                    feat_seq = raw_seq
-                    
+                feat_seq = compute_volatility_features(raw_seq) if args.use_volatility else raw_seq
                 if use_v_feat and v_vals_all is not None:
                     v_seq = v_vals_all[original_idx, st:tc]
-                    seq_data.append(np.concatenate([feat_seq, v_seq], axis=-1))
+                    seq_data_train_all.append(np.concatenate([feat_seq, v_seq], axis=-1))
                 else:
-                    seq_data.append(feat_seq)
+                    seq_data_train_all.append(feat_seq)
                     
-            input_dim = seq_data[0].shape[-1]
+            input_dim = seq_data_train_all[0].shape[-1]
             
-            split_aucs = []
-            split_auprcs = []
-            split_f1_opts = []
-            split_f1_maxes = []
-            split_f1_05s = []
-            results_losses[tau][m_cfg_name] = []
+            # Data structures to accumulate metrics per tau across splits
+            tau_metrics = {tau: {"auc": [], "auprc": [], "f1_opt": [], "f1_max": [], "f1_05": []} for tau in tau_list}
             
             for m_idx in range(args.n_splits):
                 seed_val = 42 + m_idx
                 train_cohort_idxs, test_cohort_idxs = train_test_split(
-                    np.arange(len(c_indices)), test_size=0.2, random_state=seed_val, stratify=y_cohort
+                    np.arange(len(c_indices_train)), test_size=0.2, random_state=seed_val, stratify=y_cohort_train
                 )
                 
-                X_train = [seq_data[i] for i in train_cohort_idxs]
-                X_test = [seq_data[i] for i in test_cohort_idxs]
-                y_train = y_cohort[train_cohort_idxs]
-                y_test = y_cohort[test_cohort_idxs]
+                # Global patient indices for test split
+                test_global_patient_indices = c_indices_train[test_cohort_idxs]
                 
-                if args.use_norm:
-                    X_train, X_test = normalize_features(X_train, X_test)
+                X_train = [seq_data_train_all[i] for i in train_cohort_idxs]
+                y_train = y_cohort_train[train_cohort_idxs]
                 
                 params = load_target_params(args.tune_dir, m_cfg_name) if args.use_tuned_params else {}
                 
@@ -646,7 +643,6 @@ def main():
                         use_focal_loss=use_focal_loss, use_tcn_conv=use_tcn_conv,
                         bidirectional=bidirectional, device=device, seed=seed_val
                     )
-                    probs_test = evaluate_lstm_model(model, X_test, input_dim, device=device)
                     probs_train = evaluate_lstm_model(model, X_train, input_dim, device=device)
                 elif m_type == "transformer":
                     d_model = params.get("d_model", args.d_model)
@@ -670,79 +666,242 @@ def main():
                         use_focal_loss=use_focal_loss, epochs=epochs, batch_size=batch_size,
                         lr=lr, device=device, seed=seed_val
                     )
-                    probs_test = evaluate_transformer_model(model, X_test, input_dim, device=device)
                     probs_train = evaluate_transformer_model(model, X_train, input_dim, device=device)
                 
-                results_losses[tau][m_cfg_name].append(train_losses)
-                
-                # Metrics for this split
-                auc_roc = float(roc_auc_score(y_test, probs_test))
-                precisions, recalls, thresholds = precision_recall_curve(y_test, probs_test)
-                auprc_val = float(auc(recalls, precisions))
-                
-                f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-8)
-                f1_max_val = float(np.max(f1_scores))
-                
-                # Calculate optimal threshold on train set
+                # Compute optimal classification threshold on training set
                 tr_prec, tr_rec, tr_thresh = precision_recall_curve(y_train, probs_train)
                 tr_f1 = 2 * (tr_prec * tr_rec) / (tr_prec + tr_rec + 1e-8)
                 best_tr_idx = np.argmax(tr_f1)
                 opt_thresh = tr_thresh[best_tr_idx] if best_tr_idx < len(tr_thresh) else 0.5
                 
-                preds_opt = (probs_test >= opt_thresh).astype(np.int32)
-                f1_opt_val = float(f1_score(y_test, preds_opt, zero_division=0))
-                
-                preds_05 = (probs_test >= 0.5).astype(np.int32)
-                f1_05_val = float(f1_score(y_test, preds_05, zero_division=0))
-                
                 if args.save_checkpoints:
                     ckpt_dir = Path("results/checkpoints/early_prediction") / (args.exp_id or "default")
                     ckpt_dir.mkdir(parents=True, exist_ok=True)
                     clean_name = m_cfg_name.lower().replace(" ", "_").replace("(", "").replace(")", "")
-                    ckpt_path = ckpt_dir / f"{clean_name}_tau{tau}_split{m_idx}.pt"
+                    ckpt_path = ckpt_dir / f"{clean_name}_split{m_idx}.pt"
                     torch.save({
                         "model_state_dict": model.state_dict(),
                         "model_type": m_type,
                         "model_name": m_cfg_name,
-                        "tau": tau,
+                        "tau_train": tau_train,
                         "split_idx": m_idx,
                         "input_dim": input_dim,
                         "opt_thresh": float(opt_thresh),
                         "hyperparams": params
                     }, ckpt_path)
+
+                # Evaluate the SINGLE trained model on each test lead time tau
+                for tau in tau_list:
+                    steps_early_tau = 2 * tau
+                    valid_test_idxs = [i for i, g_idx in enumerate(test_global_patient_indices) if patient_lengths[g_idx] - steps_early_tau >= 1]
+                    if len(valid_test_idxs) == 0:
+                        continue
+                    
+                    test_eval_global_idxs = test_global_patient_indices[valid_test_idxs]
+                    y_test_tau = y[test_eval_global_idxs]
+                    t_cutoffs_tau = patient_lengths[test_eval_global_idxs] - steps_early_tau
+                    
+                    X_test_tau = []
+                    for i, g_idx in enumerate(test_eval_global_idxs):
+                        tc = t_cutoffs_tau[i]
+                        st = 0 if args.use_all_history else max(0, tc - w_steps)
+                        raw_seq = X[g_idx, st:tc, :49]
+                        feat_seq = compute_volatility_features(raw_seq) if args.use_volatility else raw_seq
+                        if use_v_feat and v_vals_all is not None:
+                            v_seq = v_vals_all[g_idx, st:tc]
+                            X_test_tau.append(np.concatenate([feat_seq, v_seq], axis=-1))
+                        else:
+                            X_test_tau.append(feat_seq)
+                            
+                    if args.use_norm:
+                        X_tr_norm, X_test_tau = normalize_features(X_train, X_test_tau)
+                        
+                    if m_type == "lstm":
+                        probs_test_tau = evaluate_lstm_model(model, X_test_tau, input_dim, device=device)
+                    else:
+                        probs_test_tau = evaluate_transformer_model(model, X_test_tau, input_dim, device=device)
+                        
+                    auc_roc = float(roc_auc_score(y_test_tau, probs_test_tau))
+                    precisions, recalls, _ = precision_recall_curve(y_test_tau, probs_test_tau)
+                    auprc_val = float(auc(recalls, precisions))
+                    f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-8)
+                    f1_max_val = float(np.max(f1_scores))
+                    
+                    preds_opt = (probs_test_tau >= opt_thresh).astype(np.int32)
+                    f1_opt_val = float(f1_score(y_test_tau, preds_opt, zero_division=0))
+                    
+                    preds_05 = (probs_test_tau >= 0.5).astype(np.int32)
+                    f1_05_val = float(f1_score(y_test_tau, preds_05, zero_division=0))
+                    
+                    tau_metrics[tau]["auc"].append(auc_roc)
+                    tau_metrics[tau]["auprc"].append(auprc_val)
+                    tau_metrics[tau]["f1_opt"].append(f1_opt_val)
+                    tau_metrics[tau]["f1_max"].append(f1_max_val)
+                    tau_metrics[tau]["f1_05"].append(f1_05_val)
+
+            # Store aggregated results across all test taus for this model config
+            for tau in tau_list:
+                m_dict = tau_metrics[tau]
+                if len(m_dict["auc"]) == 0:
+                    continue
+                auc_mean = float(np.mean(m_dict["auc"]))
+                auc_sem = float(np.std(m_dict["auc"]) / np.sqrt(len(m_dict["auc"])))
+                auprc_mean = float(np.mean(m_dict["auprc"]))
+                auprc_sem = float(np.std(m_dict["auprc"]) / np.sqrt(len(m_dict["auprc"])))
+                f1_opt_mean = float(np.mean(m_dict["f1_opt"]))
+                f1_opt_sem = float(np.std(m_dict["f1_opt"]) / np.sqrt(len(m_dict["f1_opt"])))
+                f1_max_mean = float(np.mean(m_dict["f1_max"]))
+                f1_max_sem = float(np.std(m_dict["f1_max"]) / np.sqrt(len(m_dict["f1_max"])))
+                f1_05_mean = float(np.mean(m_dict["f1_05"]))
+                f1_05_sem = float(np.std(m_dict["f1_05"]) / np.sqrt(len(m_dict["f1_05"])))
                 
-                split_aucs.append(auc_roc)
-                split_auprcs.append(auprc_val)
-                split_f1_opts.append(f1_opt_val)
-                split_f1_maxes.append(f1_max_val)
-                split_f1_05s.append(f1_05_val)
+                results[m_cfg_name]["tau"].append(tau)
+                results[m_cfg_name]["auc"].append(auc_mean)
+                results[m_cfg_name]["auc_sem"].append(auc_sem)
+                results[m_cfg_name]["auprc"].append(auprc_mean)
+                results[m_cfg_name]["auprc_sem"].append(auprc_sem)
+                results[m_cfg_name]["f1_opt"].append(f1_opt_mean)
+                results[m_cfg_name]["f1_opt_sem"].append(f1_opt_sem)
+                results[m_cfg_name]["f1_max"].append(f1_max_mean)
+                results[m_cfg_name]["f1_max_sem"].append(f1_max_sem)
+                results[m_cfg_name]["f1_05"].append(f1_05_mean)
+                results[m_cfg_name]["f1_05_sem"].append(f1_05_sem)
                 
-            auc_mean = float(np.mean(split_aucs))
-            auc_sem = float(np.std(split_aucs) / np.sqrt(args.n_splits))
+                print(f"  [tau={tau:2d}h] AUC-ROC: {auc_mean:.4f} ± {auc_sem:.4f}, AUPRC: {auprc_mean:.4f} ± {auprc_sem:.4f}, F1-Opt: {f1_opt_mean:.4f} ± {f1_opt_mean:.4f}")
+    else:
+        # Legacy Per-Tau Training Loop (1 separate model per tau)
+        for tau in tau_list:
+            print(f"\n--- Evaluating Lead Time (Per-Tau Model): {tau} Hours Early ---")
+            steps_early = 2 * tau
+            if args.use_all_trajectories:
+                c_indices = np.array([i for i in range(len(X)) if patient_lengths[i] - steps_early >= 1])
+            else:
+                min_stay_steps = 2 * args.tau_max + w_steps
+                c_indices = np.array([i for i in range(len(X)) if patient_lengths[i] >= min_stay_steps])
+                
+            t_cutoffs = patient_lengths[c_indices] - steps_early
+            y_cohort = y[c_indices]
+            results_losses[tau] = {}
             
-            auprc_mean = float(np.mean(split_auprcs))
-            auprc_sem = float(np.std(split_auprcs) / np.sqrt(args.n_splits))
-            
-            f1_opt_mean = float(np.mean(split_f1_opts))
-            f1_opt_sem = float(np.std(split_f1_opts) / np.sqrt(args.n_splits))
-            
-            f1_max_mean = float(np.mean(split_f1_maxes))
-            f1_max_sem = float(np.std(split_f1_maxes) / np.sqrt(args.n_splits))
-            
-            f1_05_mean = float(np.mean(split_f1_05s))
-            f1_05_sem = float(np.std(split_f1_05s) / np.sqrt(args.n_splits))
-            
-            results[m_cfg_name]["tau"].append(tau)
-            results[m_cfg_name]["auc"].append(auc_mean)
-            results[m_cfg_name]["auc_sem"].append(auc_sem)
-            results[m_cfg_name]["auprc"].append(auprc_mean)
-            results[m_cfg_name]["auprc_sem"].append(auprc_sem)
-            results[m_cfg_name]["f1_opt"].append(f1_opt_mean)
-            results[m_cfg_name]["f1_opt_sem"].append(f1_opt_sem)
-            results[m_cfg_name]["f1_max"].append(f1_max_mean)
-            results[m_cfg_name]["f1_max_sem"].append(f1_max_sem)
-            results[m_cfg_name]["f1_05"].append(f1_05_mean)
-            results[m_cfg_name]["f1_05_sem"].append(f1_05_sem)
+            for m_cfg_name, m_type, use_v_feat in model_configs:
+                seq_data = []
+                for i, original_idx in enumerate(c_indices):
+                    tc = t_cutoffs[i]
+                    st = 0 if args.use_all_history else max(0, tc - w_steps)
+                    raw_seq = X[original_idx, st:tc, :49]
+                    feat_seq = compute_volatility_features(raw_seq) if args.use_volatility else raw_seq
+                    if use_v_feat and v_vals_all is not None:
+                        v_seq = v_vals_all[original_idx, st:tc]
+                        seq_data.append(np.concatenate([feat_seq, v_seq], axis=-1))
+                    else:
+                        seq_data.append(feat_seq)
+                        
+                input_dim = seq_data[0].shape[-1]
+                split_aucs, split_auprcs, split_f1_opts, split_f1_maxes, split_f1_05s = [], [], [], [], []
+                results_losses[tau][m_cfg_name] = []
+                
+                for m_idx in range(args.n_splits):
+                    seed_val = 42 + m_idx
+                    train_cohort_idxs, test_cohort_idxs = train_test_split(
+                        np.arange(len(c_indices)), test_size=0.2, random_state=seed_val, stratify=y_cohort
+                    )
+                    X_train = [seq_data[i] for i in train_cohort_idxs]
+                    X_test = [seq_data[i] for i in test_cohort_idxs]
+                    y_train = y_cohort[train_cohort_idxs]
+                    y_test = y_cohort[test_cohort_idxs]
+                    
+                    if args.use_norm:
+                        X_train, X_test = normalize_features(X_train, X_test)
+                    params = load_target_params(args.tune_dir, m_cfg_name) if args.use_tuned_params else {}
+                    
+                    if m_type == "lstm":
+                        hidden_dim = params.get("hidden_dim", args.hidden_dim)
+                        num_layers = params.get("num_layers", args.num_layers)
+                        epochs = params.get("epochs", args.epochs)
+                        batch_size = params.get("batch_size", args.batch_size)
+                        lr = params.get("lr", args.lr)
+                        weight_decay = params.get("weight_decay", 1e-4)
+                        use_focal_loss = params.get("use_focal_loss", False)
+                        use_tcn_conv = params.get("use_tcn_conv", False)
+                        bidirectional = params.get("bidirectional", False)
+                        
+                        model, train_losses = train_lstm_model(
+                            X_train, y_train, input_dim, hidden_dim=hidden_dim, num_layers=num_layers,
+                            epochs=epochs, batch_size=batch_size, lr=lr, weight_decay=weight_decay,
+                            use_focal_loss=use_focal_loss, use_tcn_conv=use_tcn_conv,
+                            bidirectional=bidirectional, device=device, seed=seed_val
+                        )
+                        probs_test = evaluate_lstm_model(model, X_test, input_dim, device=device)
+                        probs_train = evaluate_lstm_model(model, X_train, input_dim, device=device)
+                    elif m_type == "transformer":
+                        d_model = params.get("d_model", args.d_model)
+                        nhead = params.get("nhead", args.nhead)
+                        num_layers = params.get("num_layers", args.num_layers)
+                        dropout = params.get("dropout", 0.1)
+                        weight_decay = params.get("weight_decay", 1e-3)
+                        norm_first = params.get("norm_first", True)
+                        pos_type = params.get("pos_type", "learned")
+                        use_cls_token = params.get("use_cls_token", True)
+                        use_tcn_conv = params.get("use_tcn_conv", False)
+                        use_focal_loss = params.get("use_focal_loss", False)
+                        epochs = params.get("epochs", args.epochs)
+                        batch_size = params.get("batch_size", args.batch_size)
+                        lr = params.get("lr", args.lr)
+                        
+                        model, train_losses = train_transformer_model(
+                            X_train, y_train, input_dim, d_model=d_model, nhead=nhead, num_layers=num_layers,
+                            dropout=dropout, weight_decay=weight_decay, norm_first=norm_first,
+                            pos_type=pos_type, use_cls_token=use_cls_token, use_tcn_conv=use_tcn_conv,
+                            use_focal_loss=use_focal_loss, epochs=epochs, batch_size=batch_size,
+                            lr=lr, device=device, seed=seed_val
+                        )
+                        probs_test = evaluate_transformer_model(model, X_test, input_dim, device=device)
+                        probs_train = evaluate_transformer_model(model, X_train, input_dim, device=device)
+                    
+                    auc_roc = float(roc_auc_score(y_test, probs_test))
+                    precisions, recalls, _ = precision_recall_curve(y_test, probs_test)
+                    auprc_val = float(auc(recalls, precisions))
+                    f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-8)
+                    f1_max_val = float(np.max(f1_scores))
+                    
+                    tr_prec, tr_rec, tr_thresh = precision_recall_curve(y_train, probs_train)
+                    tr_f1 = 2 * (tr_prec * tr_rec) / (tr_prec + tr_rec + 1e-8)
+                    best_tr_idx = np.argmax(tr_f1)
+                    opt_thresh = tr_thresh[best_tr_idx] if best_tr_idx < len(tr_thresh) else 0.5
+                    
+                    preds_opt = (probs_test >= opt_thresh).astype(np.int32)
+                    f1_opt_val = float(f1_score(y_test, preds_opt, zero_division=0))
+                    preds_05 = (probs_test >= 0.5).astype(np.int32)
+                    f1_05_val = float(f1_score(y_test, preds_05, zero_division=0))
+                    
+                    split_aucs.append(auc_roc)
+                    split_auprcs.append(auprc_val)
+                    split_f1_opts.append(f1_opt_val)
+                    split_f1_maxes.append(f1_max_val)
+                    split_f1_05s.append(f1_05_val)
+                    
+                auc_mean = float(np.mean(split_aucs))
+                auc_sem = float(np.std(split_aucs) / np.sqrt(args.n_splits))
+                auprc_mean = float(np.mean(split_auprcs))
+                auprc_sem = float(np.std(split_auprcs) / np.sqrt(args.n_splits))
+                f1_opt_mean = float(np.mean(split_f1_opts))
+                f1_opt_sem = float(np.std(split_f1_opts) / np.sqrt(args.n_splits))
+                f1_max_mean = float(np.mean(split_f1_maxes))
+                f1_max_sem = float(np.std(split_f1_maxes) / np.sqrt(args.n_splits))
+                f1_05_mean = float(np.mean(split_f1_05s))
+                f1_05_sem = float(np.std(split_f1_05s) / np.sqrt(args.n_splits))
+                
+                results[m_cfg_name]["tau"].append(tau)
+                results[m_cfg_name]["auc"].append(auc_mean)
+                results[m_cfg_name]["auc_sem"].append(auc_sem)
+                results[m_cfg_name]["auprc"].append(auprc_mean)
+                results[m_cfg_name]["auprc_sem"].append(auprc_sem)
+                results[m_cfg_name]["f1_opt"].append(f1_opt_mean)
+                results[m_cfg_name]["f1_opt_sem"].append(f1_opt_sem)
+                results[m_cfg_name]["f1_max"].append(f1_max_mean)
+                results[m_cfg_name]["f1_max_sem"].append(f1_max_sem)
+                results[m_cfg_name]["f1_05"].append(f1_05_mean)
+                results[m_cfg_name]["f1_05_sem"].append(f1_05_sem)
             
             print(f"    AUC-ROC: {auc_mean:.4f} ± {auc_sem:.4f}, AUPRC: {auprc_mean:.4f} ± {auprc_sem:.4f}, F1-Opt: {f1_opt_mean:.4f} ± {f1_opt_sem:.4f}, F1-Max: {f1_max_mean:.4f} ± {f1_max_sem:.4f}, F1-0.5: {f1_05_mean:.4f} ± {f1_05_sem:.4f}")
 
