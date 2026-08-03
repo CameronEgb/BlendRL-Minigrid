@@ -56,7 +56,7 @@ class EarlyPredictionPlotter(BasePlotter):
         print(f"\n--- Generating DL Sweep Consolidated Plots ({len(all_results)} model configs) ---")
 
         # 1. Save text summary table
-        results_txt_path = output_dir / "early_prediction_dl_results.txt"
+        results_txt_path = output_dir / "results.txt"
         with open(results_txt_path, "w") as f:
             f.write(f"=== Septic Shock Early Prediction DL Sweep Results ===\n\n")
             for m_name, res_data in sorted(all_results.items()):
@@ -136,7 +136,7 @@ class EarlyPredictionPlotter(BasePlotter):
         axes[1, 1].legend(fontsize=10)
 
         plt.tight_layout()
-        plot_4panel_path = output_dir / "early_prediction_dl_comparison.png"
+        plot_4panel_path = output_dir / "4panel.png"
         plt.savefig(plot_4panel_path, dpi=200)
         plt.close()
         print(f"  Saved 4-panel sweep plot: {plot_4panel_path}")
@@ -172,7 +172,7 @@ class EarlyPredictionPlotter(BasePlotter):
         axes2[1].legend(fontsize=10)
 
         plt.tight_layout()
-        plot_2panel_path = output_dir / "early_prediction_dl_comparison_2panel.png"
+        plot_2panel_path = output_dir / "2panel.png"
         plt.savefig(plot_2panel_path, dpi=200)
         plt.close()
         print(f"  Saved 2-panel sweep plot: {plot_2panel_path}")

@@ -927,8 +927,8 @@ def main():
                 json.dump(results[m_cfg_name], f, indent=2)
 
     # Clean up any stray per-architecture plots or txt files from previous runs
-    for stray_file in list(out_dir.glob("early_prediction_dl_comparison_*.png")) + list(out_dir.glob("early_prediction_dl_results_*.txt")):
-        if stray_file.name not in ("early_prediction_dl_comparison.png", "early_prediction_dl_comparison_2panel.png", "early_prediction_dl_results.txt"):
+    for stray_file in list(out_dir.glob("*.png")) + list(out_dir.glob("*.txt")):
+        if stray_file.name not in ("2panel.png", "4panel.png", "results.txt") and not stray_file.name.startswith("metrics_"):
             try:
                 stray_file.unlink()
             except Exception:
@@ -965,7 +965,7 @@ def main():
         return
 
     # Save consolidated text results
-    results_file = out_dir / "early_prediction_dl_results.txt"
+    results_file = out_dir / "results.txt"
     with open(results_file, "w") as f:
         f.write(f"=== Septic Shock Early Prediction DL Sweep Results over {args.n_splits} Splits ===\n")
         f.write(f"Observation: {'Full History' if args.use_all_history else f'{args.window_hours}h window'}\n")
@@ -1049,7 +1049,7 @@ def main():
     axes[1, 1].legend(fontsize=10)
     
     plt.tight_layout()
-    plot_path = out_dir / "early_prediction_dl_comparison.png"
+    plot_path = out_dir / "4panel.png"
     plt.savefig(plot_path, dpi=200)
     plt.close()
 
@@ -1086,7 +1086,7 @@ def main():
     axes2[1].legend(fontsize=10)
     
     plt.tight_layout()
-    plot_path_2panel = out_dir / "early_prediction_dl_comparison_2panel.png"
+    plot_path_2panel = out_dir / "2panel.png"
     plt.savefig(plot_path_2panel, dpi=200)
     plt.close()
     
