@@ -248,11 +248,14 @@ def load_ep_model(ckpt_path, device):
             bidirectional=params.get("bidirectional", False),
         ).to(device)
     elif m_type == "transformer":
+        d_model = params.get("d_model", 64)
+        dim_ff = params.get("dim_feedforward", d_model * 2)
         model = SepsisTransformer(
             input_dim=input_dim,
-            d_model=params.get("d_model", 64),
+            d_model=d_model,
             nhead=params.get("nhead", 4),
             num_layers=params.get("num_layers", 2),
+            dim_feedforward=dim_ff,
             dropout=params.get("dropout", 0.1),
             norm_first=params.get("norm_first", True),
             pos_type=params.get("pos_type", "learned"),
