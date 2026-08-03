@@ -959,13 +959,9 @@ def main():
         except Exception as e:
             print(f"Warning loading {json_file}: {e}")
 
-    # Fallback if no json files read
-    if not all_results:
-        # Check if in-memory results have valid taus
-        all_results = {k: v for k, v in results.items() if v.get("tau")}
-
-    if not all_results:
-        print(f"No completed model evaluation metrics found in {out_dir}. Skipping plot generation.")
+    target_model_arg = getattr(args, "target_model", "all").lower()
+    if target_model_arg != "all":
+        print(f"Saved metrics_{clean_key}.json for target model [{target_model_arg}]. Consolidation/plotting will run after all parallel jobs complete.")
         return
 
     # Save consolidated text results

@@ -479,20 +479,23 @@ def main():
                 slurm_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
                 slurm_dir.mkdir(parents=True, exist_ok=True)
                 
-                slurm_script_path = slurm_dir / "early_pred_sweep.slurm"
-                cmd_str = " ".join([f'"{arg}"' if " " in arg else arg for arg in ep_args])
-                plot_cmd_str = f"$PROJECT_ROOT/venv/bin/python3 plot/manager.py {cfg.experiment_id}"
-                if args.plot_style:
-                    plot_cmd_str += f" --style {args.plot_style}"
-                script_content = f"""#!/bin/bash
-#SBATCH --job-name=ep_{cfg.experiment_id}
+                target_models = ["lstm_no_v", "lstm_with_v", "transformer_no_v", "transformer_with_v"]
+                print(f"Submitting 4 parallel SLURM model jobs ({target_models}) for {cfg.experiment_id}...")
+                
+                job_ids = []
+                for tm in target_models:
+                    slurm_script_path = slurm_dir / f"early_pred_sweep_{tm}.slurm"
+                    cmd_args = ep_args + ["--target-model", tm]
+                    cmd_str = " ".join([f'"{arg}"' if " " in arg else arg for arg in cmd_args])
+                    script_content = f"""#!/bin/bash
+#SBATCH --job-name=ep_{tm}_{cfg.experiment_id}
 #SBATCH --partition=rtx4060ti8g
 #SBATCH --ntasks-per-node=16
 #SBATCH --nodes=1
-#SBATCH --output=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/early_pred_%j.out
-#SBATCH --error=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/early_pred_%j.err
+#SBATCH --output=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/early_pred_{tm}_%j.out
+#SBATCH --error=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/early_pred_{tm}_%j.err
 
-echo "=== Sepsis Early Prediction Sweep Execution Start ==="
+echo "=== Sepsis Early Prediction Sweep Execution Start ({tm}) ==="
 echo "Node: $(hostname)"
 date
 
@@ -506,18 +509,59 @@ $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/model.py \\
     --exp-id "{cfg.experiment_id}" \\
     {cmd_str}
 
-{plot_cmd_str if not args.no_plot else ""}
-
-echo "=== Sepsis Early Prediction Sweep Execution End ==="
+echo "=== Sepsis Early Prediction Sweep Execution End ({tm}) ==="
 date
 """
-                with open(slurm_script_path, "w") as f:
-                    f.write(script_content)
-                print(f"Submitting Early Prediction Sweep SLURM Job: {slurm_script_path}")
-                res = subprocess.run(["sbatch", str(slurm_script_path)], capture_output=True, text=True)
-                print(res.stdout)
-                if res.stderr:
-                    print(res.stderr)
+                    with open(slurm_script_path, "w") as f:
+                        f.write(script_content)
+                    print(f"Submitting Model SLURM Job ({tm}): {slurm_script_path}")
+                    res = subprocess.run(["sbatch", str(slurm_script_path)], capture_output=True, text=True)
+                    print(res.stdout)
+                    if res.stderr:
+                        print(res.stderr)
+                    out_text = res.stdout.strip()
+                    if "Submitted batch job" in out_text:
+                        j_id = out_text.split()[-1]
+                        job_ids.append(j_id)
+
+                # Submit 5th dependent SLURM job to run plotting after all 4 parallel jobs finish
+                if not args.no_plot and job_ids:
+                    plot_slurm_script = slurm_dir / "early_pred_sweep_plot.slurm"
+                    dep_str = ":".join(job_ids)
+                    plot_cmd_str = f"$PROJECT_ROOT/venv/bin/python3 plot/manager.py {cfg.experiment_id}"
+                    if args.plot_style:
+                        plot_cmd_str += f" --style {args.plot_style}"
+
+                    plot_script_content = f"""#!/bin/bash
+#SBATCH --job-name=ep_plot_{cfg.experiment_id}
+#SBATCH --partition=rtx4060ti8g
+#SBATCH --ntasks-per-node=4
+#SBATCH --nodes=1
+#SBATCH --output=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/early_pred_plot_%j.out
+#SBATCH --error=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/early_pred_plot_%j.err
+
+echo "=== Sepsis Early Prediction Plotting Execution Start ==="
+echo "Node: $(hostname)"
+date
+
+export PROJECT_ROOT=$(pwd)
+export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/nsfr:$PROJECT_ROOT/src/nudge:$PROJECT_ROOT/src/neumann:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
+
+{plot_cmd_str}
+
+echo "=== Sepsis Early Prediction Plotting Execution End ==="
+date
+"""
+                    with open(plot_slurm_script, "w") as f:
+                        f.write(plot_script_content)
+                    
+                    sbatch_cmd = ["sbatch", f"--dependency=afterok:{dep_str}", str(plot_slurm_script)]
+                    print(f"\nSubmitting Dependent Plotting SLURM Job (dependency afterok:{dep_str}): {' '.join(sbatch_cmd)}")
+                    res_plot = subprocess.run(sbatch_cmd, capture_output=True, text=True)
+                    print(res_plot.stdout)
+                    if res_plot.stderr:
+                        print(res_plot.stderr)
+
                 sys.exit(0)
 
         elif task_name == "early_prediction_eval":
