@@ -954,12 +954,6 @@ def main():
     if not all_results:
         all_results = results
 
-    # If running parallel sub-jobs, defer generating final plots until all 4 architectures have finished
-    target_model_arg = getattr(args, "target_model", "all").lower()
-    if target_model_arg != "all" and len(all_results) < 4:
-        print(f"Saved metrics ({len(all_results)}/4 architectures complete). Deferring final plot generation until all models finish.")
-        return
-
     # Save consolidated text results
     results_file = out_dir / "early_prediction_dl_results.txt"
     with open(results_file, "w") as f:

@@ -477,22 +477,17 @@ def main():
                 slurm_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
                 slurm_dir.mkdir(parents=True, exist_ok=True)
                 
-                target_models = ["lstm_no_v", "lstm_with_v", "transformer_no_v", "transformer_with_v"]
-                print(f"Submitting 4 parallel SLURM jobs (one per architecture: {target_models}) for {cfg.experiment_id}...")
-                
-                for tm in target_models:
-                    slurm_script_path = slurm_dir / f"early_pred_sweep_{tm}.slurm"
-                    cmd_args = ep_args + ["--target-model", tm]
-                    cmd_str = " ".join([f'"{arg}"' if " " in arg else arg for arg in cmd_args])
-                    script_content = f"""#!/bin/bash
-#SBATCH --job-name=ep_{tm}_{cfg.experiment_id}
+                slurm_script_path = slurm_dir / "early_pred_sweep.slurm"
+                cmd_str = " ".join([f'"{arg}"' if " " in arg else arg for arg in ep_args])
+                script_content = f"""#!/bin/bash
+#SBATCH --job-name=ep_{cfg.experiment_id}
 #SBATCH --partition=rtx4060ti8g
 #SBATCH --ntasks-per-node=16
 #SBATCH --nodes=1
-#SBATCH --output=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/early_pred_{tm}_%j.out
-#SBATCH --error=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/early_pred_{tm}_%j.err
+#SBATCH --output=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/early_pred_%j.out
+#SBATCH --error=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/early_pred_%j.err
 
-echo "=== Sepsis Early Prediction Sweep Execution Start ({tm}) ==="
+echo "=== Sepsis Early Prediction Sweep Execution Start ==="
 echo "Node: $(hostname)"
 date
 
@@ -506,16 +501,16 @@ $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/model.py \\
     --exp-id "{cfg.experiment_id}" \\
     {cmd_str}
 
-echo "=== Sepsis Early Prediction Sweep Execution End ({tm}) ==="
+echo "=== Sepsis Early Prediction Sweep Execution End ==="
 date
 """
-                    with open(slurm_script_path, "w") as f:
-                        f.write(script_content)
-                    print(f"Submitting SLURM Job ({tm}): {slurm_script_path}")
-                    res = subprocess.run(["sbatch", str(slurm_script_path)], capture_output=True, text=True)
-                    print(res.stdout)
-                    if res.stderr:
-                        print(res.stderr)
+                with open(slurm_script_path, "w") as f:
+                    f.write(script_content)
+                print(f"Submitting Early Prediction Sweep SLURM Job: {slurm_script_path}")
+                res = subprocess.run(["sbatch", str(slurm_script_path)], capture_output=True, text=True)
+                print(res.stdout)
+                if res.stderr:
+                    print(res.stderr)
                 sys.exit(0)
 
         elif task_name == "early_prediction_eval":
