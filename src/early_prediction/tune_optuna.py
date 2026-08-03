@@ -24,6 +24,22 @@ from src.early_prediction.model import (
     train_lstm_model, evaluate_lstm_model, find_default_mimic_npz
 )
 
+def compute_metric(y_true, probs, metric_name="auprc"):
+    metric_name = metric_name.lower()
+    if metric_name in ("acc", "accuracy"):
+        preds = (probs >= 0.5).astype(int)
+        return float(np.mean(preds == y_true))
+    elif metric_name == "f1":
+        preds = (probs >= 0.5).astype(int)
+        return float(f1_score(y_true, preds, zero_division=0))
+    elif metric_name in ("roc_auc", "auc"):
+        if len(np.unique(y_true)) < 2:
+            return 0.5
+        return float(roc_auc_score(y_true, probs))
+    else:  # auprc
+        precisions, recalls, _ = precision_recall_curve(y_true, probs)
+        return float(auc(recalls, precisions))
+
 def objective(trial, X, y, mask, patient_lengths, v_vals_all, args):
     model_target = args.model_target.lower()
     
@@ -75,7 +91,7 @@ def objective(trial, X, y, mask, patient_lengths, v_vals_all, args):
     use_focal_loss = trial.suggest_categorical("use_focal_loss", [True, False])
     use_tcn_conv = trial.suggest_categorical("use_tcn_conv", [True, False])
     
-    split_auprcs = []
+    split_scores = []
     n_eval_splits = 5 # 5 stratified splits per trial for speed
     
     if model_type == "transformer":
@@ -103,9 +119,8 @@ def objective(trial, X, y, mask, patient_lengths, v_vals_all, args):
                 lr=lr, device=device, seed=seed_val
             )
             probs = evaluate_transformer_model(model, X_te, input_dim, device=device)
-            precisions, recalls, _ = precision_recall_curve(y_te, probs)
-            auprc_val = float(auc(recalls, precisions))
-            split_auprcs.append(auprc_val)
+            score_val = compute_metric(y_te, probs, metric_name=args.metric)
+            split_scores.append(score_val)
             
     else: # lstm
         hidden_dim = trial.suggest_categorical("hidden_dim", [32, 64, 128])
@@ -128,12 +143,11 @@ def objective(trial, X, y, mask, patient_lengths, v_vals_all, args):
                 bidirectional=bidirectional, device=device, seed=seed_val
             )
             probs = evaluate_lstm_model(model, X_te, input_dim, device=device)
-            precisions, recalls, _ = precision_recall_curve(y_te, probs)
-            auprc_val = float(auc(recalls, precisions))
-            split_auprcs.append(auprc_val)
+            score_val = compute_metric(y_te, probs, metric_name=args.metric)
+            split_scores.append(score_val)
             
-    mean_auprc = float(np.mean(split_auprcs))
-    return mean_auprc
+    mean_score = float(np.mean(split_scores))
+    return mean_score
 
 def main():
     parser = argparse.ArgumentParser(description="Modular Optuna Hyperparameter Search for Early Prediction Models")
@@ -143,6 +157,7 @@ def main():
     parser.add_argument("--checkpoint", type=str, default="results/checkpoints/mimic/tune_mimic_cql")
     parser.add_argument("--window-hours", type=int, default=12)
     parser.add_argument("--use-volatility", action="store_true", default=True)
+    parser.add_argument("--metric", type=str, default="auprc", choices=["auprc", "accuracy", "f1", "roc_auc"], help="Optimization metric for Optuna (auprc, accuracy, f1, roc_auc)")
     parser.add_argument("--out-dir", type=str, default="results/plots/early_prediction/tune_early_pred")
     args = parser.parse_args()
     
@@ -194,7 +209,7 @@ def main():
     
     print("\n=== Optuna Study Complete ===")
     print(f"Target: {args.model_target}")
-    print(f"Best Trial Score (AUPRC at 9h): {study.best_value:.4f}")
+    print(f"Best Trial Score ({args.metric.upper()} at 9h): {study.best_value:.4f}")
     print("Best Hyperparameters:")
     for k, v in study.best_params.items():
         print(f"  {k}: {v}")
@@ -222,11 +237,11 @@ def main():
         trial_values = [t.value for t in study.trials if t.value is not None]
         best_values = np.maximum.accumulate(trial_values)
         
-        ax.plot(trial_numbers, trial_values, 'o', color='tab:blue', alpha=0.6, label='Trial AUPRC')
-        ax.plot(trial_numbers, best_values, '-', color='tab:red', linewidth=2.5, label='Best Cumulative AUPRC')
+        ax.plot(trial_numbers, trial_values, 'o', color='tab:blue', alpha=0.6, label=f'Trial {args.metric.upper()}')
+        ax.plot(trial_numbers, best_values, '-', color='tab:red', linewidth=2.5, label=f'Best Cumulative {args.metric.upper()}')
         ax.set_title(f"Optuna Optimization History ({args.model_target} - \u03c4=9h)", fontsize=13, fontweight='bold')
         ax.set_xlabel("Trial Number", fontsize=11)
-        ax.set_ylabel("Validation AUPRC", fontsize=11)
+        ax.set_ylabel(f"Validation {args.metric.upper()}", fontsize=11)
         ax.grid(True, linestyle="--", alpha=0.5)
         ax.legend(fontsize=10)
         plt.tight_layout()

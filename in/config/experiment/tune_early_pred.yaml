@@ -12,6 +12,7 @@ early_prediction:
   output_dir: "results/plots/early_prediction/tune_early_pred"
   n_trials: 200
   window_hours: 12
+  metric: roc_auc
   target_models:
     - lstm_no_v
     - lstm_with_v

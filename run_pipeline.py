@@ -577,6 +577,7 @@ $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/eval.py {eval_args_str}
             dataset_path = ep_cfg.get("dataset_path", "in/datasets/mimic/mimic_lazy_12_clean_with_interventions_corrected.npz")
             out_dir = ep_cfg.get("output_dir", f"results/plots/early_prediction/{cfg.experiment_id}")
             
+            metric = ep_cfg.get("metric", "auprc")
             target_models = ep_cfg.get("target_models", ["lstm_no_v", "lstm_with_v", "transformer_no_v", "transformer_with_v"])
             if isinstance(target_models, str):
                 target_models = [m.strip() for m in target_models.split(",")]
@@ -586,13 +587,14 @@ $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/eval.py {eval_args_str}
             slurm_dir.mkdir(parents=True, exist_ok=True)
             
             for m_target in target_models:
-                print(f"\n--> Setting up Optuna Study for architecture target: [{m_target}]")
+                print(f"\n--> Setting up Optuna Study for architecture target: [{m_target}] (metric: {metric})")
                 tune_args = [
                     "--n-trials", str(n_trials),
                     "--model-target", str(m_target),
                     "--checkpoint", str(ckpt),
                     "--dataset-path", str(dataset_path),
-                    "--out-dir", str(out_dir)
+                    "--out-dir", str(out_dir),
+                    "--metric", str(metric)
                 ]
                 if local_val:
                     cmd = [python_exe, "-u", "src/early_prediction/tune_optuna.py"] + tune_args
