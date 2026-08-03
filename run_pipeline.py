@@ -588,6 +588,13 @@ $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/eval.py {eval_args_str}
             
             for m_target in target_models:
                 print(f"\n--> Setting up Optuna Study for architecture target: [{m_target}] (metric: {metric})")
+                
+                # Ensure no stray 'optuna_study' folders are leftover in output_dir
+                stray_study_dir = Path(out_dir) / "optuna_study"
+                if stray_study_dir.exists() and stray_study_dir.is_dir():
+                    import shutil
+                    shutil.rmtree(stray_study_dir)
+                    
                 tune_args = [
                     "--n-trials", str(n_trials),
                     "--model-target", str(m_target),

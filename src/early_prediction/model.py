@@ -924,13 +924,20 @@ def main():
         json_path = out_dir / f"metrics_{clean_key}.json"
         with open(json_path, "w") as f:
             json.dump(results[m_cfg_name], f, indent=2)
+
+    # Clean up any stray per-architecture plots or txt files from previous runs
+    for stray_file in list(out_dir.glob("early_prediction_dl_comparison_*.png")) + list(out_dir.glob("early_prediction_dl_results_*.txt")):
+        if stray_file.name not in ("early_prediction_dl_comparison.png", "early_prediction_dl_comparison_2panel.png", "early_prediction_dl_results.txt"):
+            try:
+                stray_file.unlink()
+            except Exception:
+                pass
             
     # Load all available metrics JSON files in out_dir to build consolidated plots
     all_results = {}
     for json_file in out_dir.glob("metrics_*.json"):
         try:
             m_key = json_file.stem.replace("metrics_", "")
-            # Map clean key back to display name
             disp_map = {
                 "lstm_no_v": "LSTM (no V)",
                 "lstm_with_v": "LSTM (with V)",
@@ -946,6 +953,12 @@ def main():
     # Fallback if no json files read
     if not all_results:
         all_results = results
+
+    # If running parallel sub-jobs, defer generating final plots until all 4 architectures have finished
+    target_model_arg = getattr(args, "target_model", "all").lower()
+    if target_model_arg != "all" and len(all_results) < 4:
+        print(f"Saved metrics ({len(all_results)}/4 architectures complete). Deferring final plot generation until all models finish.")
+        return
 
     # Save consolidated text results
     results_file = out_dir / "early_prediction_dl_results.txt"
