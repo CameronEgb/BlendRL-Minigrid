@@ -512,6 +512,7 @@ def main():
                 plot_convergence=(split_idx == 0), plot_path=plot_path,
                 tuned_params=tuned_params
             )
+            ckpt_path.parent.mkdir(parents=True, exist_ok=True)
             torch.save({
                 "model_state_dict": pred_model.state_dict(),
                 "pred_acc": float(pred_acc),

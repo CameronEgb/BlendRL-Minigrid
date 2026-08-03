@@ -774,7 +774,7 @@ date
                     print(f"\n=== Preparing Slurm Job: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
                     job_name = f"{agent_name_internal}_{dataset_name_internal}_{cfg.experiment_id}"
                     overrides_slurm = [
-                        "train.py",
+                        "src/train.py",
                         f"+experiment={args.experiment}",
                         f"++local=false",
                         f"mode=offline",
