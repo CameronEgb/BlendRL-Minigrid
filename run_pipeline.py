@@ -740,11 +740,11 @@ date
                             dataset_path = group_shared_path
                         else:
                             global_match = find_dataset_globally(dataset_name_internal)
-                        if global_match:
-                            dataset_path = Path(global_match)
-                        else:
-                            print(f"Error: Dataset '{dataset_id}' not found at {dataset_path} or globally.")
-                            sys.exit(1)
+                            if global_match:
+                                dataset_path = Path(global_match)
+                            else:
+                                print(f"Error: Dataset '{dataset_id}' not found at {dataset_path} or globally.")
+                                sys.exit(1)
                 print(f"Using dataset from: {dataset_path}")
 
             for agent_config in offline_list:
