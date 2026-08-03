@@ -11,8 +11,9 @@ early_prediction:
   dataset_path: "in/datasets/mimic/mimic_lazy_12_clean_with_interventions.npz"
   output_dir: "results/plots/early_prediction/tune_early_pred"
   n_trials: 200
+  n_splits: 10
   window_hours: 12
-  metric: roc_auc
+  metric: accuracy 
   target_models:
     - lstm_no_v
     - lstm_with_v
