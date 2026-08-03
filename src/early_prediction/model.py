@@ -918,45 +918,68 @@ def main():
         out_dir = out_dir / args.exp_id
     out_dir.mkdir(parents=True, exist_ok=True)
     
-    target_suffix = f"_{args.target_model}" if getattr(args, "target_model", "all") != "all" else ""
-    
-    # Save text results
-    results_file = out_dir / f"early_prediction_dl_results{target_suffix}.txt"
+    # Save results dictionary to JSON for multi-model consolidation
+    for m_cfg_name, _, _ in model_configs:
+        clean_key = m_cfg_name.lower().replace(" ", "_").replace("(", "").replace(")", "")
+        json_path = out_dir / f"metrics_{clean_key}.json"
+        with open(json_path, "w") as f:
+            json.dump(results[m_cfg_name], f, indent=2)
+            
+    # Load all available metrics JSON files in out_dir to build consolidated plots
+    all_results = {}
+    for json_file in out_dir.glob("metrics_*.json"):
+        try:
+            m_key = json_file.stem.replace("metrics_", "")
+            # Map clean key back to display name
+            disp_map = {
+                "lstm_no_v": "LSTM (no V)",
+                "lstm_with_v": "LSTM (with V)",
+                "transformer_no_v": "Transformer (no V)",
+                "transformer_with_v": "Transformer (with V)"
+            }
+            disp_name = disp_map.get(m_key, m_key)
+            with open(json_file, "r") as f:
+                all_results[disp_name] = json.load(f)
+        except Exception as e:
+            print(f"Warning loading {json_file}: {e}")
+
+    # Fallback if no json files read
+    if not all_results:
+        all_results = results
+
+    # Save consolidated text results
+    results_file = out_dir / "early_prediction_dl_results.txt"
     with open(results_file, "w") as f:
         f.write(f"=== Septic Shock Early Prediction DL Sweep Results over {args.n_splits} Splits ===\n")
         f.write(f"Observation: {'Full History' if args.use_all_history else f'{args.window_hours}h window'}\n")
         f.write(f"Cohort: {'All valid trajectories per tau' if args.use_all_trajectories else 'Restricted global cohort'}\n\n")
-        for m_cfg_name, _, _ in model_configs:
-            f.write(f"Model Configuration: {m_cfg_name}\n")
-            f.write(f"  Taus:   {results[m_cfg_name]['tau']}\n")
-            f.write(f"  AUCs:   {results[m_cfg_name]['auc']} (SEMs: {results[m_cfg_name]['auc_sem']})\n")
-            f.write(f"  AUPRCs: {results[m_cfg_name]['auprc']} (SEMs: {results[m_cfg_name]['auprc_sem']})\n")
-            f.write(f"  F1_opt: {results[m_cfg_name]['f1_opt']} (SEMs: {results[m_cfg_name]['f1_opt_sem']})\n")
-            f.write(f"  F1_max: {results[m_cfg_name]['f1_max']} (SEMs: {results[m_cfg_name]['f1_max_sem']})\n")
-            f.write(f"  F1_0.5: {results[m_cfg_name]['f1_05']} (SEMs: {results[m_cfg_name]['f1_05_sem']})\n\n")
+        for m_name, res_data in sorted(all_results.items()):
+            f.write(f"Model Configuration: {m_name}\n")
+            f.write(f"  Taus:   {res_data['tau']}\n")
+            f.write(f"  AUCs:   {res_data['auc']} (SEMs: {res_data['auc_sem']})\n")
+            f.write(f"  AUPRCs: {res_data['auprc']} (SEMs: {res_data['auprc_sem']})\n")
+            f.write(f"  F1_opt: {res_data['f1_opt']} (SEMs: {res_data['f1_opt_sem']})\n")
+            f.write(f"  F1_max: {res_data['f1_max']} (SEMs: {res_data['f1_max_sem']})\n")
+            f.write(f"  F1_0.5: {res_data['f1_05']} (SEMs: {res_data['f1_05_sem']})\n\n")
 
-    # Clean up legacy markdown summary if present
-    legacy_summary = out_dir / "early_prediction_results_summary.md"
-    if legacy_summary.exists():
-        try:
-            legacy_summary.unlink()
-        except Exception:
-            pass
-
-    # Plot 4-panel results
-    print(f"Plotting 4-panel results and saving to {out_dir}...")
+    # Plot consolidated 4-panel results
+    print(f"Plotting consolidated 4-panel results ({len(all_results)} models) and saving to {out_dir}...")
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-    colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red']
-    markers = ['o', 's', '^', 'D']
+    colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown']
+    markers = ['o', 's', '^', 'D', 'v', 'P']
     
+    # Sort model names predictably
+    model_keys_sorted = sorted(all_results.keys())
+
     # Plot 1: AUC-ROC
-    for idx, (m_cfg_name, _, _) in enumerate(model_configs):
-        res = results[m_cfg_name]
+    for idx, m_name in enumerate(model_keys_sorted):
+        res = all_results[m_name]
         tau_arr = np.array(res["tau"])
         mean_arr = np.array(res["auc"])
         sem_arr = np.array(res["auc_sem"])
-        axes[0, 0].plot(tau_arr, mean_arr, marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
-        axes[0, 0].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[idx], alpha=0.15)
+        c_idx = idx % len(colors)
+        axes[0, 0].plot(tau_arr, mean_arr, marker=markers[c_idx], color=colors[c_idx], label=m_name, linewidth=2)
+        axes[0, 0].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[c_idx], alpha=0.15)
     axes[0, 0].set_title(f"AUC-ROC vs. Lead Time (\u03c4)", fontsize=12, fontweight='bold')
     axes[0, 0].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=11)
     axes[0, 0].set_ylabel("AUC-ROC", fontsize=11)
@@ -964,13 +987,14 @@ def main():
     axes[0, 0].legend(fontsize=10)
     
     # Plot 2: AUPRC
-    for idx, (m_cfg_name, _, _) in enumerate(model_configs):
-        res = results[m_cfg_name]
+    for idx, m_name in enumerate(model_keys_sorted):
+        res = all_results[m_name]
         tau_arr = np.array(res["tau"])
         mean_arr = np.array(res["auprc"])
         sem_arr = np.array(res["auprc_sem"])
-        axes[0, 1].plot(tau_arr, mean_arr, marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
-        axes[0, 1].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[idx], alpha=0.15)
+        c_idx = idx % len(colors)
+        axes[0, 1].plot(tau_arr, mean_arr, marker=markers[c_idx], color=colors[c_idx], label=m_name, linewidth=2)
+        axes[0, 1].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[c_idx], alpha=0.15)
     axes[0, 1].set_title(f"AUPRC (PR-AUC) vs. Lead Time (\u03c4)", fontsize=12, fontweight='bold')
     axes[0, 1].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=11)
     axes[0, 1].set_ylabel("AUPRC", fontsize=11)
@@ -978,13 +1002,14 @@ def main():
     axes[0, 1].legend(fontsize=10)
     
     # Plot 3: F1-Opt (Learned Optimal Threshold)
-    for idx, (m_cfg_name, _, _) in enumerate(model_configs):
-        res = results[m_cfg_name]
+    for idx, m_name in enumerate(model_keys_sorted):
+        res = all_results[m_name]
         tau_arr = np.array(res["tau"])
         mean_arr = np.array(res["f1_opt"])
         sem_arr = np.array(res["f1_opt_sem"])
-        axes[1, 0].plot(tau_arr, mean_arr, marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
-        axes[1, 0].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[idx], alpha=0.15)
+        c_idx = idx % len(colors)
+        axes[1, 0].plot(tau_arr, mean_arr, marker=markers[c_idx], color=colors[c_idx], label=m_name, linewidth=2)
+        axes[1, 0].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[c_idx], alpha=0.15)
     axes[1, 0].set_title(f"Optimal F1-Score (\u03b8*) vs. Lead Time (\u03c4)", fontsize=12, fontweight='bold')
     axes[1, 0].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=11)
     axes[1, 0].set_ylabel("Optimal F1-Score", fontsize=11)
@@ -992,13 +1017,14 @@ def main():
     axes[1, 0].legend(fontsize=10)
 
     # Plot 4: F1 at 0.5 Threshold
-    for idx, (m_cfg_name, _, _) in enumerate(model_configs):
-        res = results[m_cfg_name]
+    for idx, m_name in enumerate(model_keys_sorted):
+        res = all_results[m_name]
         tau_arr = np.array(res["tau"])
         mean_arr = np.array(res["f1_05"])
         sem_arr = np.array(res["f1_05_sem"])
-        axes[1, 1].plot(tau_arr, mean_arr, marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
-        axes[1, 1].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[idx], alpha=0.15)
+        c_idx = idx % len(colors)
+        axes[1, 1].plot(tau_arr, mean_arr, marker=markers[c_idx], color=colors[c_idx], label=m_name, linewidth=2)
+        axes[1, 1].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[c_idx], alpha=0.15)
     axes[1, 1].set_title(f"Standard F1-Score (\u03b8=0.5) vs. Lead Time (\u03c4)", fontsize=12, fontweight='bold')
     axes[1, 1].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=11)
     axes[1, 1].set_ylabel("F1-Score (\u03b8=0.5)", fontsize=11)
@@ -1006,34 +1032,36 @@ def main():
     axes[1, 1].legend(fontsize=10)
     
     plt.tight_layout()
-    plot_path = out_dir / f"early_prediction_dl_comparison{target_suffix}.png"
+    plot_path = out_dir / "early_prediction_dl_comparison.png"
     plt.savefig(plot_path, dpi=200)
     plt.close()
 
-    # Plot 2-panel results (AUC-ROC and Optimal F1)
-    print("Plotting 2-panel results (AUC-ROC & Optimal F1)...")
+    # Plot consolidated 2-panel results (AUC-ROC and Optimal F1)
+    print("Plotting consolidated 2-panel results (AUC-ROC & Optimal F1)...")
     fig2, axes2 = plt.subplots(1, 2, figsize=(16, 6))
     
-    for idx, (m_cfg_name, _, _) in enumerate(model_configs):
-        res = results[m_cfg_name]
+    for idx, m_name in enumerate(model_keys_sorted):
+        res = all_results[m_name]
         tau_arr = np.array(res["tau"])
         mean_arr = np.array(res["auc"])
         sem_arr = np.array(res["auc_sem"])
-        axes2[0].plot(tau_arr, mean_arr, marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
-        axes2[0].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[idx], alpha=0.15)
+        c_idx = idx % len(colors)
+        axes2[0].plot(tau_arr, mean_arr, marker=markers[c_idx], color=colors[c_idx], label=m_name, linewidth=2)
+        axes2[0].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[c_idx], alpha=0.15)
     axes2[0].set_title(f"AUC-ROC vs. Lead Time (\u03c4)", fontsize=13, fontweight='bold')
     axes2[0].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=12)
     axes2[0].set_ylabel("AUC-ROC", fontsize=12)
     axes2[0].grid(True, linestyle="--", alpha=0.6)
     axes2[0].legend(fontsize=10)
     
-    for idx, (m_cfg_name, _, _) in enumerate(model_configs):
-        res = results[m_cfg_name]
+    for idx, m_name in enumerate(model_keys_sorted):
+        res = all_results[m_name]
         tau_arr = np.array(res["tau"])
         mean_arr = np.array(res["f1_opt"])
         sem_arr = np.array(res["f1_opt_sem"])
-        axes2[1].plot(tau_arr, mean_arr, marker=markers[idx], color=colors[idx], label=m_cfg_name, linewidth=2)
-        axes2[1].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[idx], alpha=0.15)
+        c_idx = idx % len(colors)
+        axes2[1].plot(tau_arr, mean_arr, marker=markers[c_idx], color=colors[c_idx], label=m_name, linewidth=2)
+        axes2[1].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[c_idx], alpha=0.15)
     axes2[1].set_title(f"Optimal F1-Score vs. Lead Time (\u03b8*)", fontsize=13, fontweight='bold')
     axes2[1].set_xlabel("Lead Time (hours early - \u03c4)", fontsize=12)
     axes2[1].set_ylabel("F1-Score (\u03b8*)", fontsize=12)
@@ -1041,9 +1069,11 @@ def main():
     axes2[1].legend(fontsize=10)
     
     plt.tight_layout()
-    plot_path_2panel = out_dir / f"early_prediction_dl_comparison_2panel{target_suffix}.png"
+    plot_path_2panel = out_dir / "early_prediction_dl_comparison_2panel.png"
     plt.savefig(plot_path_2panel, dpi=200)
     plt.close()
+    
+    print(f"Consolidated early prediction evaluation finished! All {len(all_results)} model(s) saved to single 4-panel graph: {plot_path}")
     
     print(f"Early prediction evaluation finished successfully! Results saved to {out_dir}")
 
