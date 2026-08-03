@@ -434,6 +434,23 @@ class EnvironmentEvaluatorCallback(L.Callback):
 
         print(f"Evaluation at {transitions} transitions: Avg Reward = {avg_reward} (+/- {std_reward})")
 
+        # Explicitly save model checkpoint to disk during evaluation intervals
+        try:
+            from hydra.core.hydra_config import HydraConfig
+            trial_id = "0"
+            if HydraConfig.initialized():
+                try:
+                    trial_id = str(HydraConfig.get().job.num)
+                except Exception:
+                    pass
+            ckpt_dir = os.path.join("results/checkpoints", pl_module.cfg.group, pl_module.cfg.experiment_id, pl_module.cfg.agent.name, trial_id)
+            os.makedirs(ckpt_dir, exist_ok=True)
+            ckpt_file = os.path.join(ckpt_dir, "best_model.ckpt")
+            trainer.save_checkpoint(ckpt_file)
+            print(f"Saved model checkpoint to: {ckpt_file}")
+        except Exception as e:
+            print(f"Notice: Checkpoint save during evaluation warning: {e}")
+
     def evaluate(self, trainer, pl_module):
         cfg = self.cfg
         pl_module.eval()
