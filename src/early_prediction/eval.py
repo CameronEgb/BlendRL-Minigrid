@@ -281,13 +281,22 @@ def predict_shock_probs_with_ep_models(ep_ckpts_for_tau, X_sequences, device):
     Returns:
         mean_probs: numpy array of shape (N,) — average predicted P(shock) per patient
     """
+    if len(X_sequences) == 0:
+        return np.array([])
+
+    # Apply z-score normalization matching the training pipeline
+    all_steps = np.concatenate([s for s in X_sequences], axis=0)
+    mean = np.mean(all_steps, axis=0, keepdims=True)
+    std = np.std(all_steps, axis=0, keepdims=True) + 1e-6
+    X_norm = [(s - mean) / std for s in X_sequences]
+
     all_probs = []
     for ckpt_path in ep_ckpts_for_tau:
         model, m_type, input_dim, _ = load_ep_model(ckpt_path, device)
         if m_type == "lstm":
-            probs = evaluate_lstm_model(model, X_sequences, input_dim, device=str(device))
+            probs = evaluate_lstm_model(model, X_norm, input_dim, device=str(device))
         else:
-            probs = evaluate_transformer_model(model, X_sequences, input_dim, device=str(device))
+            probs = evaluate_transformer_model(model, X_norm, input_dim, device=str(device))
         all_probs.append(probs)
     return np.mean(all_probs, axis=0)
 
