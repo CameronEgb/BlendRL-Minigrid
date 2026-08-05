@@ -1,21 +1,77 @@
 #!/usr/bin/env python3
 import sys
 import argparse
+import importlib
+import pkgutil
 from pathlib import Path
 import yaml
 
 from plot.base import BasePlotter
-from plot.convergence import ConvergencePlotter
-from plot.losses import LossesPlotter
-from plot.reports import ReportsPlotter
-from plot.early_prediction import EarlyPredictionPlotter
 
-PLOTTER_REGISTRY = {
-    "convergence": ConvergencePlotter,
-    "losses": LossesPlotter,
-    "reports": ReportsPlotter,
-    "early_prediction": EarlyPredictionPlotter
+# Environment-based default plot modules.
+# Experiments can override by defining a `plots:` section in their YAML.
+ENV_DEFAULT_PLOTS = {
+    "mimic":    ["convergence", "losses", "reports", "early_prediction"],
+    "cartpole": ["convergence", "losses", "reports"],
 }
+FALLBACK_PLOTS = ["convergence", "losses", "reports"]
+
+
+def discover_plotters() -> dict:
+    """Auto-discover all BasePlotter subclasses in the plot/ package."""
+    registry = {}
+    plot_pkg_dir = str(Path(__file__).parent)
+    for importer, modname, ispkg in pkgutil.iter_modules([plot_pkg_dir]):
+        if modname.startswith("_") or modname in ("base", "manager"):
+            continue
+        try:
+            mod = importlib.import_module(f"plot.{modname}")
+            for attr_name in dir(mod):
+                cls = getattr(mod, attr_name)
+                if (isinstance(cls, type) and issubclass(cls, BasePlotter) 
+                        and cls is not BasePlotter and hasattr(cls, 'name')):
+                    inst = cls()
+                    registry[inst.name] = cls
+        except Exception as e:
+            print(f"Warning: Could not load plotter module 'plot.{modname}': {e}")
+    return registry
+
+
+def get_requested_plots(exp_cfg: dict, exp_id: str) -> dict:
+    """Determine which plots to generate based on experiment config.
+    
+    Priority:
+      1. Explicit `plots:` section in experiment YAML (list or dict form)
+      2. Environment-based defaults from ENV_DEFAULT_PLOTS
+      3. FALLBACK_PLOTS
+    """
+    plots_val = exp_cfg.get("plots", None)
+    if plots_val is not None:
+        if isinstance(plots_val, list):
+            return {name: {} for name in plots_val}
+        elif isinstance(plots_val, dict):
+            return plots_val
+
+    # Fall back to env-based defaults
+    env_name = ""
+    env_val = exp_cfg.get("env", {})
+    if isinstance(env_val, dict):
+        env_name = env_val.get("name", "")
+    elif isinstance(env_val, str):
+        env_name = env_val
+
+    # Also check for early_prediction task types
+    task_name = exp_cfg.get("task", "")
+    defaults = ENV_DEFAULT_PLOTS.get(env_name, FALLBACK_PLOTS)
+    
+    # Auto-include early_prediction if relevant
+    result = {name: {} for name in defaults}
+    if "early_prediction" not in result:
+        if "early_pred" in exp_id or "early_prediction" in task_name:
+            result["early_prediction"] = {}
+    
+    return result
+
 
 def run_experiment_plots(exp_id: str):
     print(f"\n==================================================")
@@ -28,32 +84,19 @@ def run_experiment_plots(exp_id: str):
         with open(exp_path) as f:
             exp_cfg = yaml.safe_load(f) or {}
 
-    plots_req = exp_cfg.get("plots", ["convergence", "losses", "reports"])
-    
-    if isinstance(plots_req, list):
-        requested_modules = {item: {} for item in plots_req}
-    elif isinstance(plots_req, dict):
-        requested_modules = plots_req
-    else:
-        requested_modules = {"convergence": {}, "losses": {}, "reports": {}}
-
-    # Auto-include early_prediction plotter for MIMIC or early_prediction experiments
-    env_name = exp_cfg.get("env", {}).get("name", "") if isinstance(exp_cfg.get("env"), dict) else ""
-    task_name = exp_cfg.get("task", "")
-    if "early_prediction" not in requested_modules:
-        if env_name == "mimic" or "early_pred" in exp_id or "early_prediction" in task_name:
-            requested_modules["early_prediction"] = {}
+    registry = discover_plotters()
+    requested_modules = get_requested_plots(exp_cfg, exp_id)
 
     for module_name, overrides in requested_modules.items():
-        if module_name in PLOTTER_REGISTRY:
-            plotter_cls = PLOTTER_REGISTRY[module_name]
+        if module_name in registry:
+            plotter_cls = registry[module_name]
             plotter = plotter_cls()
             try:
                 plotter.run(exp_id, cli_overrides=overrides if isinstance(overrides, dict) else None)
             except Exception as e:
                 print(f"Error running plotter '{module_name}' for '{exp_id}': {e}")
         else:
-            print(f"Warning: Unknown plotter module '{module_name}' requested in experiment config.")
+            print(f"Warning: Unknown plotter module '{module_name}' requested. Available: {list(registry.keys())}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Orchestrate Experiment Plot Generation")

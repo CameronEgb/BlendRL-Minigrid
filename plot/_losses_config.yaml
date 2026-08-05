@@ -2,6 +2,8 @@ figsize: [8, 5]
 dpi: 300
 smoothing_window: 10
 x_axis: transitions
+output_subdir: losses
+filename_prefix: "offline_"
 
 style:
   grid: true

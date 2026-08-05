@@ -22,63 +22,11 @@ class LossesPlotter(BasePlotter):
             "losses/bellman_loss",
             "losses/cql_loss"
         ])
-        window = cfg.get("smoothing_window", 10)
-        dpi = cfg.get("dpi", 300)
-        figsize = tuple(cfg.get("figsize", [8, 5]))
-        x_axis_col = cfg.get("x_axis", "transitions")
-
-        runs_data = self.load_metrics(group, exp_id)
-        if not runs_data:
-            print(f"No log data found for experiment '{exp_id}' in group '{group}'.")
-            return
-
-        conv_dir = output_dir / "convergence"
-        conv_dir.mkdir(parents=True, exist_ok=True)
-
-        print(f"=== Generating Loss Plots for '{exp_id}' (Selected Losses: {metrics}) ===")
-
-        for metric in metrics:
-            plt.figure(figsize=figsize)
-            has_data = False
-
-            for method_name, versions in sorted(runs_data.items()):
-                all_x = []
-                all_y = []
-
-                for v_name, df in versions.items():
-                    if metric in df.columns:
-                        valid_df = df.dropna(subset=[metric])
-                        if not valid_df.empty:
-                            x_vals = valid_df[x_axis_col].values if x_axis_col in valid_df.columns else valid_df.index.values
-                            y_vals = valid_df[metric].values
-                            all_x.append(x_vals)
-                            all_y.append(y_vals)
-
-                if all_y:
-                    has_data = True
-                    display_name = clean_label(method_name)
-                    color, ls, marker = get_style_info(method_name)
-
-                    y_avg = moving_average(all_y[0], window)
-                    x_avg = all_x[0][:len(y_avg)]
-
-                    plt.plot(x_avg, y_avg, label=display_name, color=color, linestyle=ls, linewidth=2.0)
-
-            if has_data:
-                plt.xlabel(x_axis_col.replace("_", " ").title())
-                plt.ylabel(metric.replace("_", " ").title())
-                plt.title(f"{exp_id.upper()}: {metric}")
-                plt.grid(True, alpha=0.3)
-                plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-                plt.tight_layout()
-
-                safe_metric_name = metric.replace("/", "_")
-                out_path = conv_dir / f"offline_{safe_metric_name.replace('losses_', '')}.png"
-                plt.savefig(out_path, dpi=dpi)
-                plt.close()
-                print(f"  Saved: {out_path}")
-            else:
-                plt.close()
+        # Default config overrides for loss plots
+        loss_cfg = dict(cfg)
+        loss_cfg.setdefault("output_subdir", "losses")
+        loss_cfg.setdefault("filename_prefix", "offline_")
+        self.plot_metric_series(exp_id, group, output_dir, metrics, loss_cfg)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate Specific Loss Plots for an Experiment")

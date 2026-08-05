@@ -44,33 +44,19 @@ from src.early_prediction.model import (
 #  Helpers
 # ---------------------------------------------------------------------------
 
-PRETTY_NAMES = {
-    "cql": "CQL (Neural Only)",
-    "multi_arch_blendrl_cql_human_neural": "BlendRL Human+Neural",
-    "multi_arch_blendrl_cql_human_cew": "BlendRL Human+CEW",
-    "multi_arch_blendrl_cql_cew_only": "BlendRL CEW Only",
-    "clinician": "Clinician (Dataset)",
-}
+# ---------------------------------------------------------------------------
+#  Method Style Registry — imported from the unified source of truth
+# ---------------------------------------------------------------------------
+from src.method_registry import get_style as get_method_style
 
-COLORS = {
-    "cql": "tab:blue",
-    "multi_arch_blendrl_cql_human_neural": "tab:orange",
-    "multi_arch_blendrl_cql_human_cew": "tab:green",
-    "multi_arch_blendrl_cql_cew_only": "tab:red",
-    "clinician": "tab:purple",
-}
+def pretty(name: str) -> str:
+    return get_method_style(name)["label"]
 
-MARKERS = {
-    "cql": "o",
-    "multi_arch_blendrl_cql_human_neural": "s",
-    "multi_arch_blendrl_cql_human_cew": "^",
-    "multi_arch_blendrl_cql_cew_only": "D",
-    "clinician": "X",
-}
+def color(name: str):
+    return get_method_style(name)["color"]
 
-
-def pretty(name):
-    return PRETTY_NAMES.get(name, name)
+def marker(name: str) -> str:
+    return get_method_style(name)["marker"]
 
 
 def resolve_mimic_dataset(args):
@@ -98,48 +84,110 @@ def resolve_mimic_dataset(args):
     )
 
 
-def discover_policy_checkpoints(checkpoint_root):
-    """Auto-discover trained RL policy checkpoints under a root directory or single file path.
+def discover_single_policy(path: Path) -> dict:
+    """Resolve a single RL policy checkpoint from a file or method directory.
 
-    Returns dict: { method_key: Path_to_best_ckpt }
-    Handles:
-      1. Single file path: e.g. results/checkpoints/mimic/tune_mimic_blendrl_cql/cql/0/best_model.ckpt
-      2. Method dir with ckpts: e.g. results/checkpoints/mimic/tune_mimic_blendrl_cql/cql
-      3. Experiment root dir with subdirs: e.g. results/checkpoints/mimic/tune_mimic_blendrl_cql
+    Accepts either:
+      - A direct .ckpt file:   results/.../cql/0/best_model.ckpt
+      - A method directory:    results/.../cql/   or   results/.../cql/0/
+
+    Returns dict: { method_key: Path_to_best_ckpt }  (always length 0 or 1)
     """
-    root = Path(checkpoint_root)
-    policies = {}
+    path = Path(path)
+    if not path.exists():
+        print(f"WARNING: Path {path} does not exist.")
+        return {}
+
+    if path.is_file():
+        # e.g. .../cql/0/best_model.ckpt  → method = "cql"
+        #      .../cql/best_model.ckpt    → method = "cql"
+        method_name = path.parent.parent.name if path.parent.name.isdigit() else path.parent.name
+        return {method_name: path}
+
+    # Directory — pick the most-recently modified best_model*.ckpt inside it
+    ckpts = sorted(
+        list(path.glob("best_model*.ckpt")) + list(path.glob("*.ckpt")),
+        key=lambda p: p.stat().st_mtime, reverse=True
+    )
+    if not ckpts:
+        ckpts = sorted(
+            list(path.rglob("best_model*.ckpt")),
+            key=lambda p: p.stat().st_mtime, reverse=True
+        )
+    if not ckpts:
+        print(f"WARNING: No .ckpt files found under {path}.")
+        return {}
+
+    method_name = path.parent.name if path.name.isdigit() else path.name
+    return {method_name: ckpts[0]}
+
+
+def discover_policies_from_experiment_root(root: Path) -> dict:
+    """Discover ALL RL policy checkpoints for a multi-method experiment.
+
+    Expects the experiment checkpoint root directory, e.g.:
+        results/checkpoints/mimic/mimic_tqn_all/
+    which contains one subdirectory per trained method:
+        cql/0/best_model.ckpt
+        blendrl_cql_human_neural/0/best_model.ckpt
+        ...
+
+    Returns dict: { method_key: Path_to_best_ckpt }  (one entry per method found)
+    """
+    root = Path(root)
     if not root.exists():
-        print(f"WARNING: Checkpoint root {root} does not exist. No policies found.")
-        return policies
+        print(f"WARNING: Experiment checkpoint root {root} does not exist. No policies found.")
+        return {}
 
-    # 1. Direct file
-    if root.is_file():
-        method_name = root.parent.parent.name if root.parent.name.isdigit() else root.parent.name
-        policies[method_name] = root
-        return policies
-
-    # 2. Check if root itself contains .ckpt files (e.g. root is a single method directory like cql/ or cql/0/)
-    direct_ckpts = list(root.glob("*.ckpt")) + list(root.glob("best_model*.ckpt"))
-    if direct_ckpts:
-        direct_ckpts.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-        method_name = root.parent.name if root.name.isdigit() else root.name
-        policies[method_name] = direct_ckpts[0]
-        return policies
-
-    # 3. Walk subdirectories for multi-method experiment dirs
+    policies = {}
     for method_dir in sorted(root.iterdir()):
         if not method_dir.is_dir():
             continue
         method_key = method_dir.name
-        ckpts = list(method_dir.glob("best_model*.ckpt")) + list(method_dir.glob("*.ckpt"))
+        # Search method_dir itself, then any trial subdirs (e.g. 0/, 1/)
+        ckpts = sorted(
+            list(method_dir.glob("best_model*.ckpt")) + list(method_dir.glob("*.ckpt")),
+            key=lambda p: p.stat().st_mtime, reverse=True
+        )
         if not ckpts:
-            ckpts = list(method_dir.rglob("best_model*.ckpt")) + list(method_dir.rglob("*.ckpt"))
+            ckpts = sorted(
+                list(method_dir.rglob("best_model*.ckpt")),
+                key=lambda p: p.stat().st_mtime, reverse=True
+            )
         if ckpts:
-            ckpts.sort(key=lambda p: p.stat().st_mtime, reverse=True)
             policies[method_key] = ckpts[0]
+        else:
+            print(f"  [discover] Skipping '{method_key}': no .ckpt files found.")
 
     return policies
+
+
+def discover_policy_checkpoints(checkpoint_root) -> dict:
+    """Dispatcher for CLI convenience — resolves whichever checkpoint form was passed.
+
+    Prefer calling the explicit functions directly in programmatic contexts:
+      - discover_single_policy(path)               for a single file or method dir
+      - discover_policies_from_experiment_root(dir) for a full experiment dir
+
+    This wrapper handles all three CLI input forms and logs which case it resolved.
+    """
+    root = Path(checkpoint_root)
+    if not root.exists():
+        print(f"WARNING: Checkpoint path {root} does not exist. No policies found.")
+        return {}
+
+    if root.is_file():
+        print(f"  [discover] Resolved as single .ckpt file.")
+        return discover_single_policy(root)
+
+    # Does the directory itself directly contain .ckpt files? → single method dir
+    if list(root.glob("*.ckpt")) or list(root.glob("best_model*.ckpt")):
+        print(f"  [discover] Resolved as single method directory: {root.name}")
+        return discover_single_policy(root)
+
+    # Otherwise assume it's an experiment root with per-method subdirs
+    print(f"  [discover] Resolved as experiment root. Scanning method subdirs...")
+    return discover_policies_from_experiment_root(root)
 
 
 def load_policy_agent(ckpt_path, device):
@@ -358,8 +406,8 @@ def plot_agreement_vs_shock(agreements, outcomes, report_dir):
         valid = ~np.isnan(means_arr)
 
         label = pretty(method_key)
-        color = COLORS.get(method_key, None)
-        marker = MARKERS.get(method_key, "o")
+        color = get_method_style(method_key)["color"]
+        marker = get_method_style(method_key)["marker"]
         ax1.plot(bin_centers[valid], means_arr[valid], marker=marker, color=color,
                  label=label, linewidth=2.5, markersize=7)
         ax1.fill_between(bin_centers[valid],

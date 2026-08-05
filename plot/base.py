@@ -10,57 +10,8 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 
-def clean_label(label: str) -> str:
-    """Cleans up technical folder names into readable legend labels."""
-    l = label
-    l_lower = l.lower()
-
-    if "fyd" in l_lower:
-        return "CEW+FYD"
-    if ("cew_only" in l_lower or l_lower in ["cew", "cew_only"] or "blendrl_cql_cew_only" in l_lower or l_lower == "blendrl_cql_cew") and "human" not in l_lower:
-        return "CEW"
-
-    l = l.replace("multi_arch_", "")
-    
-    if "blendrl_cql" in l.lower():
-        suffix = l.lower().split("blendrl_cql_")[-1]
-        if "human_cew" in suffix:
-            suffix_str = "Human+CEW"
-        elif "human_neural" in suffix:
-            suffix_str = "Human+Neural"
-        else:
-            suffix_str = suffix.replace("_", "+").upper()
-        l = f"BlendRL-CQL ({suffix_str})"
-    elif "blendrl_iql" in l.lower():
-        suffix = l.lower().split("blendrl_iql_")[-1]
-        sub = suffix.replace("_", "+").upper()
-        l = f"BlendRL-IQL ({sub})"
-
-    l = l.replace("ppo_cp_tuned", "PPO")
-    l = l.replace("ppo_tuned", "PPO")
-    l = l.replace("ppo_final_cp", "PPO")
-    l = l.replace("blendrl_cp_tuned", "BlendRL")
-    l = l.replace("iql_cp_tuned", "IQL")
-    l = l.replace("blendrl_iql_cp_tuned", "BlendRL-IQL")
-    return l
-
-def get_style_info(label: str) -> Tuple[Optional[str], str, str]:
-    l = label.lower()
-    if re.search(r'_v\d+', l) or "tune" in l: 
-        return None, "-", "o"
-    if "ppo" in l and "(on" not in l: return "black", "--", "o"
-    if "blendrl-iql" in l: return "#d62728", "-", "s"
-    if "fyd" in l: 
-        if "human" in l: return "#9467bd", "--", "p"
-        return "#9467bd", "-", "p"
-    if "cew" in l: 
-        if "human" in l: return "#ff7f0e", "--", "x"
-        return "#ff7f0e", "-", "h"
-    if "blendrl" in l and "iql" not in l:
-        if "human" in l: return "#2ca02c", "--", "^"
-        return "#2ca02c", "-", "^"
-    if "iql" in l and "blendrl" not in l: return "#1f77b4", "-", "d"
-    return None, "-", "o"
+# Import styling from the unified method registry
+from src.method_registry import clean_label, get_style_info
 
 def moving_average(a: np.ndarray, n: int = 5) -> np.ndarray:
     if len(a) == 0: return np.array([])
@@ -175,6 +126,88 @@ class BasePlotter:
                     except Exception as e:
                         print(f"Error reading {csv_path}: {e}")
         return results
+
+    def plot_metric_series(self, exp_id: str, group: str, output_dir: Path, 
+                           metrics: list, cfg: dict):
+        """Standard multi-method metric plotting with multi-version mean±SEM.
+        
+        Shared implementation used by ConvergencePlotter, LossesPlotter, and
+        any future plotter that plots time-series metrics from metrics.csv.
+        """
+        runs_data = self.load_metrics(group, exp_id)
+        if not runs_data:
+            print(f"No log data found for experiment '{exp_id}' in group '{group}'.")
+            return
+
+        window = cfg.get("smoothing_window", 10)
+        dpi = cfg.get("dpi", 300)
+        figsize = tuple(cfg.get("figsize", [8, 5]))
+        x_axis_col = cfg.get("x_axis", "transitions")
+        subdir = cfg.get("output_subdir", self.name)
+        filename_prefix = cfg.get("filename_prefix", "")
+
+        out_dir = output_dir / subdir
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"=== Generating {self.name.title()} Plots for '{exp_id}' ===")
+
+        for metric in metrics:
+            plt.figure(figsize=figsize)
+            has_data = False
+
+            for method_name, versions in sorted(runs_data.items()):
+                all_x = []
+                all_y = []
+
+                for v_name, df in versions.items():
+                    if metric in df.columns:
+                        valid_df = df.dropna(subset=[metric])
+                        if not valid_df.empty:
+                            x_vals = valid_df[x_axis_col].values if x_axis_col in valid_df.columns else valid_df.index.values
+                            y_vals = valid_df[metric].values
+                            all_x.append(x_vals)
+                            all_y.append(y_vals)
+
+                if all_y:
+                    has_data = True
+                    display_name = clean_label(method_name)
+                    color, ls, marker = get_style_info(method_name)
+
+                    if len(all_y) > 1:
+                        # Multi-version: compute mean ± SEM across versions
+                        min_len = min(len(y) for y in all_y)
+                        trimmed = np.array([y[:min_len] for y in all_y])
+                        y_mean = np.mean(trimmed, axis=0)
+                        y_sem = np.std(trimmed, axis=0) / np.sqrt(len(all_y))
+                        y_smoothed = moving_average(y_mean, window)
+                        sem_smoothed = moving_average(y_sem, window)
+                        x_plot = all_x[0][:len(y_smoothed)]
+                        plt.plot(x_plot, y_smoothed, label=display_name, color=color,
+                                 linestyle=ls, linewidth=2.0)
+                        plt.fill_between(x_plot, y_smoothed - sem_smoothed,
+                                         y_smoothed + sem_smoothed, color=color, alpha=0.15)
+                    else:
+                        # Single version: simple moving average
+                        y_smoothed = moving_average(all_y[0], window)
+                        x_plot = all_x[0][:len(y_smoothed)]
+                        plt.plot(x_plot, y_smoothed, label=display_name, color=color,
+                                 linestyle=ls, linewidth=2.0)
+
+            if has_data:
+                plt.xlabel(cfg.get("xlabel", x_axis_col.replace("_", " ").title()))
+                plt.ylabel(cfg.get("ylabel", metric.replace("_", " ").title()))
+                plt.title(f"{exp_id.upper()}: {metric}")
+                plt.grid(True, alpha=0.3)
+                plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+                plt.tight_layout()
+
+                safe_metric_name = metric.replace("/", "_")
+                out_path = out_dir / f"{filename_prefix}{safe_metric_name}.png"
+                plt.savefig(out_path, dpi=dpi)
+                plt.close()
+                print(f"  Saved: {out_path}")
+            else:
+                plt.close()
 
     def run(self, exp_id: str, cli_overrides: Optional[dict] = None):
         raise NotImplementedError("Subclasses must implement run()")

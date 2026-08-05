@@ -201,35 +201,44 @@ class EarlyPredictionPlotter(BasePlotter):
                 ckpt_dir = matches[0]
 
         if ckpt_dir.exists() and any(ckpt_dir.glob("**/*.ckpt")):
-            print(f"  Found policy checkpoints under: {ckpt_dir}")
-            project_root = Path(__file__).parent.parent
-            venv_python = project_root / "venv" / "bin" / "python3"
-            python_exe = str(venv_python) if venv_python.exists() else sys.executable
+            # Skip re-running eval.py if outputs already exist (e.g. from run_pipeline.py Phase 3).
+            # This prevents double-compute when both the pipeline and plotter call eval.py.
+            summary_csv = output_dir / "counterfactual_summary.csv"
+            remake = cfg.get("remake", False)
 
-            cmd = [
-                python_exe, "src/early_prediction/eval.py",
-                "--checkpoint", str(ckpt_dir),
-                "--output-dir", str(output_dir),
-            ]
+            if summary_csv.exists() and not remake:
+                print(f"  EP eval outputs already exist at {output_dir}. Skipping re-evaluation.")
+                print(f"  (Pass remake=true in experiment config to force re-run.)")
+            else:
+                print(f"  Found policy checkpoints under: {ckpt_dir}")
+                project_root = Path(__file__).parent.parent
+                venv_python = project_root / "venv" / "bin" / "python3"
+                python_exe = str(venv_python) if venv_python.exists() else sys.executable
 
-            if cfg.get("dataset_path"):
-                cmd.extend(["--dataset-path", str(cfg["dataset_path"])])
-            if cfg.get("ep_ckpt_root"):
-                cmd.extend(["--ep-ckpt-root", str(cfg["ep_ckpt_root"])])
-            if cfg.get("n_splits"):
-                cmd.extend(["--n-splits", str(cfg["n_splits"])])
-            if cfg.get("remake", False):
-                cmd.append("--remake")
+                cmd = [
+                    python_exe, "src/early_prediction/eval.py",
+                    "--checkpoint", str(ckpt_dir),
+                    "--output-dir", str(output_dir),
+                ]
 
-            env = os.environ.copy()
-            env["PYTHONPATH"] = str(project_root) + ":" + str(project_root / "src") + ":" + env.get("PYTHONPATH", "")
+                if cfg.get("dataset_path"):
+                    cmd.extend(["--dataset-path", str(cfg["dataset_path"])])
+                if cfg.get("ep_ckpt_root"):
+                    cmd.extend(["--ep-ckpt-root", str(cfg["ep_ckpt_root"])])
+                if cfg.get("n_splits"):
+                    cmd.extend(["--n-splits", str(cfg["n_splits"])])
+                if remake:
+                    cmd.append("--remake")
 
-            try:
-                print(f"  Running Policy Early Prediction Evaluation: {' '.join(cmd)}")
-                subprocess.run(cmd, check=True, env=env)
-                print(f"  Successfully generated Policy EP Evaluation plots in: {output_dir}")
-            except subprocess.CalledProcessError as e:
-                print(f"Error running Policy EP Evaluation for '{exp_id}': {e}")
+                env = os.environ.copy()
+                env["PYTHONPATH"] = str(project_root) + ":" + str(project_root / "src") + ":" + env.get("PYTHONPATH", "")
+
+                try:
+                    print(f"  Running Policy Early Prediction Evaluation: {' '.join(cmd)}")
+                    subprocess.run(cmd, check=True, env=env)
+                    print(f"  Successfully generated Policy EP Evaluation plots in: {output_dir}")
+                except subprocess.CalledProcessError as e:
+                    print(f"Error running Policy EP Evaluation for '{exp_id}': {e}")
         elif not has_sweep_plots:
             print(f"Warning: EarlyPredictionPlotter found no sweep metrics or policy checkpoints for experiment '{exp_id}'.")
 

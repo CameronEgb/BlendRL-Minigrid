@@ -1,5 +1,0 @@
-runs:
-  - path: "results/logs/ungrouped/cp_blendrl_fast_500"
-    label: "BlendRL (Base)"
-  - path: "results/logs/ungrouped/cp_blendrl_fast_500_s1"
-    label: "BlendRL (Seed 1)"

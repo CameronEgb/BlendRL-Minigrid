@@ -117,10 +117,28 @@ Agents are implemented as PyTorch Lightning Modules in `src/methods/`:
     - New core agent algorithms are added to `src/methods/`.
 - **Syncing:** Always ensure Hydra default configs in `in/config/` match the descriptions here.
 
+## 12. Method Style Registry
+- **Source of Truth:** `src/method_registry.py` is the single registry for all method display names, colors, linestyles, and markers.
+- **Adding a New Architecture:** Add ONE entry to `METHOD_STYLE` in `src/method_registry.py`. Both `plot/base.py` and `src/early_prediction/eval.py` import from this module.
+- **Prefix Matching:** `get_style("ppo_cp_tuned")` matches the `"ppo"` entry. Longest prefix wins.
 
-## 12. Command & Workflow Reference
+## 13. Plotting Architecture
+- **Auto-Discovery:** `plot/manager.py` auto-discovers plotters by scanning `plot/` for `BasePlotter` subclasses. No manual registry needed.
+- **Adding a New Plotter:** Create `plot/my_plotter.py` with a class subclassing `BasePlotter`, set `self.name` in `__init__`, implement `run()`. Optionally create `plot/_my_plotter_config.yaml` for defaults.
+- **Environment Defaults:** `ENV_DEFAULT_PLOTS` in `plot/manager.py` defines which plotters run by default per environment. Experiments override via `plots:` in YAML.
+- **Shared Plotting:** `BasePlotter.plot_metric_series()` handles multi-method metric plotting with multi-version mean±SEM. Used by `ConvergencePlotter` and `LossesPlotter`.
+
+## 14. Pipeline Structure (`run_pipeline.py`)
+- **Helpers:** `normalize_agent_name()` converts `blendrl_cql/human_cew` → `blendrl_cql_human_cew`. `parse_method_list()` handles both YAML list and comma-separated string forms.
+- **Phase Dispatch:** `main()` is a thin dispatcher that calls:
+    - `run_early_prediction_task()` for standalone EP tasks
+    - `run_local_training()` for local Phase 1+2
+    - `run_slurm_training()` for cluster Phase 1+2 (returns `job_ids, eval_commands`)
+    - Phase 3 (local EP eval) and Phase 4 (plotting) remain inline in `main()`
+
+## 15. Command & Workflow Reference
 For detailed instructions, Optuna hyperparameter tuning, plot style specs, custom agent implementation steps, and cluster workflow tutorials, refer to [`docs/WORKFLOW_GUIDE.md`](file:///Users/cameronegbert/Documents/NCSU/Research/NeSyRL/docs/WORKFLOW_GUIDE.md).
 
 ---
-*Last Updated: 2026-08-03*
+*Last Updated: 2026-08-04*
 
