@@ -72,6 +72,8 @@ def resolve_mimic_dataset(args):
         os.path.join(PROJECT_ROOT, "in/datasets/mimic", fname),
         os.path.join(PROJECT_ROOT, "in/datasets", fname),
         "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2/" + fname,
+        "/hpc/home/cegbert1/Offline-BlendRL/in/datasets/mimic/" + fname,
+        "/hpc/home/cegbert1/Offline-BlendRL/in/datasets/" + fname,
         "/mnt/beegfs/cegbert/NeSyRL/in/datasets/mimic/" + fname,
         "/mnt/beegfs/cegbert/NeSyRL/in/datasets/" + fname,
     ]

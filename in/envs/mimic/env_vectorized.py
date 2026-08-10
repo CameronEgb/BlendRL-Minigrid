@@ -131,6 +131,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
                 os.path.abspath(os.path.join(os.path.dirname(__file__), "../../datasets")),
                 os.path.abspath(os.path.join(os.getcwd(), "in/datasets")),
                 "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2",
+                "/hpc/home/cegbert1/Offline-BlendRL/in/datasets/mimic",
                 "/mnt/beegfs/cegbert/NeSyRL/in/datasets/mimic",
                 "/mnt/beegfs/cegbert/MIMIC 2"
             ]:

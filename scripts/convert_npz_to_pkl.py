@@ -17,6 +17,8 @@ if not datasets_dir or not os.path.exists(datasets_dir):
         os.path.abspath(os.path.join(os.getcwd(), "in/datasets/mimic")),
         os.path.abspath(os.path.join(os.getcwd(), "in/datasets")),
         "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2",
+        "/hpc/home/cegbert1/Offline-BlendRL/in/datasets/mimic",
+        "/hpc/home/cegbert1/Offline-BlendRL/in/datasets",
         "/mnt/beegfs/cegbert/NeSyRL/in/datasets/mimic",
         "/mnt/beegfs/cegbert/NeSyRL/in/datasets",
         "/mnt/beegfs/cegbert/MIMIC 2"
