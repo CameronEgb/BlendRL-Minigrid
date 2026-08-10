@@ -227,10 +227,12 @@ def find_dataset_globally(agent_name_internal):
     matches.sort(key=lambda p: len(Path(p).parts))
     return matches[0]
 
-def generate_sbatch_script(job_name, cmd_args, log_dir, partition="rtx4060ti16g", gpus=1, cores=16, nodes=1, dependency=None, time="04:00:00"):
+def generate_sbatch_script(job_name, cmd_args, log_dir, partition="gpu", gpus=1, cores=16, nodes=1, dependency=None, time="04:00:00"):
     script = f"#!/bin/bash\n"
     script += f"#SBATCH --job-name={job_name}\n"
     script += f"#SBATCH --partition={partition}\n"
+    if gpus > 0 and partition in ("gpu", "gpu-hp", "interactive-gpu"):
+        script += f"#SBATCH --gres=gpu:h200:{gpus}\n"
     script += f"#SBATCH --time={time}\n"
     script += f"#SBATCH --ntasks-per-node={cores}\n"
     script += f"#SBATCH --nodes={nodes}\n"
@@ -376,10 +378,11 @@ def run_early_prediction_task(cfg, args, local_val, sanitized_extra_args, storag
                     slurm_script_path = slurm_dir / f"early_pred_sweep_{tm}.slurm"
                     cmd_args = ep_args + ["--target-model", tm]
                     cmd_str = " ".join([f'"{arg}"' if " " in arg else arg for arg in cmd_args])
+                    gres_header = f"#SBATCH --gres=gpu:h200:{args.gpus}\n" if (args.gpus > 0 and args.partition in ("gpu", "gpu-hp", "interactive-gpu")) else ""
                     script_content = f"""#!/bin/bash
 #SBATCH --job-name=ep_{tm}_{cfg.experiment_id}
 #SBATCH --partition={args.partition}
-#SBATCH --ntasks-per-node=16
+{gres_header}#SBATCH --ntasks-per-node=16
 #SBATCH --nodes=1
 #SBATCH --output=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/early_pred_{tm}_%j.out
 #SBATCH --error=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/early_pred_{tm}_%j.err
@@ -487,10 +490,11 @@ date
                 plot_cmd_str = f"$PROJECT_ROOT/venv/bin/python3 plot/manager.py {cfg.experiment_id}"
                 if args.plot_style:
                     plot_cmd_str += f" --style {args.plot_style}"
+                eval_gres_header = f"#SBATCH --gres=gpu:h200:{args.gpus}\n" if (args.gpus > 0 and args.partition in ("gpu", "gpu-hp", "interactive-gpu")) else ""
                 script_content = f"""#!/bin/bash
 #SBATCH --job-name=eval_pred_{cfg.experiment_id}
 #SBATCH --partition={args.partition}
-#SBATCH --ntasks-per-node=16
+{eval_gres_header}#SBATCH --ntasks-per-node=16
 #SBATCH --nodes=1
 #SBATCH --output=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/eval_pred_%j.out
 #SBATCH --error=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/eval_pred_%j.err
@@ -553,10 +557,11 @@ $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/eval.py {eval_args_str}
                 else:
                     slurm_script_path = slurm_dir / f"tune_pred_{m_target}.slurm"
                     cmd_str = " ".join([f'"{arg}"' if " " in arg else arg for arg in tune_args])
+                    tune_gres_header = f"#SBATCH --gres=gpu:h200:{args.gpus}\n" if (args.gpus > 0 and args.partition in ("gpu", "gpu-hp", "interactive-gpu")) else ""
                     script_content = f"""#!/bin/bash
 #SBATCH --job-name=tune_{m_target}_{cfg.experiment_id}
 #SBATCH --partition={args.partition}
-#SBATCH --ntasks-per-node=16
+{tune_gres_header}#SBATCH --ntasks-per-node=16
 #SBATCH --nodes=1
 #SBATCH --output=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/tune_{m_target}_%j.out
 #SBATCH --error=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/tune_{m_target}_%j.err
@@ -828,6 +833,8 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                     script_content = f"#!/bin/bash\n"
                     script_content += f"#SBATCH --job-name={job_name}\n"
                     script_content += f"#SBATCH --partition={args.partition}\n"
+                    if args.gpus > 0 and args.partition in ("gpu", "gpu-hp", "interactive-gpu"):
+                        script_content += f"#SBATCH --gres=gpu:h200:{args.gpus}\n"
                     script_content += f"#SBATCH --time=04:00:00\n"
                     script_content += f"#SBATCH --ntasks-per-node={args.cores}\n"
                     script_content += f"#SBATCH --nodes={args.nodes}\n"
@@ -927,7 +934,7 @@ def main():
     parser = argparse.ArgumentParser(description="NeSyRL Unified Experiment Pipeline")
     parser.add_argument("experiment", type=str, help="Experiment name from in/config/experiment/")
     parser.add_argument("--local", type=str, default=None, help="Force local run (true/false)")
-    parser.add_argument("--partition", type=str, default="rtx4060ti16g", help="Slurm partition")
+    parser.add_argument("--partition", type=str, default="gpu", help="Slurm partition")
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs per job")
     parser.add_argument("--cores", type=int, default=16, help="Number of CPU cores per job")
     parser.add_argument("--nodes", type=int, default=1, help="Number of nodes per job")
