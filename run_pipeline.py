@@ -597,6 +597,15 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
     """Execute online and offline training phases locally as blocking subprocesses."""
     best_online_trial_ids = {}
 
+    ckpt_dir = Path("results/checkpoints") / cfg.group / cfg.experiment_id
+    if ckpt_dir.exists():
+        print(f"Clearing old checkpoints in {ckpt_dir} for fresh experiment execution...")
+        import shutil
+        try:
+            shutil.rmtree(ckpt_dir)
+        except OSError as e:
+            print(f"Notice: Could not clear checkpoint dir {ckpt_dir}: {e}")
+
     # 1. Online Training Phases
     if not args.no_online:
         for agent_config in online_list:
@@ -719,6 +728,15 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                 except OSError:
                     pass
     log_dir.mkdir(parents=True, exist_ok=True)
+
+    ckpt_dir = Path("results/checkpoints") / cfg.group / cfg.experiment_id
+    if ckpt_dir.exists():
+        print(f"Clearing old checkpoints in {ckpt_dir} for fresh experiment submission...")
+        import shutil
+        try:
+            shutil.rmtree(ckpt_dir)
+        except OSError as e:
+            print(f"Notice: Could not clear checkpoint dir {ckpt_dir}: {e}")
 
     job_ids = []
     online_job_ids = {} # dataset_id -> job_id

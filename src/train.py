@@ -11,6 +11,17 @@ if SRC_DIR not in sys.path:
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
+import torch
+import omegaconf
+try:
+    torch.serialization.add_safe_globals([
+        omegaconf.dictconfig.DictConfig,
+        omegaconf.listconfig.ListConfig,
+        omegaconf.base.Container,
+        omegaconf.nodes.UntypedNode,
+    ])
+except Exception:
+    pass
 import lightning as L
 from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
 from lightning.pytorch.callbacks import ModelCheckpoint

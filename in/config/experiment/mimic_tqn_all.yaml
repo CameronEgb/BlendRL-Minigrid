@@ -19,7 +19,7 @@ offline_methods:
   - cql
   - blendrl_cql/human_neural
   - blendrl_cql/human_cew
-  - blendrl_cql/cew_only
+  - cew_fyd
 offline_datasets: [cql]
 
 agent:
