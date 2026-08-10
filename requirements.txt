@@ -20,10 +20,13 @@ hackatari @ git+https://github.com/k4ntz/HackAtari.git
 
 # Logic & Symbolic
 lark
+igraph
 captum
 rtpt
+-r src/fyd_repo/requirements.txt
 
 # Utilities & Data
+kneed
 numpy
 pandas
 matplotlib
