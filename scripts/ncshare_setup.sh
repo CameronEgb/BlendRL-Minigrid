@@ -3,21 +3,11 @@
 
 set -e
 
-WORK_DIR="/work/$(whoami)/NeSyRL"
+WORK_DIR="/hpc/home/cegbert1/Offline-BlendRL"
 
 echo "=================================================="
 echo "=== Setting up NeSyRL on NCShare Cluster ==="
 echo "=================================================="
-
-# 1. Create target work directory if not current directory
-if [ "$(pwd)" != "$WORK_DIR" ]; then
-    if [ ! -d "$WORK_DIR" ]; then
-        echo "Creating $WORK_DIR..."
-        mkdir -p "$WORK_DIR"
-        git clone git@github.com:CameronEgb/Offline-BlendRL.git "$WORK_DIR"
-    fi
-    cd "$WORK_DIR"
-fi
 
 echo "Working directory: $(pwd)"
 
