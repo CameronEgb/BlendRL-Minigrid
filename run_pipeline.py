@@ -246,7 +246,7 @@ def generate_sbatch_script(job_name, cmd_args, log_dir, partition="gpu", gpus=1,
         
     script += f"\n"
     script += f"export PROJECT_ROOT={os.getcwd()}\n"
-    script += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/nsfr:$PROJECT_ROOT/src/nudge:$PROJECT_ROOT/src/neumann:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n"
+    script += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n"
     
     # Construct the python command with absolute venv path
     import shlex
@@ -392,7 +392,7 @@ echo "Node: $(hostname)"
 date
 
 export PROJECT_ROOT=$(pwd)
-export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/nsfr:$PROJECT_ROOT/src/nudge:$PROJECT_ROOT/src/neumann:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
+export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
 
 mkdir -p results/plots/early_prediction
 mkdir -p results/logs
@@ -437,7 +437,7 @@ echo "Node: $(hostname)"
 date
 
 export PROJECT_ROOT=$(pwd)
-export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/nsfr:$PROJECT_ROOT/src/nudge:$PROJECT_ROOT/src/neumann:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
+export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
 
 {plot_cmd_str}
 
@@ -500,7 +500,7 @@ date
 #SBATCH --error=results/logs/slurm/{cfg.group}/{cfg.experiment_id}/eval_pred_%j.err
 
 export PROJECT_ROOT=$(pwd)
-export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/nsfr:$PROJECT_ROOT/src/nudge:$PROJECT_ROOT/src/neumann:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
+export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
 
 $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/eval.py {eval_args_str}
 {plot_cmd_str if not args.no_plot else ""}
@@ -571,7 +571,7 @@ echo "Node: $(hostname)"
 date
 
 export PROJECT_ROOT=$(pwd)
-export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/nsfr:$PROJECT_ROOT/src/nudge:$PROJECT_ROOT/src/neumann:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
+export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
 
 mkdir -p {out_dir}
 mkdir -p results/logs

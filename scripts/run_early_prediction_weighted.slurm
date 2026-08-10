@@ -14,7 +14,7 @@ date
 
 # 1. Resolve PYTHONPATH
 export PROJECT_ROOT=$(pwd)
-export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/nsfr:$PROJECT_ROOT/src/nudge:$PROJECT_ROOT/src/neumann:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
+export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
 
 # 2. Paths Configuration (Defaults for Cluster)
 DATASET_PATH="in/datasets/mimic/mimic_lazy_12_clean_with_interventions_corrected.npz"

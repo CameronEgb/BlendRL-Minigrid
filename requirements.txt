@@ -19,6 +19,7 @@ ocatari
 hackatari @ git+https://github.com/k4ntz/HackAtari.git
 
 # Logic & Symbolic
+lark
 captum
 rtpt
 
