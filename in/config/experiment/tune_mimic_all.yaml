@@ -18,9 +18,9 @@ offline_datasets: [cql]
 agent:
   blender_mode: logic
   hidden_sizes: [256, 256]
-  epochs_per_interval: 50
-  eval_interval_epochs: 10
-  batch_size: 64
+  epochs_per_interval: 10
+  eval_interval_epochs: 2
+  batch_size: 256
 
 mode:
   dataset_path: in/datasets/mimic/cql
