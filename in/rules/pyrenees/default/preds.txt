@@ -1,0 +1,18 @@
+# Action predicates (what to assign)
+action_ps:1:oagent
+action_we:1:oagent
+action_fwe:1:oagent
+
+# Logic/neural agent selector for blender
+logic_agent:1:oenv
+neural_agent:1:oenv
+
+# Student competency tier predicates (derived)
+low_competency:1:oagent
+med_competency:1:oagent
+high_competency:1:oagent
+
+# Alternation tracking predicates (derived)
+last_was_ps:1:oagent
+last_was_we:1:oagent
+last_was_fwe:1:oagent

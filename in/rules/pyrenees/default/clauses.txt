@@ -1,0 +1,30 @@
+# =============================================================================
+# Pyrenees BlendRL Expert Policy Clauses
+# =============================================================================
+# Policy:
+#   Low competency   → WE  (worked example: student needs full guidance)
+#   Med competency   → FWE or PS  (faded worked example or problem solving)
+#   High competency  → PS, WE, or FWE  (any type, bias toward PS)
+#
+# Soft alternation: prefer NOT repeating the same problem type.
+# The last-assigned type is tracked via augmented state slots 123/124/125.
+# =============================================================================
+
+# --- Low competency: always assign WE ---
+action_we(X):-low_competency(X).
+
+# --- Medium competency: alternate between FWE and PS ---
+# If last was FWE → assign PS
+action_ps(X):-med_competency(X),last_was_fwe(X).
+# If last was PS  → assign FWE
+action_fwe(X):-med_competency(X),last_was_ps(X).
+# If last was WE  → assign FWE (transition upward from WE)
+action_fwe(X):-med_competency(X),last_was_we(X).
+
+# --- High competency: alternate PS/WE/FWE, with PS preference ---
+# If last was WE  → assign PS (challenge after worked example)
+action_ps(X):-high_competency(X),last_was_we(X).
+# If last was PS  → assign WE or FWE (fallback: FWE for variety)
+action_fwe(X):-high_competency(X),last_was_ps(X).
+# If last was FWE → assign PS (return to full challenge)
+action_ps(X):-high_competency(X),last_was_fwe(X).

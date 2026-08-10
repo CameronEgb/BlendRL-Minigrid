@@ -1,0 +1,54 @@
+# @package _global_
+defaults:
+  - override /agent: blendrl_cql_base
+  - override /env: pyrenees
+  - override /mode: offline
+
+# ── Architecture ─────────────────────────────────────────────────────────────
+env:
+  name: pyrenees
+  architecture: mlp
+  reward_type: outcome
+  n_actions: 3              # PS=0, WE=1, FWE=2
+
+# ── Methods ──────────────────────────────────────────────────────────────────
+online_methods: []
+offline_methods: [blendrl_cql/pyrenees_expert]
+offline_datasets: [pyrenees]
+
+# ── Training schedule ────────────────────────────────────────────────────────
+total_timesteps: 979788     # matches full Pyrenees dataset size
+intervals_count: 10
+eval_episodes: 100
+
+# ── Agent hyperparameters ────────────────────────────────────────────────────
+agent:
+  name: blendrl_cql
+  algorithm: blendrl_cql
+  actor_mode: hybrid
+  blender_mode: neural
+  blend_function: softmax
+  lr: 3e-4
+  logic_lr: 3e-4
+  blender_lr: 3e-4
+  batch_size: 256
+  epochs_per_interval: 10
+  eval_interval_epochs: 2
+  cql_alpha: 1.0
+  soft_target_tau: 0.005
+  gamma: 0.99
+  ecm_dthr: 0.1
+  fyd: false
+  modules:
+    - type: nsfr
+      rules: default
+
+# ── Offline dataset ──────────────────────────────────────────────────────────
+mode:
+  dataset_path: in/datasets/pyrenees/cql
+
+# ── Experiment metadata ──────────────────────────────────────────────────────
+experiment_id: pyrenees_blendrl_expert
+group: pyrenees
+
+seed: 42

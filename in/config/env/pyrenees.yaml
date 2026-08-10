@@ -8,3 +8,5 @@ rules: default
 reasoner: nsfr
 architecture: mlp
 reward_type: outcome
+# 3 discrete actions: PS (0), WE (1), FWE (2)
+n_actions: 3
