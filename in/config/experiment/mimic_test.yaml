@@ -30,6 +30,7 @@ mode:
 plots:
   losses:
     metrics: ["losses/total_loss", "losses/bellman_loss", "losses/cql_loss", "losses/entropy"]
+  policy_eval: {}
   reports: {}
 
 save_dataset: false

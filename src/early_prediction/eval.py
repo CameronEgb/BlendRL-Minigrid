@@ -507,12 +507,15 @@ def write_counterfactual_table(cf_data, csv_path, txt_path):
 
     cf_data: list of dicts with keys:
         method, pred_mort_mean, pred_mort_sem, admin_rate_mean, admin_rate_sem,
-        agreement_mean, agreement_sem
+        agreement_mean, agreement_sem, precision_mean, precision_sem, recall_mean, recall_sem, f1_mean, f1_sem
     """
     header = [
         "method", "pred_mortality_mean", "pred_mortality_sem",
         "admin_rate_mean", "admin_rate_sem",
         "agreement_mean", "agreement_sem",
+        "precision_mean", "precision_sem",
+        "recall_mean", "recall_sem",
+        "f1_mean", "f1_sem",
     ]
 
     with open(csv_path, "w", newline="") as f:
@@ -524,24 +527,31 @@ def write_counterfactual_table(cf_data, csv_path, txt_path):
                 f"{row['pred_mort_mean']:.6f}", f"{row['pred_mort_sem']:.6f}",
                 f"{row['admin_rate_mean']:.6f}", f"{row['admin_rate_sem']:.6f}",
                 f"{row['agreement_mean']:.6f}", f"{row['agreement_sem']:.6f}",
+                f"{row.get('precision_mean', 0.0):.6f}", f"{row.get('precision_sem', 0.0):.6f}",
+                f"{row.get('recall_mean', 0.0):.6f}", f"{row.get('recall_sem', 0.0):.6f}",
+                f"{row.get('f1_mean', 0.0):.6f}", f"{row.get('f1_sem', 0.0):.6f}",
             ])
 
     with open(txt_path, "w") as f:
-        f.write("=" * 80 + "\n")
+        f.write("=" * 110 + "\n")
         f.write("COUNTERFACTUAL EVALUATION SUMMARY TABLE\n")
-        f.write("=" * 80 + "\n\n")
-        f.write(f"{'Method':<35} {'Pred Mort %':>15} {'Admin Rate %':>15} {'Agreement %':>15}\n")
-        f.write("-" * 80 + "\n")
+        f.write("=" * 110 + "\n\n")
+        f.write(f"{'Method':<30} {'Accuracy/Agr %':>15} {'Admin Rate %':>15} {'Precision':>12} {'Recall':>12} {'F1 Score':>12} {'Pred Mort %':>15}\n")
+        f.write("-" * 110 + "\n")
         for row in cf_data:
             mort_str = f"{row['pred_mort_mean']*100:.2f}±{row['pred_mort_sem']*100:.2f}"
             admin_str = f"{row['admin_rate_mean']*100:.2f}±{row['admin_rate_sem']*100:.2f}"
             agr_str = f"{row['agreement_mean']*100:.2f}±{row['agreement_sem']*100:.2f}"
-            f.write(f"{pretty(row['method']):<35} {mort_str:>15} {admin_str:>15} {agr_str:>15}\n")
-        f.write("-" * 80 + "\n")
+            prec_str = f"{row.get('precision_mean', 0.0):.4f}"
+            rec_str = f"{row.get('recall_mean', 0.0):.4f}"
+            f1_str = f"{row.get('f1_mean', 0.0):.4f}"
+            f.write(f"{pretty(row['method']):<30} {agr_str:>15} {admin_str:>15} {prec_str:>12} {rec_str:>12} {f1_str:>12} {mort_str:>15}\n")
+        f.write("-" * 110 + "\n")
         f.write("\nAll values: mean ± SEM across data splits.\n")
-        f.write("Pred Mort: Average predicted mortality via EP model on counterfactual trajectories.\n")
-        f.write("Admin Rate: Fraction of timesteps where action=1 (administer antibiotics).\n")
-        f.write("Agreement: Fraction of timesteps where policy matches clinician action.\n")
+        f.write("Accuracy/Agr %: Fraction of timesteps policy matches clinician action.\n")
+        f.write("Admin Rate %: Fraction of timesteps policy administers antibiotics (action=1).\n")
+        f.write("Precision/Recall/F1: Treatment decision performance vs clinician actions.\n")
+        f.write("Pred Mort %: Average predicted mortality on counterfactual trajectories.\n")
 
     print(f"  Saved counterfactual table: {csv_path} / {txt_path}")
 
@@ -729,9 +739,13 @@ def main():
             agent, agent_type = None, None
             print(f"\n  Evaluating: Clinician (dataset actions)")
 
-        # Compute per-patient agreement (over ALL patients, not split)
+        # Compute per-patient agreement & classification stats (over ALL patients)
         per_patient_agr = np.zeros(N_patients, dtype=np.float64)
         per_patient_admin = np.zeros(N_patients, dtype=np.float64)
+        per_patient_tp = np.zeros(N_patients, dtype=np.float64)
+        per_patient_fp = np.zeros(N_patients, dtype=np.float64)
+        per_patient_fn = np.zeros(N_patients, dtype=np.float64)
+        per_patient_tn = np.zeros(N_patients, dtype=np.float64)
 
         for i in range(N_patients):
             valid_steps = np.where(mask[i].squeeze() != -1)[0]
@@ -743,27 +757,46 @@ def main():
                 per_patient_agr[i] = 100.0
                 clin_acts = X[i, valid_steps, 47].astype(int)
                 per_patient_admin[i] = clin_acts.mean()
+                per_patient_tp[i] = (clin_acts == 1).sum()
+                per_patient_tn[i] = (clin_acts == 0).sum()
             else:
                 matches = 0
                 admin_count = 0
+                tp, fp, fn, tn = 0, 0, 0, 0
                 for t in valid_steps:
                     obs = torch.tensor(X[i, t, :46], dtype=torch.float32).unsqueeze(0).to(device)
                     action, _ = get_policy_actions(agent, agent_type, obs, device)
                     clin_act = int(X[i, t, 47])
-                    if action[0] == clin_act:
+                    act = action[0]
+                    if act == clin_act:
                         matches += 1
-                    if action[0] == 1:
+                    if act == 1:
                         admin_count += 1
+                    if act == 1 and clin_act == 1:
+                        tp += 1
+                    elif act == 1 and clin_act == 0:
+                        fp += 1
+                    elif act == 0 and clin_act == 1:
+                        fn += 1
+                    elif act == 0 and clin_act == 0:
+                        tn += 1
+
                 per_patient_agr[i] = (matches / len(valid_steps)) * 100.0
                 per_patient_admin[i] = admin_count / len(valid_steps)
+                per_patient_tp[i] = tp
+                per_patient_fp[i] = fp
+                per_patient_fn[i] = fn
+                per_patient_tn[i] = tn
 
         patient_agreements[method_key] = per_patient_agr
 
-        # Multi-split counterfactual mortality evaluation (using a simple predictor
-        # that counts actions, since we don't need to retrain — just aggregate stats)
+        # Multi-split counterfactual mortality & classification evaluation
         split_morts = []
         split_admins = []
         split_agreements = []
+        split_precisions = []
+        split_recalls = []
+        split_f1s = []
 
         for split_idx in range(args.n_splits):
             seed_val = 42 + split_idx
@@ -773,14 +806,22 @@ def main():
 
             agr_split = per_patient_agr[test_indices]
             admin_split = per_patient_admin[test_indices]
-
-            # For mortality prediction, use the ground truth as a proxy
-            # (real counterfactual requires the EP model — done in the tau sweep below)
             mort_split = y[test_indices].mean()
+
+            tp_sum = per_patient_tp[test_indices].sum()
+            fp_sum = per_patient_fp[test_indices].sum()
+            fn_sum = per_patient_fn[test_indices].sum()
+
+            prec = tp_sum / (tp_sum + fp_sum + 1e-8)
+            rec = tp_sum / (tp_sum + fn_sum + 1e-8)
+            f1 = 2 * prec * rec / (prec + rec + 1e-8)
 
             split_morts.append(float(mort_split))
             split_admins.append(float(admin_split.mean()))
             split_agreements.append(float(agr_split.mean()) / 100.0)
+            split_precisions.append(float(prec))
+            split_recalls.append(float(rec))
+            split_f1s.append(float(f1))
 
         cf_data.append({
             "method": method_key,
@@ -790,6 +831,12 @@ def main():
             "admin_rate_sem": float(np.std(split_admins) / np.sqrt(len(split_admins))),
             "agreement_mean": float(np.mean(split_agreements)),
             "agreement_sem": float(np.std(split_agreements) / np.sqrt(len(split_agreements))),
+            "precision_mean": float(np.mean(split_precisions)),
+            "precision_sem": float(np.std(split_precisions) / np.sqrt(len(split_precisions))),
+            "recall_mean": float(np.mean(split_recalls)),
+            "recall_sem": float(np.std(split_recalls) / np.sqrt(len(split_recalls))),
+            "f1_mean": float(np.mean(split_f1s)),
+            "f1_sem": float(np.std(split_f1s) / np.sqrt(len(split_f1s))),
         })
 
         agr_mean_pct = np.mean(split_agreements) * 100

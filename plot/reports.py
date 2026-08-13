@@ -84,6 +84,30 @@ class ReportsPlotter(BasePlotter):
             with open(comp_path, "w") as f:
                 f.write(f"# Methods Comparison Report: {exp_id}\n\n")
 
+                # Check if counterfactual summary CSV exists
+                cf_csv = output_dir / "counterfactual_summary.csv"
+                if not cf_csv.exists():
+                    cf_csv = Path("results/checkpoints") / group / exp_id / "counterfactual_summary.csv"
+                
+                if cf_csv.exists():
+                    try:
+                        cf_df = pd.read_csv(cf_csv)
+                        f.write("## Counterfactual & Policy Alignment Evaluation\n\n")
+                        f.write("| Method | Accuracy / Clinician Agr % | Admin Rate % | Precision | Recall | F1 Score | Pred Mortality % |\n")
+                        f.write("| --- | --- | --- | --- | --- | --- | --- |\n")
+                        for _, row in cf_df.iterrows():
+                            m_name = clean_label(str(row["method"]))
+                            agr = f"{float(row.get('agreement_mean', 0))*100:.2f}%" if "agreement_mean" in row else "N/A"
+                            admin = f"{float(row.get('admin_rate_mean', 0))*100:.2f}%" if "admin_rate_mean" in row else "N/A"
+                            prec = f"{float(row.get('precision_mean', 0)):.4f}" if "precision_mean" in row else "N/A"
+                            rec = f"{float(row.get('recall_mean', 0)):.4f}" if "recall_mean" in row else "N/A"
+                            f1 = f"{float(row.get('f1_mean', 0)):.4f}" if "f1_mean" in row else "N/A"
+                            mort = f"{float(row.get('pred_mortality_mean', 0))*100:.2f}%" if "pred_mortality_mean" in row else "N/A"
+                            f.write(f"| `{m_name}` | {agr} | {admin} | {prec} | {rec} | {f1} | {mort} |\n")
+                        f.write("\n")
+                    except Exception as e:
+                        print(f"Notice: Could not embed counterfactual CSV in report: {e}")
+
                 # Determine which evaluation metrics exist across all methods
                 eval_metrics = set()
                 for method, versions in runs_data.items():
@@ -91,25 +115,23 @@ class ReportsPlotter(BasePlotter):
                         eval_metrics.update(c for c in df.columns if c.startswith("eval/"))
 
                 eval_metrics = sorted(eval_metrics)
-                if not eval_metrics:
-                    eval_metrics = ["eval/reward"]
-
-                f.write("| Method | " + " | ".join(eval_metrics) + " |\n")
-                f.write("| --- | " + " | ".join(["---"] * len(eval_metrics)) + " |\n")
-                for method, versions in sorted(runs_data.items()):
-                    row = [clean_label(method)]
-                    # Use the latest version
-                    latest_df = list(versions.values())[-1] if versions else pd.DataFrame()
-                    for metric in eval_metrics:
-                        if metric in latest_df.columns:
-                            vals = latest_df[metric].dropna()
-                            if not vals.empty:
-                                row.append(f"{vals.iloc[-1]:.4f}")
+                if eval_metrics:
+                    f.write("## Training & Checkpoint Metrics\n\n")
+                    f.write("| Method | " + " | ".join(eval_metrics) + " |\n")
+                    f.write("| --- | " + " | ".join(["---"] * len(eval_metrics)) + " |\n")
+                    for method, versions in sorted(runs_data.items()):
+                        row = [clean_label(method)]
+                        latest_df = list(versions.values())[-1] if versions else pd.DataFrame()
+                        for metric in eval_metrics:
+                            if metric in latest_df.columns:
+                                vals = latest_df[metric].dropna()
+                                if not vals.empty:
+                                    row.append(f"{vals.iloc[-1]:.4f}")
+                                else:
+                                    row.append("N/A")
                             else:
                                 row.append("N/A")
-                        else:
-                            row.append("N/A")
-                    f.write("| " + " | ".join(row) + " |\n")
+                        f.write("| " + " | ".join(row) + " |\n")
             print(f"  Saved: {comp_path}")
 
 if __name__ == "__main__":

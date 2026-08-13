@@ -47,6 +47,21 @@ class CQLAgent(OfflineAgentBase):
         
         self.target_q_network.load_state_dict(self.q_network.state_dict())
 
+    def get_action_and_value(self, obs, logic_obs=None, action=None):
+        probs = self.actor.get_action_probs(obs)
+        dist = torch.distributions.Categorical(probs)
+        if action is None:
+            action = dist.sample()
+        logprob = dist.log_prob(action)
+        entropy = dist.entropy()
+        q_vals = self.q_network.get_q_values(obs)
+        value = q_vals.max(dim=-1)[0]
+        return action, logprob, entropy, value
+
+    def get_value(self, obs, logic_obs=None):
+        q_vals = self.q_network.get_q_values(obs)
+        return q_vals.max(dim=-1)[0]
+
     def on_train_start(self):
         if hasattr(self.trainer.datamodule, "reader") and self.trainer.datamodule.reader is not None:
             self.trainer.datamodule.reader.device = self.device
