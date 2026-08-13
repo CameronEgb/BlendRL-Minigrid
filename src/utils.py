@@ -4,7 +4,6 @@ import torch
 import gymnasium as gym
 from nsfr.common import get_nsfr_model, get_blender_nsfr_model
 from nsfr.utils.common import load_module
-import torch
 import torch.nn as nn
 from torch.distributions.categorical import Categorical
 import numpy as np
@@ -57,6 +56,7 @@ class NeuralBlenderMLP(nn.Module):
 
     def __init__(self, num_in_features, out_size=2, hidden_sizes=[64, 64]):
         super().__init__()
+        self.num_in_features = num_in_features
         layers = []
         last_size = num_in_features
         for size in hidden_sizes:
@@ -69,6 +69,9 @@ class NeuralBlenderMLP(nn.Module):
     def forward(self, x):
         # Flatten input: (B, ...) -> (B, -1)
         x = x.float().reshape(x.shape[0], -1)
+        if x.shape[-1] < self.num_in_features:
+            pad = torch.zeros((x.shape[0], self.num_in_features - x.shape[-1]), dtype=x.dtype, device=x.device)
+            x = torch.cat([x, pad], dim=-1)
         hidden = self.network(x)
         logits = self.actor(hidden)
         return logits
@@ -120,11 +123,6 @@ class CNNActor(nn.Module):
         hidden = self.network(x / 255.0)
         return self.actor(hidden)
 
-
-def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
-    torch.nn.init.orthogonal_(layer.weight, std)
-    torch.nn.init.constant_(layer.bias, bias_const)
-    return layer
 
 
 class ValueNetwork(nn.Module):
@@ -445,7 +443,8 @@ class EnvironmentEvaluatorCallback(L.Callback):
         if pl_module.cfg.mode.type == "offline":
             metrics["epoch"] = float(pl_module.current_epoch)
             
-        trainer.logger.log_metrics(metrics, step=transitions)
+        log_step = trainer.global_step if hasattr(trainer, "global_step") else int(transitions)
+        trainer.logger.log_metrics(metrics, step=log_step)
         
         pl_module.log("eval/reward", avg_reward, prog_bar=True, on_step=False, on_epoch=True)
         pl_module.log("transitions", float(transitions), logger=False, prog_bar=True)
@@ -489,9 +488,11 @@ class EnvironmentEvaluatorCallback(L.Callback):
         base_algo_name = get_algo_name_robust(cfg.agent)
 
         if self.eval_env is None:
+            eval_n_envs = cfg.env.get("eval_n_envs", 20) if hasattr(cfg.env, "get") else 20
+            target_n_envs = min(cfg.eval_episodes, eval_n_envs)
             self.eval_env = VectorizedNudgeBaseEnv.from_name(
                 cfg.env.name, 
-                n_envs=min(10, cfg.env.num_envs if cfg.mode.type == "online" else 10), 
+                n_envs=target_n_envs, 
                 mode=base_algo_name if base_algo_name else cfg.env.name, 
                 seed=cfg.seed + 100
             )

@@ -1,21 +1,7 @@
-# Neural predicates: computed from the observation vector by valuation functions in valuation.py
-# These are leaf predicates that interface directly with the 126-dim state vector.
-
-# --- Competency signals (indices 72=pctCorrect, 76=pctCorrectKC in z-score space) ---
-# Thresholds derived from KMeans(k=3) on per-student mean correctness profiles:
-#   Low  center: pctCorrect≈-2.91, pctCorrectKC≈-0.52
-#   Med  center: pctCorrect≈-0.57, pctCorrectKC≈-0.15
-#   High center: pctCorrect≈+0.62, pctCorrectKC≈+0.10
-#   Low|Med  boundary: pctCorrect=-1.74
-#   Med|High boundary: pctCorrect=+0.02
 low_competency:1:oagent
 med_competency:1:oagent
 high_competency:1:oagent
-
-# --- Alternation tracking (indices 123=last_ps, 124=last_we, 125=last_fwe in augmented state) ---
 last_was_ps:1:oagent
 last_was_we:1:oagent
 last_was_fwe:1:oagent
-
-# --- Fallback always-true predicate ---
 true:1:oenv

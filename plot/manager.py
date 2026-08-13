@@ -11,7 +11,7 @@ from plot.base import BasePlotter
 # Environment-based default plot modules.
 # Experiments can override by defining a `plots:` section in their YAML.
 ENV_DEFAULT_PLOTS = {
-    "mimic":    ["convergence", "losses", "reports", "early_prediction"],
+    "mimic":    ["losses", "reports"],
     "cartpole": ["convergence", "losses", "reports"],
 }
 FALLBACK_PLOTS = ["convergence", "losses", "reports"]

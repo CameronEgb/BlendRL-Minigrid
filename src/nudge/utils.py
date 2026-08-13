@@ -104,10 +104,6 @@ def load_model(model_dir,
         config = yaml.load(f, Loader=yaml.Loader)
 
     algorithm = config["algorithm"]
-    # Fix for legacy models trained with wrong default algorithm in train_neuralppo
-    if config.get("exp_name") == "train_neuralppo":
-        algorithm = "ppo"
-
     environment = config["env_name"]
     # env_kwargs = config["env_kwargs"]
     # env_kwargs.update(env_kwargs_override)
@@ -136,18 +132,6 @@ def load_model(model_dir,
     # Load the model weights
     with open(checkpoint_path, "rb") as f:
         state_dict = torch.load(f, map_location=torch.device('cpu'))
-    
-    # Structural Compatibility Check
-    # Integrated models (legacy) have 'network.0.weight' at the top level.
-    # Nested models (standard ActorCritic) would have 'actor.network.0.weight'.
-    is_integrated_checkpoint = "network.0.weight" in state_dict
-    
-    if algorithm == 'ppo' and environment == "mountaincar" and is_integrated_checkpoint:
-        print("Legacy integrated structure detected. Adjusting model for compatibility...")
-        # For legacy models, we use the MLP directly as the top-level model
-        mlp_module_path = f"in/envs/{environment}/mlp.py"
-        module = load_module(mlp_module_path)
-        model = module.MLP(device=device, out_size=env.n_actions).to(device)
     
     model.load_state_dict(state_dict=state_dict)
     return model
@@ -180,10 +164,6 @@ def load_model_train(model_dir,
         config = yaml.load(f, Loader=yaml.Loader)
 
     algorithm = config["algorithm"]
-    # Fix for legacy models trained with wrong default algorithm in train_neuralppo
-    if config.get("exp_name") == "train_neuralppo":
-        algorithm = "ppo"
-
     environment = config["env_name"]
 
     # Setup the environment

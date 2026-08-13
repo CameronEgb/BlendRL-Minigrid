@@ -22,10 +22,6 @@ METHOD_STYLE = {
     "blendrl_iql":                  {"label": "BlendRL-IQL",          "color": "#d62728",    "marker": "s", "linestyle": "-"},
     "cew":                          {"label": "CEW",                  "color": "#ff7f0e",    "marker": "h", "linestyle": "-"},
     "cew_fyd":                      {"label": "CEW+FYD",              "color": "#9467bd",    "marker": "p", "linestyle": "-"},
-    # Legacy aliases (older experiment naming convention)
-    "multi_arch_blendrl_cql_human_neural": {"label": "BlendRL Human+Neural", "color": "tab:orange", "marker": "s", "linestyle": "-"},
-    "multi_arch_blendrl_cql_human_cew":    {"label": "BlendRL Human+CEW",   "color": "tab:green",  "marker": "^", "linestyle": "--"},
-    "multi_arch_blendrl_cql_cew_only":     {"label": "BlendRL CEW Only",     "color": "tab:red",    "marker": "D", "linestyle": "-"},
 }
 
 _DEFAULT_STYLE = {"label": None, "color": None, "marker": "o", "linestyle": "-"}

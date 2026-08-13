@@ -7,12 +7,14 @@ import numpy as np
 from typing import Any, Dict, Optional
 from omegaconf import DictConfig
 from src.methods.cew_utils import run_CLIP, run_ECM, rule_creation, run_FYD, MultiFLC, stabilize_antecedents
+from src.methods.registry import register_agent
+from src.methods.base_agent import OfflineAgentBase
 
-class CEWAgent(L.LightningModule):
+@register_agent("cew")
+class CEWAgent(OfflineAgentBase):
     def __init__(self, cfg: Dict[str, Any]):
-        super().__init__()
+        super().__init__(cfg)
         self.save_hyperparameters()
-        self.cfg = cfg
         
         # Helper to get config values
         self.lr = self.get_cfg("lr", 3e-4)
@@ -24,7 +26,6 @@ class CEWAgent(L.LightningModule):
         self.rules = None
         self.antecedents = None
         self.self_organized = False
-        self.automatic_optimization = False # We handle optimization manually
         
         # Setup for evaluation
         from blendrl.env_vectorized import VectorizedNudgeBaseEnv
@@ -38,33 +39,14 @@ class CEWAgent(L.LightningModule):
         self.observation_space = dummy_neural.shape[1:]
         self.n_actions = self.eval_env.n_actions if not callable(self.eval_env.n_actions) else self.eval_env.n_actions()
 
-    def get_cfg(self, key, default=None):
-        """Helper to navigate Hydra configs."""
-        cfg = self.cfg
-        def find_in_acfg(acfg, k):
-            if not isinstance(acfg, (dict, DictConfig)): return None
-            if k in acfg: return acfg[k]
-            if "agent" in acfg: return find_in_acfg(acfg.agent, k)
-            return None
-        if hasattr(cfg, "agent"):
-            val = find_in_acfg(cfg.agent, key)
-            if val is not None: return val
-        if hasattr(cfg, "env") and key in cfg.env: return cfg.env[key]
-        return cfg.get(key, default)
-
     def on_train_epoch_start(self):
         """Handle interval-based dataset scaling and self-organization."""
-        datamodule = self.trainer.datamodule
-        if hasattr(datamodule, "reader") and datamodule.reader is not None:
-            epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
-            current_interval = self.current_epoch // epochs_per_interval
-            interval_size = self.cfg.total_timesteps // self.cfg.intervals_count
-            current_limit = interval_size * (current_interval + 1)
-            datamodule.reader.set_limit(current_limit)
-            
-            # Re-run self-organization at the start of each interval
-            if self.current_epoch % epochs_per_interval == 0:
-                self.self_organize()
+        super().on_train_epoch_start()
+        
+        epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
+        # Re-run self-organization at the start of each interval
+        if self.current_epoch % epochs_per_interval == 0:
+            self.self_organize()
 
     def self_organize(self):
         """Isomorphic implementation of the CEW/FYD self-organization pipeline."""
@@ -170,7 +152,7 @@ class CEWAgent(L.LightningModule):
         self.manual_backward(total_loss)
         self.opt_fuzzy.step()
         
-        self._soft_update_fuzzy(self.fuzzy_model, self.target_fuzzy_model)
+        self._soft_update(self.fuzzy_model, self.target_fuzzy_model)
         
         # Logging transitions based on intervals
         epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
@@ -187,11 +169,6 @@ class CEWAgent(L.LightningModule):
             "train/rules": float(len(self.rules))
         })
         self.log("transitions", float(current_transitions), logger=False, prog_bar=True)
-
-    def _soft_update_fuzzy(self, model, target_model):
-        tau = self.get_cfg("soft_target_tau", 0.005)
-        for param, target_param in zip(model.parameters(), target_model.parameters()):
-            target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
     def configure_optimizers(self):
         # Dummy optimizer to satisfy Lightning until self_organize is called

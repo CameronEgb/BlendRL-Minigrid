@@ -6,12 +6,14 @@ import lightning as L
 import numpy as np
 from typing import Any, Dict, Optional
 from blendrl.agents.blender_agent import BlenderActorCritic
+from src.methods.registry import register_agent
+from src.methods.base_agent import OfflineAgentBase
 
-class BlendRLCQLAgent(L.LightningModule):
+@register_agent("blendrl_cql")
+class BlendRLCQLAgent(OfflineAgentBase):
     def __init__(self, cfg: Dict[str, Any]):
-        super().__init__()
+        super().__init__(cfg)
         self.save_hyperparameters()
-        self.cfg = cfg
         self.lr = self.get_cfg("lr", 3e-4)
         
         from blendrl.env_vectorized import VectorizedNudgeBaseEnv
@@ -53,26 +55,15 @@ class BlendRLCQLAgent(L.LightningModule):
             cfg=cfg.agent
         )
         self.target_model.load_state_dict(self.model.state_dict())
-        
-        self.automatic_optimization = False
 
-    def get_cfg(self, key, default=None):
-        if hasattr(self, "cfg"):
-            if key in self.cfg.agent:
-                return self.cfg.agent[key]
-            if "agent" in self.cfg.agent and key in self.cfg.agent.agent:
-                return self.cfg.agent.agent[key]
-        return default
 
     def on_train_epoch_start(self):
+        super().on_train_epoch_start()
+        
         # Handle interval-based dataset scaling
         datamodule = self.trainer.datamodule
         if hasattr(datamodule, "reader") and datamodule.reader is not None:
             epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
-            current_interval = self.current_epoch // epochs_per_interval
-            interval_size = self.cfg.total_timesteps // self.cfg.intervals_count
-            current_limit = interval_size * (current_interval + 1)
-            datamodule.reader.set_limit(current_limit)
             
             # Re-run self-organization if needed
             if self.current_epoch % epochs_per_interval == 0:
@@ -163,10 +154,6 @@ class BlendRLCQLAgent(L.LightningModule):
         })
         self.log("transitions", float(current_transitions), logger=False, prog_bar=True)
 
-    def _soft_update(self, model, target_model):
-        tau = self.get_cfg("soft_target_tau", 0.005)
-        for param, target_param in zip(model.parameters(), target_model.parameters()):
-            target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
     def configure_optimizers(self):
         lr = self.get_cfg("lr", 3e-4)

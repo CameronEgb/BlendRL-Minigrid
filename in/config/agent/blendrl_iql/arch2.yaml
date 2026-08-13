@@ -1,18 +1,12 @@
 defaults:
-  - /agent: blendrl_iql_base
-  - _self_
+  - /agent/blendrl_iql_base
 
 lr: 0.01
 logic_lr: 0.01
 blender_lr: 0.01
-batch_size: 256
-epochs_per_interval: 10
-blend_function: softmax
 modules:
   - type: neural
   - type: nsfr
     rules: default
-blender_mode: logic
-actor_mode: hybrid
 env:
   rules: default

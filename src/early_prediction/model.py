@@ -580,29 +580,25 @@ def main():
             "f1_05": [], "f1_05_sem": []
         }
         
-    results_losses = {}
-
     tau_train = getattr(args, "tau_train", 12)
-    per_tau_training = getattr(args, "per_tau_training", False)
+
+    print(f"\n=========================================================================")
+    print(f" Single-Model Paradigm (Min Chi Paper Protocol)")
+    print(f" Training 1 model per split on data up to tau={tau_train}h early.")
+    print(f" Evaluating each trained model across test taus: {tau_list}")
+    print(f"=========================================================================\n")
+        
+    steps_early_train = 2 * tau_train
+    if args.use_all_trajectories:
+        c_indices_train = np.array([i for i in range(len(X)) if patient_lengths[i] - steps_early_train >= 1])
+    else:
+        min_stay_steps = 2 * max(args.tau_max, tau_train) + w_steps
+        c_indices_train = np.array([i for i in range(len(X)) if patient_lengths[i] >= min_stay_steps])
+        
+    t_cutoffs_train = patient_lengths[c_indices_train] - steps_early_train
+    y_cohort_train = y[c_indices_train]
     
-    if not per_tau_training:
-        print(f"\n=========================================================================")
-        print(f" Single-Model Paradigm (Min Chi Paper Protocol)")
-        print(f" Training 1 model per split on data up to tau={tau_train}h early.")
-        print(f" Evaluating each trained model across test taus: {tau_list}")
-        print(f"=========================================================================\n")
-        
-        steps_early_train = 2 * tau_train
-        if args.use_all_trajectories:
-            c_indices_train = np.array([i for i in range(len(X)) if patient_lengths[i] - steps_early_train >= 1])
-        else:
-            min_stay_steps = 2 * max(args.tau_max, tau_train) + w_steps
-            c_indices_train = np.array([i for i in range(len(X)) if patient_lengths[i] >= min_stay_steps])
-            
-        t_cutoffs_train = patient_lengths[c_indices_train] - steps_early_train
-        y_cohort_train = y[c_indices_train]
-        
-        for m_cfg_name, m_type, use_v_feat in model_configs:
+    for m_cfg_name, m_type, use_v_feat in model_configs:
             print(f"\n--- Training & Evaluating Model Architecture: {m_cfg_name} across {args.n_splits} splits ---")
             
             # Construct patient sliced sequences at training tau
@@ -778,144 +774,6 @@ def main():
                 results[m_cfg_name]["f1_05"].append(f1_05_mean)
                 results[m_cfg_name]["f1_05_sem"].append(f1_05_sem)
                 
-                print(f"  [tau={tau:2d}h] AUC-ROC: {auc_mean:.4f} ± {auc_sem:.4f}, AUPRC: {auprc_mean:.4f} ± {auprc_sem:.4f}, F1-Opt: {f1_opt_mean:.4f} ± {f1_opt_mean:.4f}")
-    else:
-        # Legacy Per-Tau Training Loop (1 separate model per tau)
-        for tau in tau_list:
-            print(f"\n--- Evaluating Lead Time (Per-Tau Model): {tau} Hours Early ---")
-            steps_early = 2 * tau
-            if args.use_all_trajectories:
-                c_indices = np.array([i for i in range(len(X)) if patient_lengths[i] - steps_early >= 1])
-            else:
-                min_stay_steps = 2 * args.tau_max + w_steps
-                c_indices = np.array([i for i in range(len(X)) if patient_lengths[i] >= min_stay_steps])
-                
-            t_cutoffs = patient_lengths[c_indices] - steps_early
-            y_cohort = y[c_indices]
-            results_losses[tau] = {}
-            
-            for m_cfg_name, m_type, use_v_feat in model_configs:
-                seq_data = []
-                for i, original_idx in enumerate(c_indices):
-                    tc = t_cutoffs[i]
-                    st = 0 if args.use_all_history else max(0, tc - w_steps)
-                    raw_seq = X[original_idx, st:tc, :49]
-                    feat_seq = compute_volatility_features(raw_seq) if args.use_volatility else raw_seq
-                    if use_v_feat and v_vals_all is not None:
-                        v_seq = v_vals_all[original_idx, st:tc]
-                        seq_data.append(np.concatenate([feat_seq, v_seq], axis=-1))
-                    else:
-                        seq_data.append(feat_seq)
-                        
-                input_dim = seq_data[0].shape[-1]
-                split_aucs, split_auprcs, split_f1_opts, split_f1_maxes, split_f1_05s = [], [], [], [], []
-                results_losses[tau][m_cfg_name] = []
-                
-                for m_idx in range(args.n_splits):
-                    seed_val = 42 + m_idx
-                    train_cohort_idxs, test_cohort_idxs = train_test_split(
-                        np.arange(len(c_indices)), test_size=0.2, random_state=seed_val, stratify=y_cohort
-                    )
-                    X_train = [seq_data[i] for i in train_cohort_idxs]
-                    X_test = [seq_data[i] for i in test_cohort_idxs]
-                    y_train = y_cohort[train_cohort_idxs]
-                    y_test = y_cohort[test_cohort_idxs]
-                    
-                    if args.use_norm:
-                        X_train, X_test = normalize_features(X_train, X_test)
-                    params = load_target_params(args.tune_dir, m_cfg_name) if args.use_tuned_params else {}
-                    
-                    if m_type == "lstm":
-                        hidden_dim = params.get("hidden_dim", args.hidden_dim)
-                        num_layers = params.get("num_layers", args.num_layers)
-                        epochs = params.get("epochs", args.epochs)
-                        batch_size = params.get("batch_size", args.batch_size)
-                        lr = params.get("lr", args.lr)
-                        weight_decay = params.get("weight_decay", 1e-4)
-                        use_focal_loss = params.get("use_focal_loss", False)
-                        use_tcn_conv = params.get("use_tcn_conv", False)
-                        bidirectional = params.get("bidirectional", False)
-                        
-                        model, train_losses = train_lstm_model(
-                            X_train, y_train, input_dim, hidden_dim=hidden_dim, num_layers=num_layers,
-                            epochs=epochs, batch_size=batch_size, lr=lr, weight_decay=weight_decay,
-                            use_focal_loss=use_focal_loss, use_tcn_conv=use_tcn_conv,
-                            bidirectional=bidirectional, device=device, seed=seed_val
-                        )
-                        probs_test = evaluate_lstm_model(model, X_test, input_dim, device=device)
-                        probs_train = evaluate_lstm_model(model, X_train, input_dim, device=device)
-                    elif m_type == "transformer":
-                        d_model = params.get("d_model", args.d_model)
-                        nhead = params.get("nhead", args.nhead)
-                        num_layers = params.get("num_layers", args.num_layers)
-                        dropout = params.get("dropout", 0.1)
-                        weight_decay = params.get("weight_decay", 1e-3)
-                        norm_first = params.get("norm_first", True)
-                        pos_type = params.get("pos_type", "learned")
-                        use_cls_token = params.get("use_cls_token", True)
-                        use_tcn_conv = params.get("use_tcn_conv", False)
-                        use_focal_loss = params.get("use_focal_loss", False)
-                        epochs = params.get("epochs", args.epochs)
-                        batch_size = params.get("batch_size", args.batch_size)
-                        lr = params.get("lr", args.lr)
-                        
-                        model, train_losses = train_transformer_model(
-                            X_train, y_train, input_dim, d_model=d_model, nhead=nhead, num_layers=num_layers,
-                            dropout=dropout, weight_decay=weight_decay, norm_first=norm_first,
-                            pos_type=pos_type, use_cls_token=use_cls_token, use_tcn_conv=use_tcn_conv,
-                            use_focal_loss=use_focal_loss, epochs=epochs, batch_size=batch_size,
-                            lr=lr, device=device, seed=seed_val
-                        )
-                        probs_test = evaluate_transformer_model(model, X_test, input_dim, device=device)
-                        probs_train = evaluate_transformer_model(model, X_train, input_dim, device=device)
-                    
-                    auc_roc = float(roc_auc_score(y_test, probs_test))
-                    precisions, recalls, _ = precision_recall_curve(y_test, probs_test)
-                    auprc_val = float(auc(recalls, precisions))
-                    f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-8)
-                    f1_max_val = float(np.max(f1_scores))
-                    
-                    tr_prec, tr_rec, tr_thresh = precision_recall_curve(y_train, probs_train)
-                    tr_f1 = 2 * (tr_prec * tr_rec) / (tr_prec + tr_rec + 1e-8)
-                    best_tr_idx = np.argmax(tr_f1)
-                    opt_thresh = tr_thresh[best_tr_idx] if best_tr_idx < len(tr_thresh) else 0.5
-                    
-                    preds_opt = (probs_test >= opt_thresh).astype(np.int32)
-                    f1_opt_val = float(f1_score(y_test, preds_opt, zero_division=0))
-                    preds_05 = (probs_test >= 0.5).astype(np.int32)
-                    f1_05_val = float(f1_score(y_test, preds_05, zero_division=0))
-                    
-                    split_aucs.append(auc_roc)
-                    split_auprcs.append(auprc_val)
-                    split_f1_opts.append(f1_opt_val)
-                    split_f1_maxes.append(f1_max_val)
-                    split_f1_05s.append(f1_05_val)
-                    
-                auc_mean = float(np.mean(split_aucs))
-                auc_sem = float(np.std(split_aucs) / np.sqrt(args.n_splits))
-                auprc_mean = float(np.mean(split_auprcs))
-                auprc_sem = float(np.std(split_auprcs) / np.sqrt(args.n_splits))
-                f1_opt_mean = float(np.mean(split_f1_opts))
-                f1_opt_sem = float(np.std(split_f1_opts) / np.sqrt(args.n_splits))
-                f1_max_mean = float(np.mean(split_f1_maxes))
-                f1_max_sem = float(np.std(split_f1_maxes) / np.sqrt(args.n_splits))
-                f1_05_mean = float(np.mean(split_f1_05s))
-                f1_05_sem = float(np.std(split_f1_05s) / np.sqrt(args.n_splits))
-                
-                results[m_cfg_name]["tau"].append(tau)
-                results[m_cfg_name]["auc"].append(auc_mean)
-                results[m_cfg_name]["auc_sem"].append(auc_sem)
-                results[m_cfg_name]["auprc"].append(auprc_mean)
-                results[m_cfg_name]["auprc_sem"].append(auprc_sem)
-                results[m_cfg_name]["f1_opt"].append(f1_opt_mean)
-                results[m_cfg_name]["f1_opt_sem"].append(f1_opt_sem)
-                results[m_cfg_name]["f1_max"].append(f1_max_mean)
-                results[m_cfg_name]["f1_max_sem"].append(f1_max_sem)
-                results[m_cfg_name]["f1_05"].append(f1_05_mean)
-                results[m_cfg_name]["f1_05_sem"].append(f1_05_sem)
-            
-            print(f"    AUC-ROC: {auc_mean:.4f} ± {auc_sem:.4f}, AUPRC: {auprc_mean:.4f} ± {auprc_sem:.4f}, F1-Opt: {f1_opt_mean:.4f} ± {f1_opt_sem:.4f}, F1-Max: {f1_max_mean:.4f} ± {f1_max_sem:.4f}, F1-0.5: {f1_05_mean:.4f} ± {f1_05_sem:.4f}")
-
     out_dir = Path(args.output_dir)
     if args.exp_id:
         out_dir = out_dir / args.exp_id

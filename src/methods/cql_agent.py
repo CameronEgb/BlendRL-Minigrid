@@ -5,13 +5,14 @@ import torch.optim as optim
 import lightning as L
 import numpy as np
 from typing import Any, Dict
-from src.methods.ppo_agent import PPOAgent
+from src.methods.base_agent import OfflineAgentBase
+from src.methods.registry import register_agent
 
-class CQLAgent(PPOAgent):
+@register_agent("cql")
+class CQLAgent(OfflineAgentBase):
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__(cfg)
         self.save_hyperparameters()
-        self.cfg = cfg
         
         # Handle nested agent config for algorithm
         algorithm = self.get_cfg("algorithm", self.get_cfg("name", cfg.env.name))
@@ -45,21 +46,13 @@ class CQLAgent(PPOAgent):
         self.actor = get_neural_agent(cfg.env.name, self.n_actions, self.device, arch_name=cfg.env.architecture, hidden_sizes=hidden_sizes)
         
         self.target_q_network.load_state_dict(self.q_network.state_dict())
-        self.automatic_optimization = False
 
     def on_train_start(self):
         if hasattr(self.trainer.datamodule, "reader") and self.trainer.datamodule.reader is not None:
             self.trainer.datamodule.reader.device = self.device
 
     def on_train_epoch_start(self):
-        if self.cfg.mode.type == "offline":
-            datamodule = self.trainer.datamodule
-            if hasattr(datamodule, "reader") and datamodule.reader is not None:
-                epochs_per_interval = self.cfg.agent.get("epochs_per_interval", 1)
-                current_interval = self.current_epoch // epochs_per_interval
-                interval_size = self.cfg.total_timesteps // self.cfg.intervals_count
-                current_limit = interval_size * (current_interval + 1)
-                datamodule.reader.set_limit(current_limit)
+        super().on_train_epoch_start()
 
     def training_step(self, batch, batch_idx):
         datamodule = self.trainer.datamodule
@@ -132,11 +125,6 @@ class CQLAgent(PPOAgent):
             "losses/actor_loss": actor_loss,
         })
         self.log("transitions", float(current_transitions), logger=False, prog_bar=True)
-
-    def _soft_update(self, model, target_model):
-        tau = self.cfg.agent.get("soft_target_tau", 0.005)
-        for param, target_param in zip(model.parameters(), target_model.parameters()):
-            target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
     def get_action_and_value(self, obs, logic_obs=None, action=None):
         return self.actor.get_action_and_value(obs, action)

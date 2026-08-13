@@ -12,306 +12,17 @@ from hydra import compose, initialize
 from pathlib import Path
 from src.method_registry import clean_label
 
-def get_best_trial_id(storage_url, study_name):
-    """Queries the optuna database to find the best trial ID for a given study."""
-    if not storage_url or not storage_url.startswith("sqlite:///"):
-        return "0" # Default to 0 if not using sqlite
-    
-    db_path = storage_url.replace("sqlite:///", "")
-    if not os.path.exists(db_path):
-        return "0"
+# Pipeline modules (extracted from this file for modularity)
+from src.pipeline.optuna_utils import (
+    get_best_trial_id, get_python_executable,
+    launch_optuna_dashboard, delete_optuna_study, create_optuna_study
+)
+from src.pipeline.config import normalize_agent_name, parse_method_list
+from src.pipeline.datasets import (
+    find_dataset_globally, run_experiment, run_plotting, run_early_prediction_eval
+)
+from src.pipeline.slurm import get_gres_header, generate_sbatch_script, submit_sbatch
 
-    try:
-        import sqlite3
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        # Get study_id first
-        cursor.execute("SELECT study_id FROM studies WHERE study_name = ?", (study_name,))
-        result = cursor.fetchone()
-        if not result:
-            conn.close()
-            return "0"
-        
-        study_id = result[0]
-        
-        # Find trial with max value for this study
-        # In Optuna 3.x/4.x values are in trial_values table
-        # We try a few common ways Optuna stores this to be robust
-        try:
-            cursor.execute("""
-                SELECT t.number 
-                FROM trials t
-                JOIN trial_values tv ON t.trial_id = tv.trial_id
-                WHERE t.study_id = ? AND t.state = 'COMPLETE' 
-                ORDER BY tv.value DESC LIMIT 1
-            """, (study_id,))
-            result = cursor.fetchone()
-        except:
-            # Fallback for different Optuna schema versions
-            cursor.execute("""
-                SELECT t.number 
-                FROM trials t
-                WHERE t.study_id = ? AND t.state = 'COMPLETE' 
-                ORDER BY t.trial_id DESC LIMIT 1
-            """, (study_id,))
-            result = cursor.fetchone()
-        
-        conn.close()
-        
-        if result is not None:
-            return str(result[0])
-    except Exception as e:
-        print(f"Warning: Could not query best trial from Optuna: {e}")
-    
-    return "0"
-
-def get_python_executable():
-    """Returns the path to the python executable to use for all subprocesses."""
-    # If we are already running in the venv, use that
-    # Otherwise, look for venv/bin/python3
-    project_root = os.getcwd()
-    venv_python = os.path.join(project_root, "venv", "bin", "python3")
-    
-    # Check if we should use python3.13 specifically if it exists
-    venv_python_13 = os.path.join(project_root, "venv", "bin", "python3.13")
-    if os.path.exists(venv_python_13):
-        return venv_python_13
-        
-    if os.path.exists(venv_python):
-        return venv_python
-    return sys.executable
-
-def launch_optuna_dashboard(storage_url):
-    """Launches the optuna-dashboard in the background and opens the browser."""
-    if not storage_url:
-        return
-
-    # Ensure directory exists if using sqlite
-    if storage_url.startswith("sqlite:///"):
-        db_path = storage_url.replace("sqlite:///", "")
-        if "/" in db_path:
-            os.makedirs(os.path.dirname(db_path), exist_ok=True)
-
-    # Check if a dashboard is already running for this storage_url
-    try:
-        ps_output = subprocess.run(["ps", "aux"], capture_output=True, text=True).stdout
-        if storage_url in ps_output and "optuna_dashboard" in ps_output:
-            print(f"Optuna Dashboard already running for: {storage_url}. Skipping launch.")
-            return
-    except:
-        pass
-
-    print(f"Launching Optuna Dashboard for: {storage_url}")
-
-    # Use managed python to ensure dashboard is available
-    venv_python = get_python_executable()
-    venv_bin_dir = os.path.dirname(venv_python)
-    optuna_dashboard_bin = os.path.join(venv_bin_dir, "optuna-dashboard")
-
-    # Try to launch optuna-dashboard
-    try:
-        # Launch in background
-        port = 8080
-        # Try different ports if 8080 is taken
-        for p in range(8080, 8090):
-            try:
-                # Use a dummy check to see if port is in use
-                subprocess.run(["nc", "-z", "localhost", str(p)], capture_output=True, check=True)
-                continue # Port is in use
-            except:
-                port = p
-                break
-
-        # Ensure logging directory exists
-        log_file_path = "results/optuna/dashboard.log"
-        os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
-        log_file = open(log_file_path, "w")
-
-        cmd = [optuna_dashboard_bin, storage_url, "--port", str(port)]
-        subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT)
-
-        print(f"Optuna Dashboard started at http://127.0.0.1:{port}")
-
-        # Wait a moment for server to start then open browser in a separate thread
-        def open_browser():
-            time.sleep(2)
-            url = f"http://127.0.0.1:{port}"
-            if sys.platform == "darwin":
-                # On macOS, -g opens in background without focusing
-                subprocess.run(["open", "-g", url])
-            else:
-                webbrowser.open(url)
-
-        threading.Thread(target=open_browser, daemon=True).start()
-
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        print(f"Warning: optuna-dashboard could not be started: {e}")
-        print("Please ensure 'optuna-dashboard' is installed in your environment.")
-
-def delete_optuna_study(storage_url, study_name):
-    """Deletes an existing study from the Optuna database to start fresh."""
-    if not storage_url or not storage_url.startswith("sqlite:///"):
-        return
-        
-    venv_python = get_python_executable()
-    cmd = [
-        venv_python, "-c",
-        f"import optuna; "
-        f"optuna.delete_study(study_name='{study_name}', storage='{storage_url}')"
-    ]
-    try:
-        subprocess.run(cmd, check=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
-        print(f"Overwriting existing Optuna study: {study_name}")
-    except subprocess.CalledProcessError:
-        pass # Study didn't exist or other error
-
-def create_optuna_study(storage_url, study_name):
-    """Pre-creates/initializes an Optuna study to avoid schema initialization race conditions on cluster nodes."""
-    if not storage_url or not storage_url.startswith("sqlite:///"):
-        return
-        
-    venv_python = get_python_executable()
-    cmd = [
-        venv_python, "-c",
-        f"import optuna; "
-        f"optuna.create_study(study_name='{study_name}', storage='{storage_url}', load_if_exists=True)"
-    ]
-    try:
-        subprocess.run(cmd, check=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
-        print(f"Pre-initialized Optuna study: {study_name}")
-    except subprocess.CalledProcessError as e:
-        print(f"Warning: Failed to pre-initialize Optuna study '{study_name}': {e.stderr.decode().strip()}")
-
-def run_experiment(overrides):
-    env = os.environ.copy()
-    project_root = os.getcwd()
-    new_paths = [
-        os.path.abspath("src"),
-        os.path.join(project_root, "src", "fyd_repo", "src")
-    ]
-    env["PYTHONPATH"] = ":".join(new_paths) + ":" + env.get("PYTHONPATH", "")
-    env["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
-    
-    venv_python = get_python_executable()
-    cmd = [venv_python, "src/train.py"] + overrides
-    print(f"Running: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, env=env)
-
-def run_plotting(experiment, style=None):
-    env = os.environ.copy()
-    env["PYTHONPATH"] = os.path.abspath(".") + ":" + os.path.abspath("src") + ":" + env.get("PYTHONPATH", "")
-    
-    venv_python = get_python_executable()
-    cmd = [venv_python, "plot/manager.py", experiment]
-        
-    print(f"\n=== Auto-Generating Modular Plots for experiment: {experiment} ===")
-    subprocess.run(cmd, check=True, env=env)
-
-def find_dataset_globally(agent_name_internal):
-    datasets_root = Path("in/datasets")
-    if not datasets_root.exists():
-        return None
-        
-    matches = []
-    for root, dirs, files in os.walk(datasets_root):
-        if any(f.endswith(".pkl") for f in files):
-            parts = Path(root).parts
-            if agent_name_internal in parts:
-                matches.append(root)
-                
-    if not matches:
-        return None
-        
-    # Sort matches by path depth (fewer parts first) to prefer shallowest path
-    matches.sort(key=lambda p: len(Path(p).parts))
-    return matches[0]
-
-def generate_sbatch_script(job_name, cmd_args, log_dir, partition="gpu", gpus=1, cores=16, nodes=1, dependency=None, time="04:00:00"):
-    script = f"#!/bin/bash\n"
-    script += f"#SBATCH --job-name={job_name}\n"
-    script += f"#SBATCH --partition={partition}\n"
-    if gpus > 0 and partition in ("gpu", "gpu-hp", "interactive-gpu"):
-        script += f"#SBATCH --gres=gpu:h200:{gpus}\n"
-    script += f"#SBATCH --time={time}\n"
-    script += f"#SBATCH --ntasks-per-node={cores}\n"
-    script += f"#SBATCH --nodes={nodes}\n"
-    script += f"#SBATCH --output={log_dir}/%x_%j.out\n"
-    script += f"#SBATCH --error={log_dir}/%x_%j.err\n"
-    script += f"#SBATCH --mail-type=END,FAIL\n"
-    script += f"#SBATCH --mail-user=cegbert@ncsu.edu\n"
-
-    if dependency:
-        script += f"#SBATCH --dependency=afterok:{dependency}\n"
-        
-    script += f"\n"
-    script += f"export PROJECT_ROOT={os.getcwd()}\n"
-    script += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n"
-    
-    # Construct the python command with absolute venv path
-    import shlex
-    cmd_str = "$PROJECT_ROOT/venv/bin/python3 " + " ".join(shlex.quote(arg) for arg in cmd_args)
-    script += f"echo \"Running: {cmd_str}\"\n"
-    script += f"{cmd_str}\n"
-    
-    return script
-
-def submit_sbatch(script_content):
-    print(f"Submitting Slurm job via stdin...")
-    try:
-        # Pipe script_content directly to sbatch stdin
-        result = subprocess.run(
-            ["sbatch"], 
-            input=script_content, 
-            capture_output=True, 
-            text=True, 
-            check=True
-        )
-        match = re.search(r"Submitted batch job (\d+)", result.stdout)
-        if match:
-            job_id = match.group(1)
-            print(f"-> Job ID: {job_id}")
-            return job_id
-        else:
-            print(f"Could not parse job ID from: {result.stdout}")
-            return None
-    except subprocess.CalledProcessError as e:
-        print(f"Error submitting job: {e.stderr}")
-        return None
-    except FileNotFoundError:
-        print("Error: 'sbatch' command not found. Are you on the Slurm cluster?")
-        return "99999"
-
-def run_early_prediction_eval(checkpoint_path, remake=False):
-    env = os.environ.copy()
-    env["PYTHONPATH"] = os.path.abspath("src") + ":" + env.get("PYTHONPATH", "")
-    
-    venv_python = get_python_executable()
-    cmd = [
-        venv_python, "src/early_prediction/eval.py",
-        "--checkpoint", str(checkpoint_path),
-        "--ep-ckpt-root", "results/checkpoints/early_prediction",
-    ]
-    if remake:
-        cmd.append("--remake")
-    print(f"\n=== Running Early Prediction Evaluation for checkpoint: {checkpoint_path} ===")
-    subprocess.run(cmd, check=True, env=env)
-
-def normalize_agent_name(agent_config: str) -> str:
-    """Convert hierarchical agent config paths to filesystem-safe names.
-    e.g. 'blendrl_cql/human_cew' -> 'blendrl_cql_human_cew'
-    This must match agent.name as set in the Hydra overrides."""
-    return agent_config.replace("/", "_")
-
-def parse_method_list(val):
-    """Parse a method list from Hydra config.
-    Hydra/YAML returns a Python list for `[a, b]` syntax but a string for `"a, b"` syntax.
-    This function handles both forms."""
-    if not val: return []
-    if isinstance(val, (list, tuple)): return list(val)
-    if hasattr(val, "__iter__") and not isinstance(val, str):
-        return list(val)
-    return [item.strip() for item in str(val).split(",") if item.strip()]
 
 def run_early_prediction_task(cfg, args, local_val, sanitized_extra_args, storage_url, is_sweep):
     """Handle standalone early_prediction task types (sweeps, evals, tuning).
@@ -378,7 +89,7 @@ def run_early_prediction_task(cfg, args, local_val, sanitized_extra_args, storag
                     slurm_script_path = slurm_dir / f"early_pred_sweep_{tm}.slurm"
                     cmd_args = ep_args + ["--target-model", tm]
                     cmd_str = " ".join([f'"{arg}"' if " " in arg else arg for arg in cmd_args])
-                    gres_header = f"#SBATCH --gres=gpu:h200:{args.gpus}\n" if (args.gpus > 0 and args.partition in ("gpu", "gpu-hp", "interactive-gpu")) else ""
+                    gres_header = get_gres_header(args.partition, args.gpus)
                     script_content = f"""#!/bin/bash
 #SBATCH --job-name=ep_{tm}_{cfg.experiment_id}
 #SBATCH --partition={args.partition}
@@ -490,7 +201,7 @@ date
                 plot_cmd_str = f"$PROJECT_ROOT/venv/bin/python3 plot/manager.py {cfg.experiment_id}"
                 if args.plot_style:
                     plot_cmd_str += f" --style {args.plot_style}"
-                eval_gres_header = f"#SBATCH --gres=gpu:h200:{args.gpus}\n" if (args.gpus > 0 and args.partition in ("gpu", "gpu-hp", "interactive-gpu")) else ""
+                eval_gres_header = get_gres_header(args.partition, args.gpus)
                 script_content = f"""#!/bin/bash
 #SBATCH --job-name=eval_pred_{cfg.experiment_id}
 #SBATCH --partition={args.partition}
@@ -557,7 +268,7 @@ $PROJECT_ROOT/venv/bin/python3 -u src/early_prediction/eval.py {eval_args_str}
                 else:
                     slurm_script_path = slurm_dir / f"tune_pred_{m_target}.slurm"
                     cmd_str = " ".join([f'"{arg}"' if " " in arg else arg for arg in tune_args])
-                    tune_gres_header = f"#SBATCH --gres=gpu:h200:{args.gpus}\n" if (args.gpus > 0 and args.partition in ("gpu", "gpu-hp", "interactive-gpu")) else ""
+                    tune_gres_header = get_gres_header(args.partition, args.gpus)
                     script_content = f"""#!/bin/bash
 #SBATCH --job-name=tune_{m_target}_{cfg.experiment_id}
 #SBATCH --partition={args.partition}
@@ -802,7 +513,7 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
             
             script_content = generate_sbatch_script(
                 job_name, overrides_slurm, log_dir=str(log_dir),
-                partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes
+                partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes, time=args.time
             )
             job_id = submit_sbatch(script_content)
             if job_id:
@@ -851,9 +562,8 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                     script_content = f"#!/bin/bash\n"
                     script_content += f"#SBATCH --job-name={job_name}\n"
                     script_content += f"#SBATCH --partition={args.partition}\n"
-                    if args.gpus > 0 and args.partition in ("gpu", "gpu-hp", "interactive-gpu"):
-                        script_content += f"#SBATCH --gres=gpu:h200:{args.gpus}\n"
-                    script_content += f"#SBATCH --time=04:00:00\n"
+                    script_content += get_gres_header(args.partition, args.gpus)
+                    script_content += f"#SBATCH --time={args.time}\n"
                     script_content += f"#SBATCH --ntasks-per-node={args.cores}\n"
                     script_content += f"#SBATCH --nodes={args.nodes}\n"
                     script_content += f"#SBATCH --output={log_dir}/%x_%j.out\n"
@@ -891,7 +601,7 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                     script_content = generate_sbatch_script(
                         job_name, overrides_slurm, log_dir=str(log_dir),
                         partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes,
-                        dependency=dependency_job_id
+                        dependency=dependency_job_id, time=args.time
                     )
                 
                 job_id = submit_sbatch(script_content)
@@ -956,6 +666,7 @@ def main():
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs per job")
     parser.add_argument("--cores", type=int, default=16, help="Number of CPU cores per job")
     parser.add_argument("--nodes", type=int, default=1, help="Number of nodes per job")
+    parser.add_argument("--time", type=str, default="01:00:00", help="Slurm walltime limit per job (default: 01:00:00)")
     parser.add_argument("--plot-style", type=str, default=None, help="Style config for plotter")
     parser.add_argument("--no-plot", action="store_true", help="Skip automatic plotting")
     parser.add_argument("--no-online", action="store_true", help="Skip online training phase")
@@ -1049,10 +760,13 @@ def main():
     
     # Auto-convert MIMIC dataset if needed
     if cfg.env.name == "mimic":
+        target_npz = cfg.env.get("dataset_name", "mimic_lazy_0_interventions_flag.npz")
+        npz_stem = Path(target_npz).stem
+        target_dir = Path("in/datasets/mimic") / npz_stem
         cql_dir = Path("in/datasets/mimic/cql")
-        if not (cql_dir.exists() and any(cql_dir.glob("*.pkl"))):
-            print("\n=== Auto-Converting MIMIC NPZ Dataset (mimic_lazy_0_interventions_balanced.npz) to PKL Format ===")
-            subprocess.run([sys.executable, "scripts/convert_npz_to_pkl.py"], check=True)
+        if not ((target_dir.exists() and any(target_dir.glob("*.pkl"))) or (cql_dir.exists() and any(cql_dir.glob("*.pkl")))):
+            print(f"\n=== Auto-Converting MIMIC NPZ Dataset ({target_npz}) to PKL Format ===")
+            subprocess.run([sys.executable, "scripts/convert_npz_to_pkl.py", target_npz], check=True)
 
     print(f"Using Datasets for Offline Training: {dataset_list}")
 

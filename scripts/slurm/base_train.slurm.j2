@@ -1,0 +1,17 @@
+#!/bin/bash
+#SBATCH --job-name={{ job_name }}
+#SBATCH --output={{ log_dir }}/slurm_%j.out
+#SBATCH --error={{ log_dir }}/slurm_%j.err
+#SBATCH --partition={{ partition }}
+#SBATCH --nodes={{ nodes }}
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task={{ cores }}
+#SBATCH --time={{ time }}
+{{ gres_header }}
+{% if dependency %}#SBATCH --dependency={{ dependency }}
+{% endif %}
+module load cuda
+source venv/bin/activate
+cd {{ project_root }}
+
+{{ command }}

@@ -41,11 +41,12 @@ if not os.path.exists(npz_path):
             npz_path = alt_p
             break
 
-out_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets/mimic/cql"))
-
 if not os.path.exists(npz_path):
     print(f"Error: NPZ dataset not found at {npz_path}")
     sys.exit(1)
+
+npz_stem = Path(npz_path).stem
+out_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), f"../in/datasets/mimic/{npz_stem}"))
 
 print(f"Loading NPZ dataset from {npz_path}...")
 data = np.load(npz_path, allow_pickle=True)
@@ -53,7 +54,7 @@ X = data['X']  # (N, 240, 49)
 y = data['y']  # (N, 1)
 mask = data['mask']  # (N, 240, 1)
 
-writer = DatasetWriter(save_dir=out_dir, chunk_size=200000, env_name="mimic")
+writer = DatasetWriter(save_dir=out_dir, chunk_size=200000, env_name=npz_stem)
 
 print("Converting trajectories to transitions...")
 total_transitions = 0
@@ -104,3 +105,4 @@ for i in range(len(X)):
 
 writer.close()
 print(f"Successfully converted {len(X)} patients and saved {total_transitions} transitions to {out_dir}")
+

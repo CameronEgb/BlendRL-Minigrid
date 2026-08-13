@@ -249,8 +249,13 @@ class BlenderActor(nn.Module):
         else:
             return self.compute_action_probs_neural(neural_state)
 
-    def get_q_values(self, neural_state, logic_state):
+    def get_q_values(self, neural_state, logic_state=None):
         """Compute Q-values by blending Q-values from all modules."""
+        if logic_state is None:
+            if neural_state.ndim == 2:
+                logic_state = neural_state.unsqueeze(1).repeat(1, 2, 1)
+            else:
+                logic_state = neural_state
         batch_size = neural_state.size(0)
         module_q_values = []
         
@@ -493,7 +498,7 @@ class BlenderActorCritic(nn.Module):
 
         return action, logprob, dist.entropy(), blend_dist.entropy(), blended_value
 
-    def get_q_values(self, neural_state, logic_state):
+    def get_q_values(self, neural_state, logic_state=None):
         return self.actor.get_q_values(neural_state, logic_state)
 
     def get_value(self, neural_state, logic_state, blending_weights=None):

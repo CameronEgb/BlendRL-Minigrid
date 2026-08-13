@@ -29,7 +29,12 @@ The ultimate objective of this codebase is to compare **Online** vs. **Offline**
 - **X-Axis:** Represented by the number of steps/transitions in the database.
 - **Interval Logic:** `INTERVALS_COUNT` defines snapshot points. 
 - **Evaluation Standard:** All interval evaluation points (both online and offline) MUST be calculated as a **100-episode average reward** to ensure statistical significance.
-- **MIMIC/Offline-Only Exception:** For offline-only environments (such as MIMIC) where an online simulator does not exist, the pipeline runs purely in offline mode on the static dataset, and the Online vs. Offline comparison rules do not apply.
+- **MIMIC/Offline-Only Exception:** For offline-only environments (such as MIMIC and **Pyrenees**) where an online simulator does not exist, the pipeline runs purely in offline mode on the full static dataset. The Online vs. Offline comparison rules do not apply. Key rules:
+  - **`intervals_count` MUST be 1.** Setting it higher causes `on_train_epoch_start` to progressively restrict the dataset reader to a growing fraction of the data — exactly what we don't want.
+  - **Training length** = `epochs_per_interval` gradient epochs. All epochs sample randomly from the entire dataset.
+  - **`eval_interval_epochs`** controls how often evaluation snapshots are taken (independent of data access). This generates convergence curves without any data restriction.
+  - **`total_timesteps`** = automatically inferred from dataset size (`total_timesteps: auto`) at runtime by inspecting `len(dataset)`. Used only as the x-axis label on plots; it does **not** restrict or drive training.
+  - **Convergence monitoring**: `losses/bellman_loss` and `losses/cql_loss` are logged every batch. `eval/reward` is logged every `eval_interval_epochs` epochs.
 
 ## 3. Execution Pipeline & Configuration
 The project uses a modular configuration system powered by Hydra.

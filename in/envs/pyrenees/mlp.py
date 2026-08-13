@@ -1,7 +1,7 @@
 """
 Pyrenees Neural Policy MLP — for BlendRL hybrid and pure-neural baselines.
 
-Input:  126-dim augmented state vector
+Input:  126-dim augmented state vector (auto-padded if 123-dim from dataset)
         [0:123]  z-scored Pyrenees features
         [123]    last_was_ps  (one-hot alternation bit)
         [124]    last_was_we  (one-hot alternation bit)
@@ -62,7 +62,14 @@ class MLP(nn.Module):
     # ── Forward helpers ───────────────────────────────────────────────────────
 
     def _flat(self, x: torch.Tensor) -> torch.Tensor:
-        return x.float().reshape(x.shape[0], -1)
+        flat = x.float().reshape(x.shape[0], -1)
+        if flat.shape[-1] < self.num_in_features:
+            pad = torch.zeros(
+                (flat.shape[0], self.num_in_features - flat.shape[-1]),
+                dtype=flat.dtype, device=flat.device
+            )
+            flat = torch.cat([flat, pad], dim=-1)
+        return flat
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         hidden = self.network(self._flat(x))

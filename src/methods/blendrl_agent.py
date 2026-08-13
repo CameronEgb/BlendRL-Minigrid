@@ -5,16 +5,15 @@ import lightning as L
 import numpy as np
 import os
 from typing import Any, Dict, Optional
-from src.methods.ppo_agent import PPOAgent
+from src.methods.base_agent import BaseAgent
+from src.methods.registry import register_agent
 from blendrl.agents.blender_agent import BlenderActorCritic
 
-class BlendRLAgent(PPOAgent):
+@register_agent("blendrl")
+class BlendRLAgent(BaseAgent):
     def __init__(self, cfg: Dict[str, Any]):
-        # We need to call L.LightningModule.__init__ directly to avoid PPOAgent's 
-        # complex __init__ which sets up a separate environment.
-        super(PPOAgent, self).__init__() 
+        super().__init__(cfg)
         self.save_hyperparameters(cfg)
-        self.cfg = cfg
 
         self.lr = self.get_cfg("lr", 3e-4)
         self.logic_lr = self.get_cfg("logic_lr", self.lr)
@@ -81,10 +80,6 @@ class BlendRLAgent(PPOAgent):
         self.next_truncated = torch.zeros(self.num_envs)
         
         self.global_step_count = 0
-
-    def get_cfg(self, key, default=None):
-        from src.methods.ppo_agent import PPOAgent
-        return PPOAgent.get_cfg(self, key, default)
 
     def get_action_and_value(self, obs, logic_obs=None, action=None):
         return self.model.get_action_and_value(obs, logic_obs, action)

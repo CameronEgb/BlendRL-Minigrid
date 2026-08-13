@@ -1,13 +1,9 @@
 defaults:
-  - /agent: iql_base
-  - _self_
+  - /agent/iql_base
 
-tau: 0.7
-beta: 3.0
+# CartPole-specific IQL overrides
+name: iql_cp_tuned
 lr: 0.0003
-batch_size: 256
-epochs_per_interval: 10
 
 # Placeholders for sweep compatibility
 ent_coef: 0.01
-clip_coef: 0.2

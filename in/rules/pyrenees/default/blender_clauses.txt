@@ -1,18 +1,3 @@
-# =============================================================================
-# Pyrenees Blender Clauses
-# =============================================================================
-# The blender decides when to trust the LOGIC policy vs. the NEURAL policy.
-#
-# Strategy (neural blender mode: these are initialization hints, the network
-# will learn the actual weights through training):
-#   - Use LOGIC when competency is clearly low → rules are most reliable here.
-#   - Use LOGIC when competency is clearly high → alternation logic applies.
-#   - Use NEURAL for borderline medium cases → data-driven flexibility.
-# =============================================================================
-
-# Logic agent takes control when competency tier is unambiguous
 logic_agent(X):-low_competency(E).
 logic_agent(X):-high_competency(E).
-
-# Neural agent handles ambiguous medium-tier cases
 neural_agent(X):-true(E).

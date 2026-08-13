@@ -7,12 +7,13 @@ import numpy as np
 from typing import Any, Dict, Optional
 from src.methods.iql_agent import IQLAgent
 from blendrl.agents.blender_agent import BlenderActorCritic
+from src.methods.registry import register_agent
 
+@register_agent("blendrl_iql")
 class BlendRLIQLAgent(IQLAgent):
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__(cfg)
         self.save_hyperparameters()
-        self.cfg = cfg
         
         # Handle nested agent config for algorithm
         algorithm = self.get_cfg("algorithm", self.get_cfg("name", cfg.env.name))
@@ -45,18 +46,6 @@ class BlendRLIQLAgent(IQLAgent):
         # Q and Value networks are still neural-only in their standard implementation
         # but we could potentially make them hybrid too. For now, keep them neural.
         # However, the actor is the hybrid part.
-        
-        self.automatic_optimization = False
-
-    def get_cfg(self, key, default=None):
-        """Helper to get a config value from either agent or agent.agent for backward compatibility."""
-        if hasattr(self, "cfg"):
-            if key in self.cfg.agent:
-                return self.cfg.agent[key]
-            # Try nested agent
-            if "agent" in self.cfg.agent and key in self.cfg.agent.agent:
-                return self.cfg.agent.agent[key]
-        return default
 
     def get_action_and_value(self, obs, logic_obs=None, action=None):
         return self.model.get_action_and_value(obs, logic_obs, action)

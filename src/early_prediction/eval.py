@@ -228,7 +228,7 @@ def get_policy_actions(agent, agent_type, obs_tensor, device):
             actions = torch.argmax(probs, dim=-1).cpu().numpy()
             admin_probs = probs[:, 1].cpu().numpy()
         elif agent_type == "blendrl_cql":
-            q = agent.model.get_q_values(obs_tensor, logic_obs=None)
+            q = agent.model.get_q_values(obs_tensor, logic_state=None)
             probs = torch.softmax(q, dim=-1)
             actions = torch.argmax(probs, dim=-1).cpu().numpy()
             admin_probs = probs[:, 1].cpu().numpy()
@@ -460,8 +460,9 @@ def plot_ep_shock_over_tau(ep_shock_results, report_dir):
         ("Non-Shock Cohort (y=0)", "non_shock", "ep_shock_over_tau_non_shock.png"),
     ]
 
-    all_colors = list(COLORS.values()) + ["tab:brown", "tab:pink", "tab:gray", "tab:olive"]
-    all_markers = list(MARKERS.values()) + ["v", "<", ">", "p"]
+    from src.method_registry import METHOD_STYLE
+    all_colors = [v["color"] for v in METHOD_STYLE.values() if v.get("color")] + ["tab:brown", "tab:pink", "tab:gray", "tab:olive"]
+    all_markers = [v["marker"] for v in METHOD_STYLE.values() if v.get("marker")] + ["v", "<", ">", "p"]
 
     for cohort_title, cohort_key, fname in cohort_configs:
         fig, ax = plt.subplots(figsize=(12, 7))

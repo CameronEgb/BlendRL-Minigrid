@@ -8,11 +8,14 @@ from omegaconf import DictConfig
 from typing import Any, Dict, Optional
 from blendrl.env_vectorized import VectorizedNudgeBaseEnv
 
-class PPOAgent(L.LightningModule):
+from src.methods.registry import register_agent
+from src.methods.base_agent import BaseAgent
+
+@register_agent("ppo")
+class PPOAgent(BaseAgent):
     def __init__(self, cfg: Dict[str, Any]):
-        super().__init__()
+        super().__init__(cfg)
         self.save_hyperparameters()
-        self.cfg = cfg
         
         self.lr = self.get_cfg("lr", 3e-4)
         self.num_envs = self.get_cfg("num_envs", 4)
@@ -57,8 +60,6 @@ class PPOAgent(L.LightningModule):
             arch_name=cfg.env.architecture, hidden_sizes=self.get_cfg("hidden_sizes", [64, 64])
         )
 
-        self.automatic_optimization = False
-        
         # Storage for rollouts
         self.register_buffer("obs", torch.zeros((self.num_steps, self.num_envs) + self.observation_space))
         self.register_buffer("actions", torch.zeros((self.num_steps, self.num_envs)))
@@ -76,30 +77,6 @@ class PPOAgent(L.LightningModule):
         
         self.global_step_count = 0
 
-    def get_cfg(self, key, default=None):
-        cfg = self.cfg
-        
-        # Recursive search in agent config
-        def find_in_acfg(acfg, k):
-            if not isinstance(acfg, (dict, DictConfig)):
-                return None
-            if k in acfg:
-                return acfg[k]
-            if "agent" in acfg:
-                return find_in_acfg(acfg.agent, k)
-            return None
-
-        if hasattr(cfg, "agent"):
-            val = find_in_acfg(cfg.agent, key)
-            if val is not None:
-                return val
-
-        if hasattr(cfg, "env") and key in cfg.env:
-            return cfg.env[key]
-        if key in cfg:
-            return cfg[key]
-        return default
-        
     def forward(self, x):
         return self.model(x)
 

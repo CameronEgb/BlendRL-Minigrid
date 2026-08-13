@@ -6,8 +6,12 @@ defaults:
 
 experiment_id: "mimic_comparison"
 group: "mimic"
-total_timesteps: 99142
-intervals_count: 5  # Evaluate across 5 data-efficiency intervals (20%, 40%, 60%, 80%, 100%)
+# Offline-only. The full dataset is always available. Every training batch
+# samples randomly from the entire dataset — there are no data splits.
+# intervals_count=1 ensures reader always has access to the full dataset.
+# total_timesteps: auto dynamically detects dataset size at runtime.
+total_timesteps: auto
+intervals_count: 1          # MUST be 1: ensures reader always uses full dataset
 eval_episodes: 100
 
 online_methods: []
@@ -19,8 +23,10 @@ offline_datasets: [cql]
 agent:
   blender_mode: neural
   hidden_sizes: [256, 256]
-  epochs_per_interval: 50
-  eval_interval_epochs: 10
+  # Total training = epochs_per_interval (since intervals_count=1).
+  epochs_per_interval: 250
+  # Evaluate every 25 epochs → 10 convergence snapshots over 250 epochs.
+  eval_interval_epochs: 25
   batch_size: 64
   lr: 3e-4
   cql_alpha: 1.0

@@ -34,6 +34,27 @@ def main(cfg: DictConfig):
     # Propagate reward type to environment variable
     if "env" in cfg and "reward_type" in cfg.env:
         os.environ["MIMIC_REWARD_TYPE"] = str(cfg.env.reward_type)
+    if "env" in cfg and "name" in cfg.env:
+        os.environ["BLENDRL_ENV_NAME"] = str(cfg.env.name)
+
+    # Dynamic total_timesteps inference for offline mode
+    if cfg.mode.type == "offline":
+        ds_path = cfg.mode.get("dataset_path", None)
+        if ds_path and os.path.exists(ds_path):
+            try:
+                from src.dataset_utils import DatasetReader
+                temp_reader = DatasetReader(ds_path)
+                ds_len = len(temp_reader)
+                if ds_len > 0:
+                    current_tt = cfg.get("total_timesteps", None)
+                    if current_tt is None or str(current_tt).lower() in ("auto", "-1", "none") or current_tt != ds_len:
+                        print(f"\n[Dynamic Config] Detected offline dataset with {ds_len} transitions at '{ds_path}'.")
+                        print(f"[Dynamic Config] Setting total_timesteps = {ds_len}.\n")
+                        OmegaConf.set_struct(cfg, False)
+                        cfg.total_timesteps = ds_len
+                        OmegaConf.set_struct(cfg, True)
+            except Exception as e:
+                print(f"[Dynamic Config Warning] Failed to dynamically inspect dataset size: {e}")
     
     # Set seed
     agent_seed = cfg.agent.get("seed", cfg.seed)
@@ -41,7 +62,11 @@ def main(cfg: DictConfig):
         agent_seed = agent_seed.get("seed", cfg.seed)
     L.seed_everything(agent_seed)
     
-    # Initialize Agent
+    # Initialize Agent via Registry
+    # Auto-discover all agent classes (triggers @register_agent decorators)
+    from src.methods.registry import auto_discover, get_agent_class
+    auto_discover()
+    
     agent_cfg = cfg.agent
     # Handle nesting from Hydra inheritance (e.g., agent.agent.name)
     def get_algo_name(acfg):
@@ -62,29 +87,9 @@ def main(cfg: DictConfig):
     if not base_algo_name:
         raise ValueError("Could not extract algorithm name from config.")
 
-    if base_algo_name.startswith("ppo"):
-        from src.methods.ppo_agent import PPOAgent
-        model = PPOAgent(cfg)
-    elif base_algo_name.startswith("blendrl_iql"):
-        from src.methods.blendrl_iql_agent import BlendRLIQLAgent
-        model = BlendRLIQLAgent(cfg)
-    elif base_algo_name.startswith("blendrl_cql"):
-        from src.methods.blendrl_cql_agent import BlendRLCQLAgent
-        model = BlendRLCQLAgent(cfg)
-    elif base_algo_name.startswith("cql"):
-        from src.methods.cql_agent import CQLAgent
-        model = CQLAgent(cfg)
-    elif base_algo_name.startswith("blendrl"):
-        from src.methods.blendrl_agent import BlendRLAgent
-        model = BlendRLAgent(cfg)
-    elif base_algo_name.startswith("iql"):
-        from src.methods.iql_agent import IQLAgent
-        model = IQLAgent(cfg)
-    elif base_algo_name.startswith("cew"):
-        from src.methods.cew_agent import CEWAgent
-        model = CEWAgent(cfg)
-    else:
-        raise ValueError(f"Unknown agent algorithm: {base_algo_name}")
+    AgentClass = get_agent_class(base_algo_name)
+    print(f"Resolved agent class: {AgentClass.__name__}")
+    model = AgentClass(cfg)
     
     # Print Architecture Information
     print("\n" + "="*30)
@@ -186,12 +191,6 @@ def main(cfg: DictConfig):
         if os.path.exists(potential_ckpt):
             print(f"Recovering from checkpoint: {potential_ckpt}")
             ckpt_path = potential_ckpt
-        else:
-            # Fallback to the non-trial-specific directory if trial-specific doesn't exist yet
-            legacy_ckpt = os.path.join("results/checkpoints", cfg.group, cfg.experiment_id, cfg.agent.name, "best_model.ckpt")
-            if os.path.exists(legacy_ckpt):
-                 print(f"Recovering from legacy checkpoint: {legacy_ckpt}")
-                 ckpt_path = legacy_ckpt
 
     trainer.fit(model, datamodule=datamodule, ckpt_path=ckpt_path)
 

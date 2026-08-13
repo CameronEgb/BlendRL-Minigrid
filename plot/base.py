@@ -163,7 +163,19 @@ class BasePlotter:
                     if metric in df.columns:
                         valid_df = df.dropna(subset=[metric])
                         if not valid_df.empty:
-                            x_vals = valid_df[x_axis_col].values if x_axis_col in valid_df.columns else valid_df.index.values
+                            x_vals = None
+                            if x_axis_col in df.columns and df[x_axis_col].notna().any():
+                                full_x = df[x_axis_col].interpolate(method='linear').ffill().bfill()
+                                s_x = full_x.loc[valid_df.index]
+                                if not s_x.empty and s_x.nunique() > 1 and not s_x.isna().any():
+                                    x_vals = s_x.values
+                            if x_vals is None:
+                                if "epoch" in valid_df.columns and valid_df["epoch"].nunique() > 1:
+                                    x_vals = valid_df["epoch"].values
+                                elif "step" in valid_df.columns and valid_df["step"].nunique() > 1:
+                                    x_vals = valid_df["step"].values
+                                else:
+                                    x_vals = valid_df.index.values
                             y_vals = valid_df[metric].values
                             all_x.append(x_vals)
                             all_y.append(y_vals)

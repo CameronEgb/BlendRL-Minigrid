@@ -1,6 +1,5 @@
 defaults:
-  - /agent: blendrl_base
-  - _self_
+  - /agent/blendrl_base
 
 # Best parameters found from 100-trial sweep
 lr: 0.00721
@@ -10,10 +9,5 @@ ent_coef: 0.0209
 blend_ent_coef: 0.0339
 clip_coef: 0.284
 update_epochs: 10
-num_minibatches: 4
 num_steps: 512
 joint_training: true
-
-# Placeholders
-tau: 0.7
-beta: 3.0
