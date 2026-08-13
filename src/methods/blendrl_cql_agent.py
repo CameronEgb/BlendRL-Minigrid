@@ -57,6 +57,10 @@ class BlendRLCQLAgent(OfflineAgentBase):
         self.target_model.load_state_dict(self.model.state_dict())
 
 
+    def on_train_start(self):
+        if hasattr(self.trainer.datamodule, "reader") and self.trainer.datamodule.reader is not None:
+            self.trainer.datamodule.reader.device = self.device
+
     def on_train_epoch_start(self):
         super().on_train_epoch_start()
         
@@ -82,6 +86,16 @@ class BlendRLCQLAgent(OfflineAgentBase):
                     elif not hasattr(self, "opt"):
                         # Ensure we have an optimizer if it wasn't created yet
                         self.opt = self.configure_optimizers()
+
+    def get_action_and_value(self, obs, logic_obs=None, action=None):
+        if logic_obs is None and obs.ndim == 2:
+            logic_obs = obs.unsqueeze(1).repeat(1, 2, 1)
+        return self.model(obs, logic_obs, action=action)
+
+    def get_value(self, obs, logic_obs=None):
+        if logic_obs is None and obs.ndim == 2:
+            logic_obs = obs.unsqueeze(1).repeat(1, 2, 1)
+        return self.model.get_value(obs, logic_obs)
 
     def training_step(self, batch, batch_idx):
         datamodule = self.trainer.datamodule

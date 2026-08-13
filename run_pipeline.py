@@ -428,7 +428,7 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
 
 def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanitized_extra_args, storage_url, is_sweep):
     """Submit online and offline training jobs to Slurm cluster.
-    Returns (job_ids, eval_commands) for building the final dependent plotting job."""
+    Returns (job_ids, eval_commands, is_consolidated) for building the final dependent plotting job."""
     log_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
     if log_dir.exists():
         print(f"Clearing old logs in {log_dir}...")
@@ -449,9 +449,110 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
         except OSError as e:
             print(f"Notice: Could not clear checkpoint dir {ckpt_dir}: {e}")
 
+    should_consolidate = getattr(args, "consolidate", False) or cfg.get("consolidate", False)
+
+    # Consolidated Single 1-GPU Slurm Job Execution
+    if should_consolidate and not is_sweep:
+        print(f"\n=== Preparing Consolidated 1-GPU Slurm Job ({cfg.experiment_id}) ===")
+        job_name = f"all_{cfg.experiment_id}"
+        gres_header = get_gres_header(args.partition, args.gpus)
+        cores = args.cores if args.cores != 16 else 4
+
+        script_content = f"#!/bin/bash\n"
+        script_content += f"#SBATCH --job-name={job_name}\n"
+        script_content += f"#SBATCH --partition={args.partition}\n"
+        script_content += gres_header
+        script_content += f"#SBATCH --time={args.time}\n"
+        script_content += f"#SBATCH --ntasks-per-node={cores}\n"
+        script_content += f"#SBATCH --nodes={args.nodes}\n"
+        script_content += f"#SBATCH --output={log_dir}/%x_%j.out\n"
+        script_content += f"#SBATCH --error={log_dir}/%x_%j.err\n"
+        script_content += f"#SBATCH --mail-type=END,FAIL\n"
+        script_content += f"#SBATCH --mail-user=cegbert@ncsu.edu\n\n"
+        script_content += f"export PROJECT_ROOT={os.getcwd()}\n"
+        script_content += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n\n"
+
+        import shlex
+
+        # 1. Online Training Commands
+        if not args.no_online:
+            for agent_config in online_list:
+                agent_name_internal = normalize_agent_name(agent_config)
+                dataset_path = f"in/datasets/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}"
+                cmd_args = [
+                    "src/train.py",
+                    f"+experiment={args.experiment}",
+                    f"++local=false",
+                    f"mode=online",
+                    f"agent={agent_config}",
+                    f"++agent.name={agent_name_internal}",
+                    f"++dataset_path={dataset_path}"
+                ] + sanitized_extra_args
+                train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
+                script_content += f'echo "=== [Phase: Online Training] {agent_config} ==="\n'
+                script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd}\n\n"
+
+        # 2. Offline Training Commands
+        if not args.no_offline:
+            for dataset_id in dataset_list:
+                dataset_name_internal = normalize_agent_name(dataset_id)
+                dataset_path = Path("in/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
+                if not (dataset_path.exists() and any(dataset_path.glob("*.pkl"))):
+                    group_shared_path = Path("in/datasets") / cfg.group / dataset_name_internal
+                    if group_shared_path.exists() and any(group_shared_path.glob("*.pkl")):
+                        dataset_path = group_shared_path
+                    else:
+                        global_match = find_dataset_globally(dataset_name_internal)
+                        if global_match:
+                            dataset_path = Path(global_match)
+
+                for agent_config in offline_list:
+                    agent_name_internal = normalize_agent_name(agent_config)
+                    cmd_args = [
+                        "src/train.py",
+                        f"+experiment={args.experiment}",
+                        f"++local=false",
+                        f"mode=offline",
+                        f"agent={agent_config}",
+                        f"++agent.name={agent_name_internal}",
+                        f"++mode.dataset_path={dataset_path}"
+                    ] + sanitized_extra_args
+                    train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
+                    script_content += f'echo "=== [Phase: Offline Training] {agent_config} on {dataset_id} ==="\n'
+                    script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd}\n\n"
+
+                    # MIMIC Evaluator
+                    if cfg.env.name == "mimic":
+                        ckpt_path = f"results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/0/best_model.ckpt"
+                        ckpt_dir = f"results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/0"
+                        if args.remake:
+                            eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint {ckpt_dir} --remake"
+                        else:
+                            eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint {ckpt_path}"
+                        script_content += f'echo "=== [Evaluation] {agent_config} ==="\n'
+                        script_content += f"if [ -f \"{ckpt_path}\" ] || [ -d \"{ckpt_dir}\" ]; then\n    {eval_cmd}\nfi\n\n"
+
+        # 3. Final Plotting
+        if not args.no_plot:
+            plot_cmd = f"$PROJECT_ROOT/venv/bin/python3 plot/manager.py {cfg.experiment_id}"
+            if args.plot_style:
+                plot_cmd += f" --style {args.plot_style}"
+            script_content += f'echo "=== [Generating Final Plots] ==="\n'
+            script_content += f"{plot_cmd}\n\n"
+
+        slurm_file = log_dir / f"consolidated_{cfg.experiment_id}.slurm"
+        with open(slurm_file, "w") as f:
+            f.write(script_content)
+
+        print(f"Submitting Consolidated 1-GPU Slurm Job: {slurm_file}")
+        job_id = submit_sbatch(script_content)
+        job_ids = [job_id] if job_id else []
+        return job_ids, [], True
+
     job_ids = []
     online_job_ids = {} # dataset_id -> job_id
     eval_commands = []
+
 
     # 1. Online Training Phases
     if not args.no_online:
@@ -656,7 +757,7 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
     # Add evaluation job IDs to dependency list so that final plotting waits for them
     job_ids.extend(eval_job_ids)
     
-    return job_ids, eval_commands
+    return job_ids, eval_commands, False
 
 def main():
     parser = argparse.ArgumentParser(description="NeSyRL Unified Experiment Pipeline")
@@ -667,6 +768,7 @@ def main():
     parser.add_argument("--cores", type=int, default=16, help="Number of CPU cores per job")
     parser.add_argument("--nodes", type=int, default=1, help="Number of nodes per job")
     parser.add_argument("--time", type=str, default="01:00:00", help="Slurm walltime limit per job (default: 01:00:00)")
+    parser.add_argument("--consolidate", action="store_true", default=False, help="Consolidate all training methods, evals, and plots into 1 single GPU Slurm job")
     parser.add_argument("--plot-style", type=str, default=None, help="Style config for plotter")
     parser.add_argument("--no-plot", action="store_true", help="Skip automatic plotting")
     parser.add_argument("--no-online", action="store_true", help="Skip online training phase")
@@ -777,19 +879,18 @@ def main():
     # Main Pipeline
     job_ids = []
     eval_commands = []
+    bundled_plot = False
     if local_val:
         run_local_training(cfg, args, online_list, offline_list, dataset_list, sanitized_extra_args, storage_url, is_sweep)
     else:
-        job_ids, eval_commands = run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanitized_extra_args, storage_url, is_sweep)
+        job_ids, eval_commands, bundled_plot = run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanitized_extra_args, storage_url, is_sweep)
 
-    # 3. Pipeline Integration: Local early prediction evaluation
-    if local_val and cfg.env.name == "mimic":
+    # 3. Pipeline Integration: Local early prediction evaluation (only for early_prediction tasks)
+    if local_val and cfg.get("task", "").startswith("early_prediction"):
         print("\n=== Phase: Local Early Prediction Evaluation ===")
         ckpt_dir_root = Path("results/checkpoints") / cfg.group / cfg.experiment_id
         if ckpt_dir_root.exists():
             if any(ckpt_dir_root.rglob("best_model*.ckpt")):
-                # Pass the experiment root so discover_policy_checkpoints finds ALL methods at once.
-                # Calling eval.py per-checkpoint would overwrite the combined plots on each call.
                 run_early_prediction_eval(ckpt_dir_root, remake=args.remake)
             else:
                 print(f"Warning: No best_model*.ckpt files found under {ckpt_dir_root} for evaluation.")
@@ -801,7 +902,8 @@ def main():
         if local_val:
             run_plotting(args.experiment, style=args.plot_style)
         else:
-            if job_ids:
+            if not bundled_plot and job_ids:
+
                 actual_exp_id = cfg.experiment_id
                 print(f"\n=== Preparing Final Job: Evaluation and Plotting ({actual_exp_id}) ===")
 

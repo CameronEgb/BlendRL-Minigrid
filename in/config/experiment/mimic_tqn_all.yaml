@@ -8,6 +8,7 @@ group: "mimic"
 total_timesteps: 332139
 intervals_count: 1  # Single full-dataset offline training interval (100% data)
 eval_episodes: 100
+consolidate: true   # Consolidate all methods and plotting into a single 1-GPU Slurm job
 
 env:
   name: mimic
@@ -24,11 +25,11 @@ offline_datasets: [cql]
 
 agent:
   blender_mode: neural
-  hidden_sizes: [256, 256]
-  epochs_per_interval: 10
-  eval_interval_epochs: 2
-  batch_size: 256
-  lr: 3e-4
+  hidden_sizes: [512, 512]
+  epochs_per_interval: 30
+  eval_interval_epochs: 5
+  batch_size: 1024
+  lr: 5e-4
   cql_alpha: 1.0
   modules:
     - type: nsfr
@@ -42,3 +43,4 @@ save_dataset: false
 seed: 1
 local: true
 recover: false
+

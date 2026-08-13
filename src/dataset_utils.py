@@ -178,6 +178,32 @@ class DatasetReader:
             
         self.limit = len(self.obs)
     
+    @property
+    def device(self):
+        return getattr(self, "_device", "cpu")
+
+    @device.setter
+    def device(self, dev):
+        self._device = dev
+        # For vector/tabular datasets (non-image, obs.ndim <= 2), preload directly onto GPU VRAM
+        if isinstance(self.obs, torch.Tensor) and self.obs.numel() > 0 and self.obs.ndim <= 2 and str(dev) != "cpu":
+            try:
+                self.obs = self.obs.to(dev, dtype=torch.float32)
+                self.actions = self.actions.to(dev, dtype=torch.long)
+                self.rewards = self.rewards.to(dev, dtype=torch.float32)
+                self.next_obs = self.next_obs.to(dev, dtype=torch.float32)
+                self.dones = self.dones.to(dev, dtype=torch.float32)
+                if self.logic_obs is not None:
+                    self.logic_obs = self.logic_obs.to(dev, dtype=torch.float32)
+                if self.next_logic_obs is not None:
+                    self.next_logic_obs = self.next_logic_obs.to(dev, dtype=torch.float32)
+            except Exception as e:
+                print(f"Notice: Could not preload dataset to device {dev}: {e}")
+
+    def to(self, device):
+        self.device = device
+        return self
+
     def set_limit(self, limit):
         new_limit = min(limit, len(self.obs))
         if new_limit != self.limit:
@@ -185,12 +211,13 @@ class DatasetReader:
             print(f"Dataset limit set to {self.limit} transitions.")
 
     def sample(self, batch_size, last=False):
+        target_device = self.obs.device if (isinstance(self.obs, torch.Tensor) and self.obs.is_cuda) else "cpu"
         if last:
             start = max(0, self.limit - batch_size)
-            idxs = torch.arange(start, self.limit)
+            idxs = torch.arange(start, self.limit, device=target_device)
             # If batch_size > available transitions, we just take what we have
         else:
-            idxs = torch.randint(0, self.limit, (batch_size,))
+            idxs = torch.randint(0, self.limit, (batch_size,), device=target_device)
         
         # Cast to correct types on the fly during transfer to device
         batch = {
@@ -212,3 +239,4 @@ class DatasetReader:
 
     def __len__(self):
         return len(self.obs)
+
