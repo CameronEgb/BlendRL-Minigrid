@@ -128,10 +128,7 @@ class CQLAgent(OfflineAgentBase):
         
         self._soft_update(self.q_network, self.target_q_network)
         
-        epochs_per_interval = self.cfg.agent.get("epochs_per_interval", 1)
-        current_interval = self.current_epoch // epochs_per_interval
-        interval_size = cfg.total_timesteps // cfg.intervals_count
-        current_transitions = interval_size * (current_interval + 1)
+        self._log_offline_transitions()
         
         self.log_dict({
             "losses/q_loss": q_loss,
@@ -139,7 +136,36 @@ class CQLAgent(OfflineAgentBase):
             "losses/cql_loss": cql_loss,
             "losses/actor_loss": actor_loss,
         })
-        self.log("transitions", float(current_transitions), logger=False, prog_bar=True)
+
+    def validation_step(self, batch, batch_idx):
+        datamodule = getattr(self.trainer, "datamodule", None)
+        if datamodule is not None and getattr(datamodule, "val_reader", None) is not None:
+            val_batch = datamodule.val_reader.get_batch(batch, device=self.device)
+            obs = val_batch["obs"]
+            actions = val_batch["action"]
+            rewards = val_batch["reward"]
+            next_obs = val_batch["next_obs"]
+            dones = val_batch["done"]
+            
+            with torch.no_grad():
+                next_q = self.target_q_network(next_obs)
+                next_v = torch.max(next_q, dim=1)[0]
+                q_target = rewards + self.cfg.env.gamma * next_v * (1 - dones)
+                
+                all_q_values = self.q_network(obs)
+                q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
+                
+                bellman_loss = F.mse_loss(q_action, q_target)
+                logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
+                cql_alpha = self.get_cfg("cql_alpha", 1.0)
+                cql_loss = (logsumexp_qvalues - q_action).mean()
+                val_loss = bellman_loss + cql_alpha * cql_loss
+                
+            self.log("val/loss", val_loss, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
+            self.log("val/bellman_loss", bellman_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+            self.log("val/cql_loss", cql_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+            self.log("val/q_mean", all_q_values.mean(), prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+            return val_loss
 
     def get_action_and_value(self, obs, logic_obs=None, action=None):
         return self.actor.get_action_and_value(obs, action)

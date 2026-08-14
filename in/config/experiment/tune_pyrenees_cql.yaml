@@ -7,9 +7,8 @@ defaults:
 
 experiment_id: "tune_pyrenees_cql"
 group: pyrenees
-total_timesteps: 979788
-intervals_count: 5
-eval_episodes: 100
+total_timesteps: auto
+intervals_count: 1
 
 online_methods: []
 offline_methods: [cql]
@@ -30,7 +29,7 @@ hydra:
       _target_: optuna.samplers.TPESampler
       seed: 42
     _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
-    direction: maximize
+    direction: minimize
     storage: "sqlite:///results/optuna/optuna_${experiment_id}.db"
     study_name: "tune_pyrenees_cql_${agent.name}"
     n_trials: 30

@@ -24,7 +24,6 @@ offline_datasets: [pyrenees]
 # Total training = epochs_per_interval gradient epochs (intervals_count must be 1).
 total_timesteps: auto       # Automatically inferred from offline dataset size
 intervals_count: 1          # MUST be 1: ensures reader always uses full dataset
-eval_episodes: 100          # 100-episode average for statistical significance
 
 # ── Agent hyperparameters ────────────────────────────────────────────────────
 agent:

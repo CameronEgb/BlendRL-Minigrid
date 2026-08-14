@@ -9,7 +9,6 @@ group: "mimic"
 
 total_timesteps: auto
 intervals_count: 1
-eval_episodes: 5
 
 online_methods: []
 offline_methods: 

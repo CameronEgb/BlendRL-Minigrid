@@ -130,31 +130,48 @@ class OfflineAgentBase(BaseAgent):
     """Base class for all offline RL agents (IQL, CQL, CEW, and their BlendRL variants).
     
     Provides:
+        - Device transfer for train and validation readers
         - Interval-based dataset limit management (on_train_epoch_start)
         - Common offline training epoch tracking
     """
+
+    def on_train_start(self):
+        """Preload datasets to agent device on training start."""
+        datamodule = getattr(self.trainer, "datamodule", None)
+        if datamodule is not None:
+            if hasattr(datamodule, "reader") and datamodule.reader is not None:
+                datamodule.reader.device = self.device
+            if hasattr(datamodule, "val_reader") and datamodule.val_reader is not None:
+                datamodule.val_reader.device = self.device
 
     def on_train_epoch_start(self):
         """Set dataset limit based on current training interval.
         
         Implements the progressive data exposure schedule defined by
-        intervals_count and epochs_per_interval.
+        intervals_count and epochs_per_interval (when intervals_count > 1).
         """
-        datamodule = self.trainer.datamodule
-        if hasattr(datamodule, "reader") and datamodule.reader is not None:
-            epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
-            current_interval = self.current_epoch // epochs_per_interval
-            
-            interval_size = self.cfg.total_timesteps // self.cfg.intervals_count
-            current_limit = interval_size * (current_interval + 1)
-            datamodule.reader.set_limit(min(current_limit, len(datamodule.reader)))
+        datamodule = getattr(self.trainer, "datamodule", None)
+        if datamodule is not None and hasattr(datamodule, "reader") and datamodule.reader is not None:
+            intervals_count = self.cfg.get("intervals_count", 1)
+            if intervals_count > 1:
+                epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
+                current_interval = self.current_epoch // epochs_per_interval
+                interval_size = self.cfg.total_timesteps // intervals_count
+                current_limit = interval_size * (current_interval + 1)
+                datamodule.reader.set_limit(min(current_limit, len(datamodule.reader)))
+            else:
+                datamodule.reader.set_limit(len(datamodule.reader))
 
     def _log_offline_transitions(self):
         """Calculate and log the current transition count for offline training."""
         cfg = self.cfg
-        epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
-        current_interval = self.current_epoch // epochs_per_interval
-        interval_size = cfg.total_timesteps // cfg.intervals_count
-        current_transitions = interval_size * (current_interval + 1)
+        intervals_count = cfg.get("intervals_count", 1)
+        if intervals_count > 1:
+            epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
+            current_interval = self.current_epoch // epochs_per_interval
+            interval_size = cfg.total_timesteps // intervals_count
+            current_transitions = interval_size * (current_interval + 1)
+        else:
+            current_transitions = cfg.total_timesteps if hasattr(cfg, "total_timesteps") and isinstance(cfg.total_timesteps, (int, float)) else len(self.trainer.datamodule.reader)
         self.log("transitions", float(current_transitions), logger=False, prog_bar=True)
         return current_transitions

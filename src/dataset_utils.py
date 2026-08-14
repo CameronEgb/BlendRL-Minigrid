@@ -237,6 +237,98 @@ class DatasetReader:
             
         return batch
 
+    def get_batch(self, idxs, device=None):
+        if device is None:
+            device = self.device
+        if isinstance(idxs, list):
+            idxs = torch.tensor(idxs, dtype=torch.long)
+        elif not isinstance(idxs, torch.Tensor):
+            idxs = torch.tensor(idxs, dtype=torch.long)
+        
+        target_device = self.obs.device if (isinstance(self.obs, torch.Tensor) and self.obs.is_cuda) else "cpu"
+        idxs = idxs.to(target_device)
+        
+        batch = {
+            "obs": self.obs[idxs].to(device, dtype=torch.float32),
+            "action": self.actions[idxs].to(device, dtype=torch.long),
+            "reward": self.rewards[idxs].to(device, dtype=torch.float32),
+            "next_obs": self.next_obs[idxs].to(device, dtype=torch.float32),
+            "done": self.dones[idxs].to(device, dtype=torch.float32)
+        }
+        
+        if self.logic_obs is not None:
+            batch["logic_obs"] = self.logic_obs[idxs].to(device, dtype=torch.float32)
+            batch["next_logic_obs"] = self.next_logic_obs[idxs].to(device, dtype=torch.float32)
+        else:
+            batch["logic_obs"] = None
+            batch["next_logic_obs"] = None
+            
+        return batch
+
+    def split(self, val_ratio=0.1, seed=42):
+        """Split this reader into (train_reader, val_reader) by trajectory where possible."""
+        n_total = len(self.obs)
+        if n_total <= 1 or val_ratio <= 0.0 or val_ratio >= 1.0:
+            return self, None
+            
+        rng = np.random.default_rng(seed)
+        
+        # If dones has trajectory markers, split by complete trajectories
+        done_indices = torch.where(self.dones == 1.0)[0].cpu().numpy()
+        if len(done_indices) > 1:
+            trajectories = []
+            start = 0
+            for end_idx in done_indices:
+                trajectories.append(list(range(start, int(end_idx) + 1)))
+                start = int(end_idx) + 1
+            if start < n_total:
+                trajectories.append(list(range(start, n_total)))
+                
+            n_val_trajs = max(1, int(round(len(trajectories) * val_ratio)))
+            shuffled_traj_indices = rng.permutation(len(trajectories))
+            val_traj_indices = set(shuffled_traj_indices[:n_val_trajs])
+            
+            train_indices = []
+            val_indices = []
+            for t_idx, traj in enumerate(trajectories):
+                if t_idx in val_traj_indices:
+                    val_indices.extend(traj)
+                else:
+                    train_indices.extend(traj)
+        else:
+            # Fallback to random transition split
+            shuffled = rng.permutation(n_total)
+            n_val = max(1, int(round(n_total * val_ratio)))
+            val_indices = shuffled[:n_val].tolist()
+            train_indices = shuffled[n_val:].tolist()
+            
+        train_reader = DatasetReader.__new__(DatasetReader)
+        train_reader._device = "cpu"
+        train_reader.files = self.files
+        train_reader.obs = self.obs[train_indices]
+        train_reader.actions = self.actions[train_indices]
+        train_reader.rewards = self.rewards[train_indices]
+        train_reader.next_obs = self.next_obs[train_indices]
+        train_reader.dones = self.dones[train_indices]
+        train_reader.logic_obs = self.logic_obs[train_indices] if self.logic_obs is not None else None
+        train_reader.next_logic_obs = self.next_logic_obs[train_indices] if self.next_logic_obs is not None else None
+        train_reader.limit = len(train_reader.obs)
+        
+        val_reader = DatasetReader.__new__(DatasetReader)
+        val_reader._device = "cpu"
+        val_reader.files = self.files
+        val_reader.obs = self.obs[val_indices]
+        val_reader.actions = self.actions[val_indices]
+        val_reader.rewards = self.rewards[val_indices]
+        val_reader.next_obs = self.next_obs[val_indices]
+        val_reader.dones = self.dones[val_indices]
+        val_reader.logic_obs = self.logic_obs[val_indices] if self.logic_obs is not None else None
+        val_reader.next_logic_obs = self.next_logic_obs[val_indices] if self.next_logic_obs is not None else None
+        val_reader.limit = len(val_reader.obs)
+        
+        print(f"[Dataset Split] Train set: {len(train_reader)} transitions | Validation set: {len(val_reader)} transitions (val_ratio={val_ratio})")
+        return train_reader, val_reader
+
     def __len__(self):
         return len(self.obs)
 

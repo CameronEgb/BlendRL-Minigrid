@@ -127,19 +127,13 @@ class IQLAgent(OfflineAgentBase):
         self._soft_update(self.q_network, self.target_q_network)
         self._soft_update(self.q_network2, self.target_q_network2)
         
-        # Calculate current transitions for logging
-        epochs_per_interval = self.cfg.agent.get("epochs_per_interval", 1)
-        current_interval = self.current_epoch // epochs_per_interval
-        interval_size = cfg.total_timesteps // cfg.intervals_count
-        current_transitions = interval_size * (current_interval + 1)
+        self._log_offline_transitions()
 
         self.log_dict({
             "losses/q_loss": q_loss,
             "losses/value_loss": value_loss,
             "losses/actor_loss": actor_loss,
         })
-        self.log("transitions", float(current_transitions), logger=False, prog_bar=True)
-
 
     def get_action_and_value(self, obs, logic_obs=None, action=None):
         return self.actor.get_action_and_value(obs, action)
@@ -154,5 +148,36 @@ class IQLAgent(OfflineAgentBase):
         return [opt_q, opt_v, opt_a]
 
     def validation_step(self, batch, batch_idx):
-        # We can use this to log validation loss on the offline dataset
-        pass
+        datamodule = getattr(self.trainer, "datamodule", None)
+        if datamodule is not None and getattr(datamodule, "val_reader", None) is not None:
+            val_batch = datamodule.val_reader.get_batch(batch, device=self.device)
+            obs = val_batch["obs"]
+            actions = val_batch["action"]
+            rewards = val_batch["reward"]
+            next_obs = val_batch["next_obs"]
+            dones = val_batch["done"]
+            
+            with torch.no_grad():
+                # Value loss on validation
+                q1 = self.target_q_network(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
+                q2 = self.target_q_network2(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
+                target_v = torch.min(q1, q2)
+                v = self.value_network(obs).squeeze(-1)
+                u = target_v - v
+                expectile = self.get_cfg("expectile", 0.7)
+                weight = torch.where(u > 0, expectile, 1 - expectile)
+                value_loss = (weight * (u ** 2)).mean()
+                
+                # Q loss on validation
+                next_v = self.value_network(next_obs).squeeze(-1)
+                q_target = rewards + self.cfg.env.gamma * next_v * (1 - dones)
+                pred_q1 = self.q_network(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
+                pred_q2 = self.q_network2(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
+                q_loss = F.mse_loss(pred_q1, q_target) + F.mse_loss(pred_q2, q_target)
+                
+                val_loss = value_loss + q_loss
+                
+            self.log("val/loss", val_loss, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
+            self.log("val/q_loss", q_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+            self.log("val/value_loss", value_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+            return val_loss

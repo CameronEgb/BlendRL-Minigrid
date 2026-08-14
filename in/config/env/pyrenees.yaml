@@ -1,7 +1,6 @@
 name: pyrenees
 env_id: pyrenees
-num_envs: 10
-num_steps: 100
+offline_only: true
 gamma: 0.99
 gae_lambda: 0.95
 rules: default

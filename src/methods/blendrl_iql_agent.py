@@ -149,11 +149,7 @@ class BlendRLIQLAgent(IQLAgent):
         self._soft_update(self.q_network, self.target_q_network)
         self._soft_update(self.q_network2, self.target_q_network2)
         
-        # Calculate current transitions for logging
-        epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
-        current_interval = self.current_epoch // epochs_per_interval
-        interval_size = cfg.total_timesteps // cfg.intervals_count
-        current_transitions = interval_size * (current_interval + 1)
+        self._log_offline_transitions()
 
         self.log_dict({
             "losses/q_loss": q_loss,
@@ -162,7 +158,6 @@ class BlendRLIQLAgent(IQLAgent):
             "losses/entropy": entropy.mean(),
             "losses/blend_entropy": blend_entropy.mean(),
         })
-        self.log("transitions", float(current_transitions), logger=False, prog_bar=True)
 
     def configure_optimizers(self):
         # We use a standard LR from the agent config if available, otherwise fallback
@@ -178,5 +173,40 @@ class BlendRLIQLAgent(IQLAgent):
         return [opt_q, opt_v, opt_a]
 
     def validation_step(self, batch, batch_idx):
-        # validation_step placeholder
-        pass
+        datamodule = getattr(self.trainer, "datamodule", None)
+        if datamodule is not None and getattr(datamodule, "val_reader", None) is not None:
+            val_batch = datamodule.val_reader.get_batch(batch, device=self.device)
+            obs = val_batch["obs"]
+            if val_batch["logic_obs"] is not None:
+                logic_obs = val_batch["logic_obs"]
+            else:
+                logic_obs = obs.unsqueeze(1).repeat(1, 2, 1)
+            actions = val_batch["action"]
+            rewards = val_batch["reward"]
+            next_obs = val_batch["next_obs"]
+            dones = val_batch["done"]
+            
+            with torch.no_grad():
+                # Q-loss on validation
+                target_v = self.value_network(next_obs).view(-1)
+                q_target = rewards + self.cfg.env.gamma * target_v * (1 - dones)
+                pred_q1 = self.q_network(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
+                pred_q2 = self.q_network2(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
+                q_loss = F.mse_loss(pred_q1, q_target) + F.mse_loss(pred_q2, q_target)
+                
+                # Value loss on validation
+                t_q1 = self.target_q_network(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
+                t_q2 = self.target_q_network2(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
+                t_q_a = torch.min(t_q1, t_q2)
+                value = self.value_network(obs).view(-1)
+                diff = t_q_a - value
+                tau = self.get_cfg("tau", 0.7)
+                weight = torch.where(diff > 0, tau, 1 - tau)
+                value_loss = (weight * (diff**2)).mean()
+                
+                val_loss = q_loss + value_loss
+                
+            self.log("val/loss", val_loss, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
+            self.log("val/q_loss", q_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+            self.log("val/value_loss", value_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+            return val_loss

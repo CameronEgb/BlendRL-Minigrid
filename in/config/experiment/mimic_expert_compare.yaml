@@ -7,9 +7,8 @@ defaults:
 
 experiment_id: "mimic_expert_compare"
 group: "mimic"
-total_timesteps: 99142
-intervals_count: 5  # Sweep across 5 data-efficiency intervals (20%, 40%, 60%, 80%, 100%)
-eval_episodes: 100
+total_timesteps: auto
+intervals_count: 1
 
 online_methods: []
 offline_methods: [cql, blendrl_cql/human_neural]
@@ -35,7 +34,7 @@ hydra:
       _target_: optuna.samplers.TPESampler
       seed: 123
     _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
-    direction: maximize
+    direction: minimize
     storage: "sqlite:///results/optuna/optuna_${experiment_id}.db"
     study_name: "mimic_expert_compare_${agent.name}"
     n_trials: 40

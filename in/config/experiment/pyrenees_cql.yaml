@@ -17,7 +17,6 @@ offline_datasets: [pyrenees]
 # total_timesteps is dynamically inferred from dataset size for plot x-axis.
 total_timesteps: auto
 intervals_count: 1          # single training run, evaluate once at end
-eval_episodes: 50
 
 agent:
   epochs_per_interval: 10

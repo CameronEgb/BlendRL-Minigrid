@@ -137,8 +137,7 @@ def main(cfg: DictConfig):
         print(f"\n[Warning] TensorBoardLogger failed to load due to environment dependency issues: {e}")
         print("[Warning] Falling back to CSVLogger only. (Your plots will still work as they read from CSV logs).\n")
     
-    # Callbacks
-    from src.utils import EnvironmentEvaluatorCallback
+    # Callbacks & Evaluation Architecture
     from hydra.core.hydra_config import HydraConfig
     trial_id = "0"
     if HydraConfig.initialized():
@@ -147,17 +146,36 @@ def main(cfg: DictConfig):
         except Exception:
             pass
     ckpt_dir = os.path.join("results/checkpoints", cfg.group, cfg.experiment_id, cfg.agent.name, trial_id)
-    callbacks = [
-        ModelCheckpoint(
-            dirpath=ckpt_dir,
-            filename="best_model",
-            monitor="eval/reward",
-            mode="max",
-            save_top_k=1,
-            enable_version_counter=False
-        ),
-        EnvironmentEvaluatorCallback(cfg)
-    ]
+    
+    is_offline_only = cfg.env.get("offline_only", False) or cfg.env.name in ["mimic", "pyrenees"]
+    
+    callbacks = []
+    if is_offline_only:
+        print(f"\n[Environment Setup] Detected offline-only environment '{cfg.env.name}'.")
+        print("[Environment Setup] Bypassing simulated gym rollouts; monitoring validation loss for checkpointing.\n")
+        callbacks.append(
+            ModelCheckpoint(
+                dirpath=ckpt_dir,
+                filename="best_model",
+                monitor="val/loss",
+                mode="min",
+                save_top_k=1,
+                enable_version_counter=False
+            )
+        )
+    else:
+        from src.utils import EnvironmentEvaluatorCallback
+        callbacks.extend([
+            ModelCheckpoint(
+                dirpath=ckpt_dir,
+                filename="best_model",
+                monitor="eval/reward",
+                mode="max",
+                save_top_k=1,
+                enable_version_counter=False
+            ),
+            EnvironmentEvaluatorCallback(cfg)
+        ])
     
     # Trainer
     if cfg.mode.type == "online":
@@ -175,8 +193,9 @@ def main(cfg: DictConfig):
     else:
         epochs_per_interval = cfg.agent.get("epochs_per_interval", 1)
         max_epochs = cfg.intervals_count * epochs_per_interval
-        limit_val_batches = 1
-        check_val_every_n_epoch = 1  # Check every epoch, let callback handle frequency
+        eval_interval_epochs = cfg.agent.get("eval_interval_epochs", 1)
+        limit_val_batches = 1.0
+        check_val_every_n_epoch = eval_interval_epochs if eval_interval_epochs else 1
 
     # Trainer Configuration
     trainer_kwargs = {
@@ -280,8 +299,16 @@ def main(cfg: DictConfig):
         trainer.save_checkpoint(final_ckpt_target)
 
     # Return metric for Optuna
-    if "eval/reward" in trainer.callback_metrics:
-        return trainer.callback_metrics["eval/reward"].item()
+    if is_offline_only:
+        if "val/loss" in trainer.callback_metrics:
+            return trainer.callback_metrics["val/loss"].item()
+        if "losses/bellman_loss" in trainer.callback_metrics:
+            return trainer.callback_metrics["losses/bellman_loss"].item()
+        if "losses/total_loss" in trainer.callback_metrics:
+            return trainer.callback_metrics["losses/total_loss"].item()
+    else:
+        if "eval/reward" in trainer.callback_metrics:
+            return trainer.callback_metrics["eval/reward"].item()
     return 0.0
 
 if __name__ == "__main__":

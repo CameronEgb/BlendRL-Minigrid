@@ -154,11 +154,7 @@ class CEWAgent(OfflineAgentBase):
         
         self._soft_update(self.fuzzy_model, self.target_fuzzy_model)
         
-        # Logging transitions based on intervals
-        epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
-        current_interval = self.current_epoch // epochs_per_interval
-        interval_size = self.cfg.total_timesteps // self.cfg.intervals_count
-        current_transitions = interval_size * (current_interval + 1)
+        self._log_offline_transitions()
 
         self.log_dict({
             "losses/total_loss": total_loss,
@@ -168,7 +164,37 @@ class CEWAgent(OfflineAgentBase):
             "train/q_mean": all_q_values.mean(),
             "train/rules": float(len(self.rules))
         })
-        self.log("transitions", float(current_transitions), logger=False, prog_bar=True)
+
+    def validation_step(self, batch, batch_idx):
+        if not self.self_organized or self.fuzzy_model is None or self.target_fuzzy_model is None:
+            return
+        datamodule = getattr(self.trainer, "datamodule", None)
+        if datamodule is not None and getattr(datamodule, "val_reader", None) is not None:
+            val_batch = datamodule.val_reader.get_batch(batch, device="cpu")
+            obs = val_batch["obs"]
+            actions = val_batch["action"]
+            rewards = val_batch["reward"]
+            next_obs = val_batch["next_obs"]
+            dones = val_batch["done"]
+            
+            with torch.no_grad():
+                next_q = self.target_fuzzy_model(next_obs)
+                next_v = torch.max(next_q, dim=1)[0]
+                q_target = rewards + self.get_cfg("gamma", 0.99) * next_v * (1 - dones)
+                
+                all_q_values = self.fuzzy_model(obs)
+                q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
+                
+                bellman_loss = F.mse_loss(q_action, q_target)
+                logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
+                cql_alpha = getattr(self.fuzzy_model, "cql_alpha", self.get_cfg("cql_alpha", 1.0))
+                cql_loss = (logsumexp_qvalues - q_action).mean()
+                val_loss = bellman_loss + cql_alpha * cql_loss
+                
+            self.log("val/loss", val_loss, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
+            self.log("val/bellman_loss", bellman_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+            self.log("val/cql_loss", cql_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+            return val_loss
 
     def configure_optimizers(self):
         # Dummy optimizer to satisfy Lightning until self_organize is called

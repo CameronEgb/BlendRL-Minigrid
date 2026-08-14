@@ -153,11 +153,7 @@ class BlendRLCQLAgent(OfflineAgentBase):
         
         self._soft_update(self.model, self.target_model)
         
-        # Logging
-        epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
-        current_interval = self.current_epoch // epochs_per_interval
-        interval_size = self.cfg.total_timesteps // self.cfg.intervals_count
-        current_transitions = interval_size * (current_interval + 1)
+        self._log_offline_transitions()
 
         self.log_dict({
             "losses/total_loss": total_loss,
@@ -166,8 +162,45 @@ class BlendRLCQLAgent(OfflineAgentBase):
             "losses/entropy": entropy,
             "train/q_mean": all_q_values.mean()
         })
-        self.log("transitions", float(current_transitions), logger=False, prog_bar=True)
 
+    def validation_step(self, batch, batch_idx):
+        datamodule = getattr(self.trainer, "datamodule", None)
+        if datamodule is not None and getattr(datamodule, "val_reader", None) is not None:
+            val_batch = datamodule.val_reader.get_batch(batch, device=self.device)
+            obs = val_batch["obs"]
+            if val_batch["logic_obs"] is not None:
+                logic_obs = val_batch["logic_obs"]
+            else:
+                logic_obs = obs.unsqueeze(1).repeat(1, 2, 1)
+                
+            actions = val_batch["action"]
+            rewards = val_batch["reward"]
+            next_obs = val_batch["next_obs"]
+            if val_batch["next_logic_obs"] is not None:
+                next_logic_obs = val_batch["next_logic_obs"]
+            else:
+                next_logic_obs = next_obs.unsqueeze(1).repeat(1, 2, 1)
+            dones = val_batch["done"]
+            
+            with torch.no_grad():
+                next_q = self.target_model.get_q_values(next_obs, next_logic_obs)
+                next_v = torch.max(next_q, dim=1)[0]
+                q_target = rewards + self.cfg.env.gamma * next_v * (1 - dones)
+                
+                all_q_values = self.model.get_q_values(obs, logic_obs)
+                q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
+                
+                bellman_loss = F.mse_loss(q_action, q_target)
+                logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
+                cql_alpha = self.get_cfg("cql_alpha", 1.0)
+                cql_loss = (logsumexp_qvalues - q_action).mean()
+                val_loss = bellman_loss + cql_alpha * cql_loss
+                
+            self.log("val/loss", val_loss, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
+            self.log("val/bellman_loss", bellman_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+            self.log("val/cql_loss", cql_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+            self.log("val/q_mean", all_q_values.mean(), prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+            return val_loss
 
     def configure_optimizers(self):
         lr = self.get_cfg("lr", 3e-4)

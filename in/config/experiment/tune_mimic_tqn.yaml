@@ -7,9 +7,8 @@ defaults:
 
 experiment_id: "tune_mimic_tqn"
 group: mimic
-total_timesteps: 332139
+total_timesteps: auto
 intervals_count: 1
-eval_episodes: 100
 
 env:
   name: mimic
@@ -36,7 +35,7 @@ hydra:
       _target_: optuna.samplers.TPESampler
       seed: 123
     _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
-    direction: maximize
+    direction: minimize
     storage: "sqlite:///results/optuna/optuna_${experiment_id}.db"
     study_name: "tune_mimic_tqn_${agent.name}"
     n_trials: 40

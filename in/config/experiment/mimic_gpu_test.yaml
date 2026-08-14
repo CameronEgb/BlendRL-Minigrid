@@ -8,7 +8,6 @@ experiment_id: "mimic_gpu_test"
 group: "mimic"
 total_timesteps: auto
 intervals_count: 1
-eval_episodes: 5
 consolidate: true
 
 env:

@@ -12,7 +12,6 @@ class OfflineDataset(Dataset):
         return self.reader.limit
         
     def __getitem__(self, idx):
-        # We'll just return the index and let the agent sample to keep it efficient with the existing reader
         return idx
 
 class RLDataModule(L.LightningDataModule):
@@ -20,20 +19,40 @@ class RLDataModule(L.LightningDataModule):
         super().__init__()
         self.cfg = cfg
         self.reader = None
+        self.val_reader = None
+        self.train_dataset = None
+        self.val_dataset = None
         
     def setup(self, stage: Optional[str] = None):
         if self.cfg.mode.type == "offline":
-            self.reader = DatasetReader(self.cfg.mode.dataset_path)
-            self.dataset = OfflineDataset(self.reader)
+            full_reader = DatasetReader(self.cfg.mode.dataset_path)
+            
+            # Determine if validation split should be enabled
+            is_offline_only = self.cfg.env.get("offline_only", False) or self.cfg.env.name in ["mimic", "pyrenees"]
+            val_split = self.cfg.get("val_split", None)
+            if val_split is None:
+                val_split = 0.1 if is_offline_only else 0.0
+                
+            if val_split > 0 and len(full_reader) > 10:
+                self.reader, self.val_reader = full_reader.split(val_ratio=val_split, seed=self.cfg.seed)
+            else:
+                self.reader = full_reader
+                self.val_reader = None
+                
+            self.train_dataset = OfflineDataset(self.reader)
+            if self.val_reader is not None:
+                self.val_dataset = OfflineDataset(self.val_reader)
         else:
             # Online mode dummy dataset
-            self.dataset = torch.utils.data.TensorDataset(torch.zeros(1))
+            self.train_dataset = torch.utils.data.TensorDataset(torch.zeros(1))
+            self.val_dataset = None
             
     def train_dataloader(self):
-        # For online mode, cfg.agent.batch_size might not exist in all agent configs (e.g. standard PPO)
-        # But for online rollouts, we only need a dummy dataloader that yields once per epoch.
         batch_size = self.cfg.agent.get("batch_size", 1)
-        return DataLoader(self.dataset, batch_size=batch_size, shuffle=True)
+        return DataLoader(self.train_dataset, batch_size=batch_size, shuffle=True)
     
     def val_dataloader(self):
-        return DataLoader(self.dataset, batch_size=1)
+        if self.val_dataset is not None:
+            batch_size = self.cfg.agent.get("batch_size", 256)
+            return DataLoader(self.val_dataset, batch_size=batch_size, shuffle=False)
+        return DataLoader(self.train_dataset, batch_size=1)
