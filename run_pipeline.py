@@ -538,18 +538,6 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                     script_content += f'echo "=== [Phase: Offline Training] {agent_config} on {dataset_id} ==="\n'
                     script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd}\n\n"
 
-                    # MIMIC Evaluator
-                    if cfg.env.name == "mimic":
-                        ckpt_path = f"results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/0/best_model.ckpt"
-                        ckpt_dir = f"results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/0"
-                        env_ds_name = cfg.env.get("dataset_name", "mimic_lazy_0_interventions_balanced.npz")
-                        if args.remake:
-                            eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint {ckpt_dir} --dataset-name {env_ds_name} --remake"
-                        else:
-                            eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint {ckpt_path} --dataset-name {env_ds_name}"
-                        script_content += f'echo "=== [Evaluation] {agent_config} ==="\n'
-                        script_content += f"if [ -f \"{ckpt_path}\" ] || [ -d \"{ckpt_dir}\" ]; then\n    {eval_cmd}\nfi\n\n"
-
         # 3. Final Plotting
         if not args.no_plot:
             plot_cmd = f"$PROJECT_ROOT/venv/bin/python3 plot/manager.py {cfg.experiment_id}"
@@ -737,49 +725,7 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                 if job_id:
                     job_ids.append(job_id)
                     
-                    # Pipeline Integration: MIMIC early prediction evaluator for Slurm
-                    if cfg.env.name == "mimic":
-                        if is_sweep:
-                            storage_url_slurm = storage_url if storage_url else f"sqlite:///results/optuna/optuna.db"
-                            if is_online:
-                                study_name_slurm = f"{cfg.experiment_id}_{dataset_name_internal}"
-                            else:
-                                study_name_slurm = f"{cfg.experiment_id}_{agent_name_internal}_{dataset_name_internal}"
-                            best_id_cmd = (
-                                f"BEST_ID=$($PROJECT_ROOT/venv/bin/python3 -c \"import sys; sys.path.append('$PROJECT_ROOT'); from run_pipeline import get_best_trial_id; print(get_best_trial_id('{storage_url_slurm}', '{study_name_slurm}'))\")\n"
-                            )
-                            if args.remake:
-                                eval_cmd = (
-                                    best_id_cmd +
-                                    f"CKPT_DIR=results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/$BEST_ID\n"
-                                    f"if [ -d \"$CKPT_DIR\" ]; then\n"
-                                    f"    echo \"Running evaluation on all checkpoints under $CKPT_DIR (--remake)\"\n"
-                                    f"    $PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint $CKPT_DIR --remake\n"
-                                    f"else\n"
-                                    f"    echo \"Checkpoint dir not found at $CKPT_DIR\"\n"
-                                    f"fi"
-                                )
-                            else:
-                                eval_cmd = (
-                                    best_id_cmd +
-                                    f"CKPT_PATH=results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/$BEST_ID/best_model.ckpt\n"
-                                    f"if [ -f \"$CKPT_PATH\" ]; then\n"
-                                    f"    echo \"Running evaluation on $CKPT_PATH\"\n"
-                                    f"    $PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint $CKPT_PATH\n"
-                                    f"else\n"
-                                    f"    echo \"Checkpoint not found at $CKPT_PATH\"\n"
-                                    f"fi"
-                                )
-                        else:
-                            ckpt_path = f"results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/0/best_model.ckpt"
-                            ckpt_dir = f"results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/0"
-                            env_ds_name = cfg.env.get("dataset_name", "mimic_lazy_0_interventions_balanced.npz")
-                            if args.remake:
-                                eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint {ckpt_dir} --dataset-name {env_ds_name} --remake"
-                            else:
-                                eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint {ckpt_path} --dataset-name {env_ds_name}"
-                            
-                        eval_commands.append(eval_cmd)
+
     else:
         print("\n=== Skipping Offline Training Phase ===")
 
