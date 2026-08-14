@@ -104,6 +104,7 @@ class BasePlotter:
     def load_metrics(self, group: str, exp_id: str) -> Dict[str, Dict[str, pd.DataFrame]]:
         """
         Loads metrics.csv files for all runs matching results/logs/[group]/[exp_id]/[method]/*.
+        Filters by active online_methods and offline_methods from experiment config if defined.
         Returns dict: { method_name: { version_str: df } }
         """
         exp_dir = Path("results/logs") / group / exp_id
@@ -111,11 +112,25 @@ class BasePlotter:
             print(f"Warning: Log directory {exp_dir} not found.")
             return {}
 
+        exp_cfg = self.get_experiment_config(exp_id)
+        active_methods = set()
+        for key in ["online_methods", "offline_methods"]:
+            val = exp_cfg.get(key, [])
+            if val:
+                if isinstance(val, (list, tuple)):
+                    methods = list(val)
+                else:
+                    methods = [item.strip() for item in str(val).split(",") if item.strip()]
+                for m in methods:
+                    active_methods.add(str(m).replace("/", "_"))
+
         results = {}
         for method_dir in exp_dir.iterdir():
             if not method_dir.is_dir():
                 continue
             method_name = method_dir.name
+            if active_methods and method_name not in active_methods:
+                continue
             results[method_name] = {}
             
             # Check version_X subdirectories
