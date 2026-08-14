@@ -542,10 +542,11 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                     if cfg.env.name == "mimic":
                         ckpt_path = f"results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/0/best_model.ckpt"
                         ckpt_dir = f"results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/0"
+                        env_ds_name = cfg.env.get("dataset_name", "mimic_lazy_0_interventions_balanced.npz")
                         if args.remake:
-                            eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint {ckpt_dir} --remake"
+                            eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint {ckpt_dir} --dataset-name {env_ds_name} --remake"
                         else:
-                            eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint {ckpt_path}"
+                            eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint {ckpt_path} --dataset-name {env_ds_name}"
                         script_content += f'echo "=== [Evaluation] {agent_config} ==="\n'
                         script_content += f"if [ -f \"{ckpt_path}\" ] || [ -d \"{ckpt_dir}\" ]; then\n    {eval_cmd}\nfi\n\n"
 
@@ -772,10 +773,11 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                         else:
                             ckpt_path = f"results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/0/best_model.ckpt"
                             ckpt_dir = f"results/checkpoints/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}/0"
+                            env_ds_name = cfg.env.get("dataset_name", "mimic_lazy_0_interventions_balanced.npz")
                             if args.remake:
-                                eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint {ckpt_dir} --remake"
+                                eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint {ckpt_dir} --dataset-name {env_ds_name} --remake"
                             else:
-                                eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint {ckpt_path}"
+                                eval_cmd = f"$PROJECT_ROOT/venv/bin/python3 src/early_prediction/eval.py --checkpoint {ckpt_path} --dataset-name {env_ds_name}"
                             
                         eval_commands.append(eval_cmd)
     else:

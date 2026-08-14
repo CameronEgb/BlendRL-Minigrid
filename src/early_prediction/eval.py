@@ -571,7 +571,7 @@ def main():
     parser.add_argument("--checkpoint", type=str, default=None,
                         help="Root directory containing per-method checkpoint subdirs")
     parser.add_argument("--dataset-name", type=str,
-                        default="mimic_lazy_12_clean_with_interventions_corrected.npz",
+                        default="mimic_lazy_0_interventions_balanced.npz",
                         help="MIMIC dataset filename")
     parser.add_argument("--dataset-path", type=str, default=None,
                         help="Direct path to the MIMIC .npz file")
