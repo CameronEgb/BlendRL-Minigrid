@@ -959,6 +959,7 @@ def main():
             print(f"\n" + "="*40)
             print(f"SUBMISSION SUMMARY")
             print(f"Experiment:    {cfg.group}/{cfg.experiment_id}")
+            print(f"Partition:     {args.partition}")
             print(f"Methods Ran:")
             for m in ran_methods:
                 print(f"  - {m}")
