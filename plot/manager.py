@@ -10,6 +10,7 @@ if PROJECT_ROOT not in sys.path:
 import argparse
 import importlib
 import pkgutil
+import shutil
 import yaml
 
 from plot.base import BasePlotter
@@ -91,6 +92,14 @@ def run_experiment_plots(exp_id: str, exp_config_name: str = None, style: str = 
 
     dummy_plotter = BasePlotter("manager")
     exp_cfg = dummy_plotter.get_experiment_config(exp_id, exp_config_name=exp_config_name)
+    group = dummy_plotter.get_group(exp_id, exp_cfg)
+    clean_exp = Path(exp_id).stem
+    output_dir = Path("results/plots") / group / clean_exp
+
+    if output_dir.exists():
+        print(f"Clearing previous plots from: {output_dir}")
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     registry = discover_plotters()
     requested_modules = get_requested_plots(exp_cfg, exp_id)
