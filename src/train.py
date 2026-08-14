@@ -37,6 +37,21 @@ def main(cfg: DictConfig):
     if "env" in cfg and "name" in cfg.env:
         os.environ["BLENDRL_ENV_NAME"] = str(cfg.env.name)
 
+    # Hardware & GPU Diagnostics Setup
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision("high")
+        device_idx = torch.cuda.current_device()
+        gpu_name = torch.cuda.get_device_name(device_idx)
+        total_vram_gb = torch.cuda.get_device_properties(device_idx).total_memory / (1024**3)
+        print("\n" + "="*50)
+        print("      GPU HARDWARE DIAGNOSTICS")
+        print("="*50)
+        print(f"  Device:          {gpu_name} (ID: {device_idx})")
+        print(f"  Total VRAM:      {total_vram_gb:.2f} GB")
+        print(f"  CUDA Version:    {torch.version.cuda}")
+        print(f"  PyTorch Version: {torch.__version__}")
+        print("="*50 + "\n")
+
     # Dynamic total_timesteps inference for offline mode
     if cfg.mode.type == "offline":
         ds_path = cfg.mode.get("dataset_path", None)
@@ -202,9 +217,41 @@ def main(cfg: DictConfig):
     training_time = end_time - start_time
     print(f"\n[Training Complete] Total execution time: {training_time:.2f} seconds ({training_time/60:.2f} minutes)")
 
+    gpu_stats = {}
+    if torch.cuda.is_available():
+        device_idx = torch.cuda.current_device()
+        total_vram_gb = torch.cuda.get_device_properties(device_idx).total_memory / (1024**3)
+        peak_alloc_gb = torch.cuda.max_memory_allocated(device_idx) / (1024**3)
+        peak_res_gb = torch.cuda.max_memory_reserved(device_idx) / (1024**3)
+        mem_eff_pct = (peak_alloc_gb / total_vram_gb) * 100.0 if total_vram_gb > 0 else 0.0
+
+        gpu_stats = {
+            "gpu_device": torch.cuda.get_device_name(device_idx),
+            "gpu_total_vram_gb": round(total_vram_gb, 2),
+            "gpu_peak_alloc_gb": round(peak_alloc_gb, 3),
+            "gpu_peak_reserved_gb": round(peak_res_gb, 3),
+            "gpu_mem_efficiency_pct": round(mem_eff_pct, 2)
+        }
+
+        print("\n" + "="*50)
+        print("      GPU MEMORY & RESOURCE FOOTPRINT")
+        print("="*50)
+        print(f"  GPU Device:        {gpu_stats['gpu_device']}")
+        print(f"  Total VRAM:        {gpu_stats['gpu_total_vram_gb']:.2f} GB")
+        print(f"  Peak Allocated:    {gpu_stats['gpu_peak_alloc_gb']:.3f} GB")
+        print(f"  Peak Reserved:     {gpu_stats['gpu_peak_reserved_gb']:.3f} GB")
+        print(f"  VRAM Footprint %:  {gpu_stats['gpu_mem_efficiency_pct']:.2f}%")
+        print("="*50 + "\n")
+
     try:
         if trainer.logger is not None:
-            trainer.logger.log_metrics({"training_time_seconds": training_time}, step=trainer.global_step)
+            metrics_to_log = {"training_time_seconds": training_time}
+            if gpu_stats:
+                metrics_to_log.update({
+                    "gpu/peak_alloc_gb": gpu_stats["gpu_peak_alloc_gb"],
+                    "gpu/peak_reserved_gb": gpu_stats["gpu_peak_reserved_gb"],
+                })
+            trainer.logger.log_metrics(metrics_to_log, step=trainer.global_step)
     except Exception:
         pass
 
@@ -215,7 +262,8 @@ def main(cfg: DictConfig):
         "group": str(cfg.group),
         "training_time_seconds": round(training_time, 2),
         "start_time": start_time,
-        "end_time": end_time
+        "end_time": end_time,
+        **gpu_stats
     }
     with open(os.path.join(ckpt_dir, "runtime.json"), "w") as f:
         json.dump(runtime_info, f, indent=2)

@@ -119,6 +119,8 @@ class ReportsPlotter(BasePlotter):
             for method, versions in sorted(runs_data.items()):
                 method_label = clean_label(method)
                 times = []
+                gpu_device = None
+                peak_vram = None
 
                 for v_name, df in sorted(versions.items()):
                     t_sec = None
@@ -139,6 +141,10 @@ class ReportsPlotter(BasePlotter):
                                 with open(json_path) as jf:
                                     rdata = json.load(jf)
                                     t_sec = float(rdata.get("training_time_seconds", 0.0))
+                                    if "gpu_device" in rdata and not gpu_device:
+                                        gpu_device = rdata["gpu_device"]
+                                    if "gpu_peak_alloc_gb" in rdata and (peak_vram is None or rdata["gpu_peak_alloc_gb"] > peak_vram):
+                                        peak_vram = float(rdata["gpu_peak_alloc_gb"])
                                     if t_sec > 0:
                                         break
                             except Exception:
@@ -162,6 +168,8 @@ class ReportsPlotter(BasePlotter):
                         "num_runs": len(times),
                         "avg_time_sec": avg_time,
                         "formatted_avg": formatted_avg,
+                        "gpu_device": gpu_device or "CPU",
+                        "peak_vram_gb": peak_vram,
                         "details": times
                     })
                 else:
@@ -171,25 +179,42 @@ class ReportsPlotter(BasePlotter):
                         "num_runs": 0,
                         "avg_time_sec": None,
                         "formatted_avg": "N/A",
+                        "gpu_device": gpu_device or "CPU",
+                        "peak_vram_gb": peak_vram,
                         "details": []
                     })
 
+            has_gpu_data = any(row["peak_vram_gb"] is not None for row in timing_rows)
+
             with open(time_path, "w") as f:
-                f.write(f"# Execution Time Report: {exp_id}\n\n")
-                f.write("| Method | Runs | Avg Training Time (s) | Formatted Time |\n")
-                f.write("| --- | --- | --- | --- |\n")
+                f.write(f"# Execution Time & Resource Report: {exp_id}\n\n")
+                if has_gpu_data:
+                    f.write("| Method | Runs | Avg Training Time (s) | Formatted Time | Peak VRAM | GPU Device |\n")
+                    f.write("| --- | --- | --- | --- | --- | --- |\n")
+                else:
+                    f.write("| Method | Runs | Avg Training Time (s) | Formatted Time |\n")
+                    f.write("| --- | --- | --- | --- |\n")
 
                 csv_records = []
                 for row in timing_rows:
                     time_str = f"{row['avg_time_sec']:.2f}" if row['avg_time_sec'] is not None else "N/A"
-                    f.write(f"| `{row['method']}` | {row['num_runs']} | {time_str} | {row['formatted_avg']} |\n")
-                    csv_records.append({
+                    vram_str = f"{row['peak_vram_gb']:.2f} GB" if row['peak_vram_gb'] is not None else "N/A"
+                    if has_gpu_data:
+                        f.write(f"| `{row['method']}` | {row['num_runs']} | {time_str} | {row['formatted_avg']} | {vram_str} | {row['gpu_device']} |\n")
+                    else:
+                        f.write(f"| `{row['method']}` | {row['num_runs']} | {time_str} | {row['formatted_avg']} |\n")
+
+                    csv_rec = {
                         "Method": row['method'],
                         "Raw_Method": row['method_raw'],
                         "Runs": row['num_runs'],
                         "Avg_Time_Seconds": row['avg_time_sec'] if row['avg_time_sec'] is not None else "",
                         "Formatted_Time": row['formatted_avg']
-                    })
+                    }
+                    if has_gpu_data:
+                        csv_rec["Peak_VRAM_GB"] = row['peak_vram_gb'] if row['peak_vram_gb'] is not None else ""
+                        csv_rec["GPU_Device"] = row['gpu_device']
+                    csv_records.append(csv_rec)
                 f.write("\n")
 
             pd.DataFrame(csv_records).to_csv(time_csv_path, index=False)
