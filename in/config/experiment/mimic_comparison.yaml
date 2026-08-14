@@ -6,28 +6,22 @@ defaults:
 
 experiment_id: "mimic_comparison"
 group: "mimic"
-# Offline-only. The full dataset is always available. Every training batch
-# samples randomly from the entire dataset — there are no data splits.
-# intervals_count=1 ensures reader always has access to the full dataset.
-# total_timesteps: auto dynamically detects dataset size at runtime.
 total_timesteps: auto
-intervals_count: 1          # MUST be 1: ensures reader always uses full dataset
+intervals_count: 1
 eval_episodes: 100
 
 online_methods: []
 offline_methods: 
   - cql
   - blendrl_cql/human_neural
-offline_datasets: [cql]
+offline_datasets: [mimic_lazy_0_interventions_balanced]
 
 agent:
   blender_mode: neural
   hidden_sizes: [256, 256]
-  # Total training = epochs_per_interval (since intervals_count=1).
   epochs_per_interval: 250
-  # Evaluate every 25 epochs → 10 convergence snapshots over 250 epochs.
   eval_interval_epochs: 25
-  batch_size: 64
+  batch_size: 256
   lr: 3e-4
   cql_alpha: 1.0
   modules:
@@ -36,7 +30,13 @@ agent:
     - type: neural
 
 mode:
-  dataset_path: in/datasets/mimic/cql
+  dataset_path: in/datasets/mimic/mimic_lazy_0_interventions_balanced
+
+plots:
+  losses:
+    metrics: ["losses/total_loss", "losses/bellman_loss", "losses/cql_loss", "losses/entropy"]
+  policy_eval: {}
+  reports: {}
 
 save_dataset: false
 seed: 1

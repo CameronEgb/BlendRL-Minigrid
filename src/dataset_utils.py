@@ -186,7 +186,7 @@ class DatasetReader:
     def device(self, dev):
         self._device = dev
         # For vector/tabular datasets (non-image, obs.ndim <= 2), preload directly onto GPU VRAM
-        if isinstance(self.obs, torch.Tensor) and self.obs.numel() > 0 and self.obs.ndim <= 2 and str(dev) != "cpu":
+        if hasattr(self, "obs") and isinstance(self.obs, torch.Tensor) and self.obs.numel() > 0 and self.obs.ndim <= 2 and str(dev) != "cpu":
             try:
                 self.obs = self.obs.to(dev, dtype=torch.float32)
                 self.actions = self.actions.to(dev, dtype=torch.long)

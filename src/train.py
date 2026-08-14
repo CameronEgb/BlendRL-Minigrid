@@ -138,7 +138,8 @@ def main(cfg: DictConfig):
             filename="best_model",
             monitor="eval/reward",
             mode="max",
-            save_top_k=1
+            save_top_k=1,
+            enable_version_counter=False
         ),
         EnvironmentEvaluatorCallback(cfg)
     ]
@@ -192,10 +193,39 @@ def main(cfg: DictConfig):
             print(f"Recovering from checkpoint: {potential_ckpt}")
             ckpt_path = potential_ckpt
 
+    import time
+    import json
+
+    start_time = time.time()
     trainer.fit(model, datamodule=datamodule, ckpt_path=ckpt_path)
+    end_time = time.time()
+    training_time = end_time - start_time
+    print(f"\n[Training Complete] Total execution time: {training_time:.2f} seconds ({training_time/60:.2f} minutes)")
+
+    try:
+        if trainer.logger is not None:
+            trainer.logger.log_metrics({"training_time_seconds": training_time}, step=trainer.global_step)
+    except Exception:
+        pass
+
+    os.makedirs(ckpt_dir, exist_ok=True)
+    runtime_info = {
+        "agent": str(cfg.agent.name),
+        "experiment_id": str(cfg.experiment_id),
+        "group": str(cfg.group),
+        "training_time_seconds": round(training_time, 2),
+        "start_time": start_time,
+        "end_time": end_time
+    }
+    with open(os.path.join(ckpt_dir, "runtime.json"), "w") as f:
+        json.dump(runtime_info, f, indent=2)
+
+    if hasattr(trainer, "logger") and hasattr(trainer.logger, "log_dir") and trainer.logger.log_dir:
+        os.makedirs(trainer.logger.log_dir, exist_ok=True)
+        with open(os.path.join(trainer.logger.log_dir, "runtime.json"), "w") as f:
+            json.dump(runtime_info, f, indent=2)
 
     # Guarantee final model checkpoint is saved to disk
-    os.makedirs(ckpt_dir, exist_ok=True)
     final_ckpt_target = os.path.join(ckpt_dir, "best_model.ckpt")
     if not os.path.exists(final_ckpt_target):
         print(f"Saving final trained model checkpoint to: {final_ckpt_target}")

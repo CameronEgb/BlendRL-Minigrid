@@ -1,18 +1,19 @@
 # @package _global_
 defaults:
   - override /env: mimic
+  - override /agent: cql_base
   - override /mode: offline
 
 experiment_id: "mimic_tqn_all"
 group: "mimic"
-total_timesteps: 332139
-intervals_count: 1  # Single full-dataset offline training interval (100% data)
+total_timesteps: auto
+intervals_count: 1
 eval_episodes: 100
-consolidate: true   # Consolidate all methods and plotting into a single 1-GPU Slurm job
+consolidate: true
 
 env:
   name: mimic
-  dataset_name: mimic_lazy_0_interventions_flag.npz
+  dataset_name: mimic_lazy_0_interventions_balanced.npz
   reward_type: tqn
 
 online_methods: []
@@ -21,15 +22,15 @@ offline_methods:
   - blendrl_cql/human_neural
   - blendrl_cql/human_cew
   - cew_fyd
-offline_datasets: [cql]
+offline_datasets: [mimic_lazy_0_interventions_balanced]
 
 agent:
   blender_mode: neural
   hidden_sizes: [512, 512]
   epochs_per_interval: 30
   eval_interval_epochs: 5
-  batch_size: 1024
-  lr: 5e-4
+  batch_size: 256
+  lr: 3e-4
   cql_alpha: 1.0
   modules:
     - type: nsfr
@@ -37,10 +38,15 @@ agent:
     - type: neural
 
 mode:
-  dataset_path: in/datasets/mimic/cql
+  dataset_path: in/datasets/mimic/mimic_lazy_0_interventions_balanced
+
+plots:
+  losses:
+    metrics: ["losses/total_loss", "losses/bellman_loss", "losses/cql_loss", "losses/entropy"]
+  policy_eval: {}
+  reports: {}
 
 save_dataset: false
 seed: 1
 local: true
 recover: false
-

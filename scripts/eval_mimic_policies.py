@@ -141,17 +141,7 @@ def evaluate_mimic_policies(exp_id="mimic_test", group="mimic", dataset_path=Non
     df.to_csv(csv_path, index=False)
     print(f"\nSaved methods comparison CSV to: {csv_path}", flush=True)
 
-    # Generate Markdown Report
-    report_path = out_dir / "methods_comparison_report.md"
-    with open(report_path, "w") as f:
-        f.write(f"# Methods Comparison Report: {exp_id}\n\n")
-        f.write("## MIMIC Policy Alignment & Action Metric Table\n\n")
-        f.write("| Method | Accuracy / Clinician Agr % | Treatment Admin % | AUC-ROC | AUPRC | Precision | Recall | F1 Score |\n")
-        f.write("| --- | --- | --- | --- | --- | --- | --- | --- |\n")
-        for _, row in df.iterrows():
-            f.write(f"| `{row['Method']}` | {row['Accuracy %']:.2f}% | {row['Admin Rate %']:.2f}% | {row['AUC-ROC']:.4f} | {row['AUPRC']:.4f} | {row['Precision']:.4f} | {row['Recall']:.4f} | {row['F1 Score']:.4f} |\n")
-        f.write("\n")
-    print(f"Saved markdown report to: {report_path}", flush=True)
+
 
 if __name__ == "__main__":
     exp_id = sys.argv[1] if len(sys.argv) > 1 else "mimic_test"

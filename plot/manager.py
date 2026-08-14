@@ -1,9 +1,15 @@
-#!/usr/bin/env python3
+import os
 import sys
+from pathlib import Path
+
+# Ensure project root is in sys.path
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 import argparse
 import importlib
 import pkgutil
-from pathlib import Path
 import yaml
 
 from plot.base import BasePlotter

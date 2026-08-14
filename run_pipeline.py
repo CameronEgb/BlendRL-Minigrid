@@ -862,7 +862,7 @@ def main():
     
     # Auto-convert MIMIC dataset if needed
     if cfg.env.name == "mimic":
-        target_npz = cfg.env.get("dataset_name", "mimic_lazy_0_interventions_flag.npz")
+        target_npz = cfg.env.get("dataset_name", "mimic_lazy_0_interventions_balanced.npz")
         npz_stem = Path(target_npz).stem
         target_dir = Path("in/datasets/mimic") / npz_stem
         cql_dir = Path("in/datasets/mimic/cql")

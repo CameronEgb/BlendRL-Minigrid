@@ -1,12 +1,35 @@
-#!/usr/bin/env python3
+import os
 import sys
+from pathlib import Path
+
+# Ensure project root is in sys.path
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 import argparse
 import pandas as pd
+import json
 import yaml
-from pathlib import Path
 from typing import Optional
 
 from plot.base import BasePlotter, clean_label
+
+
+def format_duration(seconds: Optional[float]) -> str:
+    if seconds is None or seconds < 0:
+        return "N/A"
+    seconds = float(seconds)
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = seconds % 60
+    if hours > 0:
+        return f"{hours}h {minutes}m {secs:.1f}s"
+    elif minutes > 0:
+        return f"{minutes}m {secs:.1f}s"
+    else:
+        return f"{secs:.2f}s"
+
 
 
 class ReportsPlotter(BasePlotter):
@@ -79,60 +102,91 @@ class ReportsPlotter(BasePlotter):
 
             print(f"  Saved: {hp_path}")
 
-        if cfg.get("include_methods_comparison", True):
-            comp_path = output_dir / "methods_comparison_report.md"
-            with open(comp_path, "w") as f:
-                f.write(f"# Methods Comparison Report: {exp_id}\n\n")
+        if cfg.get("include_time_report", True):
+            time_path = output_dir / "time_report.md"
+            time_csv_path = output_dir / "time_report.csv"
 
-                # Check if counterfactual summary CSV exists
-                cf_csv = output_dir / "counterfactual_summary.csv"
-                if not cf_csv.exists():
-                    cf_csv = Path("results/checkpoints") / group / exp_id / "counterfactual_summary.csv"
-                
-                if cf_csv.exists():
-                    try:
-                        cf_df = pd.read_csv(cf_csv)
-                        f.write("## Counterfactual & Policy Alignment Evaluation\n\n")
-                        f.write("| Method | Accuracy / Clinician Agr % | Admin Rate % | Precision | Recall | F1 Score | Pred Mortality % |\n")
-                        f.write("| --- | --- | --- | --- | --- | --- | --- |\n")
-                        for _, row in cf_df.iterrows():
-                            m_name = clean_label(str(row["method"]))
-                            agr = f"{float(row.get('agreement_mean', 0))*100:.2f}%" if "agreement_mean" in row else "N/A"
-                            admin = f"{float(row.get('admin_rate_mean', 0))*100:.2f}%" if "admin_rate_mean" in row else "N/A"
-                            prec = f"{float(row.get('precision_mean', 0)):.4f}" if "precision_mean" in row else "N/A"
-                            rec = f"{float(row.get('recall_mean', 0)):.4f}" if "recall_mean" in row else "N/A"
-                            f1 = f"{float(row.get('f1_mean', 0)):.4f}" if "f1_mean" in row else "N/A"
-                            mort = f"{float(row.get('pred_mortality_mean', 0))*100:.2f}%" if "pred_mortality_mean" in row else "N/A"
-                            f.write(f"| `{m_name}` | {agr} | {admin} | {prec} | {rec} | {f1} | {mort} |\n")
-                        f.write("\n")
-                    except Exception as e:
-                        print(f"Notice: Could not embed counterfactual CSV in report: {e}")
+            timing_rows = []
 
-                # Determine which evaluation metrics exist across all methods
-                eval_metrics = set()
-                for method, versions in runs_data.items():
-                    for v_name, df in versions.items():
-                        eval_metrics.update(c for c in df.columns if c.startswith("eval/"))
+            for method, versions in sorted(runs_data.items()):
+                method_label = clean_label(method)
+                times = []
 
-                eval_metrics = sorted(eval_metrics)
-                if eval_metrics:
-                    f.write("## Training & Checkpoint Metrics\n\n")
-                    f.write("| Method | " + " | ".join(eval_metrics) + " |\n")
-                    f.write("| --- | " + " | ".join(["---"] * len(eval_metrics)) + " |\n")
-                    for method, versions in sorted(runs_data.items()):
-                        row = [clean_label(method)]
-                        latest_df = list(versions.values())[-1] if versions else pd.DataFrame()
-                        for metric in eval_metrics:
-                            if metric in latest_df.columns:
-                                vals = latest_df[metric].dropna()
-                                if not vals.empty:
-                                    row.append(f"{vals.iloc[-1]:.4f}")
-                                else:
-                                    row.append("N/A")
-                            else:
-                                row.append("N/A")
-                        f.write("| " + " | ".join(row) + " |\n")
-            print(f"  Saved: {comp_path}")
+                for v_name, df in sorted(versions.items()):
+                    t_sec = None
+                    # 1. Try loading from runtime.json
+                    v_log_dir = Path("results/logs") / group / exp_id / method / v_name
+                    v_ckpt_dir = Path("results/checkpoints") / group / exp_id / method / v_name.replace("version_", "")
+
+                    json_candidates = [
+                        v_log_dir / "runtime.json",
+                        v_ckpt_dir / "runtime.json",
+                        Path("results/logs") / group / exp_id / method / "runtime.json",
+                        Path("results/checkpoints") / group / exp_id / method / "runtime.json"
+                    ]
+
+                    for json_path in json_candidates:
+                        if json_path.exists():
+                            try:
+                                with open(json_path) as jf:
+                                    rdata = json.load(jf)
+                                    t_sec = float(rdata.get("training_time_seconds", 0.0))
+                                    if t_sec > 0:
+                                        break
+                            except Exception:
+                                pass
+
+                    # 2. Fall back to metrics.csv training_time_seconds if present
+                    if (t_sec is None or t_sec == 0) and "training_time_seconds" in df.columns:
+                        vals = df["training_time_seconds"].dropna()
+                        if not vals.empty:
+                            t_sec = float(vals.iloc[-1])
+
+                    if t_sec is not None and t_sec > 0:
+                        times.append((v_name, t_sec))
+
+                if times:
+                    avg_time = sum(t for _, t in times) / len(times)
+                    formatted_avg = format_duration(avg_time)
+                    timing_rows.append({
+                        "method_raw": method,
+                        "method": method_label,
+                        "num_runs": len(times),
+                        "avg_time_sec": avg_time,
+                        "formatted_avg": formatted_avg,
+                        "details": times
+                    })
+                else:
+                    timing_rows.append({
+                        "method_raw": method,
+                        "method": method_label,
+                        "num_runs": 0,
+                        "avg_time_sec": None,
+                        "formatted_avg": "N/A",
+                        "details": []
+                    })
+
+            with open(time_path, "w") as f:
+                f.write(f"# Execution Time Report: {exp_id}\n\n")
+                f.write("| Method | Runs | Avg Training Time (s) | Formatted Time |\n")
+                f.write("| --- | --- | --- | --- |\n")
+
+                csv_records = []
+                for row in timing_rows:
+                    time_str = f"{row['avg_time_sec']:.2f}" if row['avg_time_sec'] is not None else "N/A"
+                    f.write(f"| `{row['method']}` | {row['num_runs']} | {time_str} | {row['formatted_avg']} |\n")
+                    csv_records.append({
+                        "Method": row['method'],
+                        "Raw_Method": row['method_raw'],
+                        "Runs": row['num_runs'],
+                        "Avg_Time_Seconds": row['avg_time_sec'] if row['avg_time_sec'] is not None else "",
+                        "Formatted_Time": row['formatted_avg']
+                    })
+                f.write("\n")
+
+            pd.DataFrame(csv_records).to_csv(time_csv_path, index=False)
+            print(f"  Saved: {time_path}")
+            print(f"  Saved: {time_csv_path}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate Markdown Reports for an Experiment")
