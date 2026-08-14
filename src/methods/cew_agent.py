@@ -184,3 +184,10 @@ class CEWAgent(OfflineAgentBase):
         obs_cpu = obs.to("cpu")
         act, log_p, ent, val = self.fuzzy_model.get_action_and_value(obs_cpu)
         return act.to(self.device), log_p.to(self.device), ent.to(self.device), val.to(self.device)
+
+    def get_value(self, obs, logic_obs=None):
+        if not self.self_organized or self.fuzzy_model is None:
+            return torch.zeros(obs.shape[0], device=self.device)
+        obs_cpu = obs.to("cpu")
+        _, _, _, val = self.fuzzy_model.get_action_and_value(obs_cpu)
+        return val.to(self.device)
