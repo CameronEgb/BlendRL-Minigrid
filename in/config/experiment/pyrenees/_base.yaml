@@ -1,0 +1,16 @@
+# @package _global_
+defaults:
+  - override /env: pyrenees
+  - override /agent: cql/dnn
+  - override /mode: offline
+
+group: pyrenees
+offline_datasets: [pyrenees]
+offline_methods: [cql/dnn]
+
+agent:
+  epochs_per_interval: 20
+  eval_interval_epochs: 5
+  batch_size: 256
+  lr: 3e-4
+  cql_alpha: 1.0

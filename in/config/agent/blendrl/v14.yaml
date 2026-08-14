@@ -1,6 +1,0 @@
-defaults:
-  - /agent: blendrl/v10
-  - _self_
-
-ent_coef: 0.03
-blend_ent_coef: 0.03

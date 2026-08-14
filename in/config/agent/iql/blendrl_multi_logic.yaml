@@ -1,0 +1,15 @@
+defaults:
+  - /agent/iql/blendrl_human_neural
+
+name: blendrl_iql_multi_logic
+lr: 0.003
+logic_lr: 0.003
+blender_lr: 0.003
+modules:
+  - type: nsfr
+    rules: default
+  - type: nsfr
+    rules: variant1
+  - type: neural
+blender_mode: neural
+blend_function: softmax

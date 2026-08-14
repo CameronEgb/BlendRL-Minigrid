@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - pyrenees/_base
+
+experiment_id: pyrenees_cql
+agent:
+  epochs_per_interval: 10
+  eval_interval_epochs: 2

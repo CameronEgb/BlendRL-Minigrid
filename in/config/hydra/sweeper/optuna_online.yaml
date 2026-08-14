@@ -1,0 +1,10 @@
+# @package hydra.sweeper
+_target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+sampler:
+  _target_: optuna.samplers.TPESampler
+  seed: 42
+direction: maximize
+storage: "sqlite:///results/optuna/optuna.db"
+study_name: "${experiment_id}_${agent.name}"
+n_trials: 40
+n_jobs: 1

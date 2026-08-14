@@ -1,0 +1,13 @@
+defaults:
+  - /agent/iql/blendrl_human_neural
+
+name: blendrl_iql_arch4
+lr: 0.01
+logic_lr: 0.01
+blender_lr: 0.01
+modules:
+  - type: nsfr
+    rules: default
+  - type: neural
+blender_mode: neural
+blend_function: gumbel_softmax

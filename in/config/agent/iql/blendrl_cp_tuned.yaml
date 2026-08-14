@@ -1,0 +1,7 @@
+defaults:
+  - /agent/iql/blendrl_human_neural
+
+name: blendrl_iql_cp_tuned
+lr: 0.003
+logic_lr: 0.003
+blender_lr: 0.003

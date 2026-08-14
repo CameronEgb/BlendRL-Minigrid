@@ -486,7 +486,12 @@ class BlenderActorCritic(nn.Module):
                 any_changed = True
         return any_changed
 
-    def get_action_and_value(self, neural_state, logic_state, action=None):
+    def forward(self, neural_state, logic_state=None, action=None):
+        return self.get_action_and_value(neural_state, logic_state, action=action)
+
+    def get_action_and_value(self, neural_state, logic_state=None, action=None):
+        if logic_state is None and neural_state.ndim == 2:
+            logic_state = neural_state.unsqueeze(1).repeat(1, 2, 1)
         action_probs, blending_weights = self.actor(neural_state, logic_state)
         dist = Categorical(action_probs)
         blend_dist = Categorical(blending_weights)
@@ -533,7 +538,12 @@ class BlenderActorCritic(nn.Module):
 
     def get_logic_value(self, logic_state):
         if self.logic_critic:
-             return self.logic_critic(logic_state)
+            if hasattr(self.logic_critic, "num_in_features"):
+                flat_size = np.prod(logic_state.shape[1:])
+                if flat_size != self.logic_critic.num_in_features and logic_state.ndim > 2:
+                    if logic_state.shape[-1] == self.logic_critic.num_in_features:
+                        logic_state = logic_state[:, 0, :]
+            return self.logic_critic(logic_state)
         return torch.zeros(logic_state.size(0), 1, device=logic_state.device)
 
     def save(self, checkpoint_path, directory: Path, step_list, reward_list, weight_list):

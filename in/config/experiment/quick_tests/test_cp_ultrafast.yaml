@@ -1,0 +1,35 @@
+# @package _global_
+defaults:
+  - override /env: cartpole
+  - override /agent: ppo/blendrl_human_neural
+  - override /mode: online
+experiment_id: test_cp_ultrafast
+group: quick_tests
+seed: 1
+total_timesteps: 40000
+intervals_count: 20
+eval_episodes: 100
+online_methods: ppo/blendrl_human_neural
+offline_methods: 
+save_dataset: true
+local: true
+recover: false
+
+agent:
+  lr: 0.007
+  logic_lr: 0.007
+  blender_lr: 0.02
+  ent_coef: 0.002
+  blend_ent_coef: 0.002
+  num_minibatches: 4
+  update_epochs: 10
+  clip_coef: 0.2
+
+env:
+  num_envs: 10
+  num_steps: 64
+
+trainer:
+  accelerator: cpu
+  max_epochs: 62 # 40000 / 640
+  check_val_every_n_epoch: 3

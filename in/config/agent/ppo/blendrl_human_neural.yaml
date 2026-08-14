@@ -1,0 +1,13 @@
+defaults:
+  - /agent/ppo/dnn
+
+name: blendrl_human_neural
+algorithm: blendrl
+actor_mode: hybrid
+blender_mode: neural
+blend_function: softmax
+
+modules:
+  - type: nsfr
+    rules: default
+  - type: neural

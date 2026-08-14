@@ -5,19 +5,30 @@ import torch.optim as optim
 import lightning as L
 import numpy as np
 from typing import Any, Dict, Optional
+
 from src.methods.registry import register_agent
 from src.methods.base_agent import OfflineAgentBase
+from blendrl.agents.blender_agent import BlenderActorCritic
 
-@register_agent("iql")
+
+@register_agent(
+    "iql",
+    "iql_dnn",
+    "blendrl_iql",
+    "iql_blendrl_human_neural",
+    "blendrl_iql_human_neural",
+)
 class IQLAgent(OfflineAgentBase):
+    """Unified Implicit Q-Learning (IQL) Offline RL Agent.
+    
+    Supports pure neural architectures as well as hybrid BlendRL modular actor policies.
+    """
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__(cfg)
         self.save_hyperparameters()
         
-        # Handle nested agent config for algorithm
         algorithm = self.get_cfg("algorithm", self.get_cfg("name", cfg.env.name))
 
-        # In offline mode, env is only for evaluation
         from blendrl.env_vectorized import VectorizedNudgeBaseEnv
         self.env = VectorizedNudgeBaseEnv.from_name(
             cfg.env.name, 
@@ -27,13 +38,13 @@ class IQLAgent(OfflineAgentBase):
         )
         dummy_logic, dummy_neural = self.env.reset()
         self.observation_space = dummy_neural.shape[1:]
+        self.logic_observation_space = dummy_logic.shape[1:]
         self.n_actions = self.env.n_actions if not callable(self.env.n_actions) else self.env.n_actions()
         
-        hidden_sizes = cfg.agent.get("hidden_sizes", [64, 64])
+        hidden_sizes = cfg.agent.get("hidden_sizes", [256, 256])
         if hidden_sizes is not None:
             hidden_sizes = list(hidden_sizes)
 
-        # Initialize networks
         num_in_features = np.prod(self.observation_space)
         if cfg.env.architecture == "mlp":
             from src.utils import MLPQNetwork, MLPValueNetwork
@@ -51,12 +62,37 @@ class IQLAgent(OfflineAgentBase):
             
             self.target_q_network = QNetwork(n_actions=self.n_actions)
             self.target_q_network2 = QNetwork(n_actions=self.n_actions)
-        
-        from src.utils import get_neural_agent
-        self.actor = get_neural_agent(cfg.env.name, self.n_actions, self.device, arch_name=cfg.env.architecture, hidden_sizes=hidden_sizes)
-        
+
         self.target_q_network.load_state_dict(self.q_network.state_dict())
         self.target_q_network2.load_state_dict(self.q_network2.state_dict())
+
+        # Check if modular/hybrid actor is configured
+        has_modules = bool(self.get_cfg("modules", []))
+        is_hybrid = self.get_cfg("actor_mode", "neural") in ["hybrid", "logic"] or "blendrl" in str(algorithm)
+        self.is_modular = has_modules or is_hybrid
+
+        if self.is_modular:
+            self.model = BlenderActorCritic(
+                self.env,
+                self.get_cfg("rules", cfg.env.rules),
+                self.get_cfg("actor_mode", "hybrid"),
+                self.get_cfg("blender_mode", "neural"),
+                self.get_cfg("blend_function", "softmax"),
+                self.get_cfg("reasoner", cfg.env.reasoner),
+                self.device,
+                architecture=self.get_cfg("architecture", cfg.env.architecture),
+                cfg=cfg.agent
+            )
+        else:
+            from src.utils import get_neural_agent
+            self.actor = get_neural_agent(cfg.env.name, self.n_actions, self.device, arch_name=cfg.env.architecture, hidden_sizes=hidden_sizes)
+
+    def _prepare_logic_obs(self, obs, logic_obs=None):
+        if logic_obs is not None:
+            return logic_obs.to(self.device)
+        if obs.ndim == 2:
+            return obs.unsqueeze(1).repeat(1, 2, 1).to(self.device)
+        return obs.to(self.device)
 
     def on_train_start(self):
         if hasattr(self.trainer.datamodule, "reader") and self.trainer.datamodule.reader is not None:
@@ -64,19 +100,30 @@ class IQLAgent(OfflineAgentBase):
 
     def on_train_epoch_start(self):
         super().on_train_epoch_start()
+        if self.is_modular and hasattr(self.model, "self_organize_cew_modules"):
+            epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
+            if self.current_epoch % epochs_per_interval == 0:
+                datamodule = self.trainer.datamodule
+                sample_size = min(len(datamodule.reader), 10000)
+                if sample_size > 0:
+                    batch = datamodule.reader.sample(sample_size)
+                    organize_obs = batch["logic_obs"] if batch["logic_obs"] is not None else batch["obs"]
+                    if self.model.self_organize_cew_modules(organize_obs):
+                        lr = self.get_cfg("lr", 3e-4)
+                        actor_params = list(self.model.policy_modules.parameters()) + list(self.model.blender.parameters())
+                        self.trainer.strategy.optimizers[2] = optim.Adam(actor_params, lr=lr)
 
     def training_step(self, batch, batch_idx):
-        # batch is from DataLoader, but we use the reader from datamodule
         datamodule = self.trainer.datamodule
         cfg = self.cfg
         
-        # Sample a real batch from the reader
-        real_batch = datamodule.reader.sample(cfg.agent.batch_size)
-        obs = real_batch["obs"]
-        actions = real_batch["action"]
-        rewards = real_batch["reward"]
-        next_obs = real_batch["next_obs"]
-        dones = real_batch["done"]
+        batch_size = self.get_cfg("batch_size", 256)
+        real_batch = datamodule.reader.sample(batch_size)
+        obs = real_batch["obs"].to(self.device)
+        actions = real_batch["action"].to(self.device)
+        rewards = real_batch["reward"].to(self.device)
+        next_obs = real_batch["next_obs"].to(self.device)
+        dones = real_batch["done"].to(self.device)
         
         opt_q, opt_v, opt_a = self.optimizers()
         
@@ -104,7 +151,8 @@ class IQLAgent(OfflineAgentBase):
             
         value = self.value_network(obs).view(-1)
         diff = t_q_a - value
-        weight = torch.where(diff > 0, cfg.agent.tau, 1 - cfg.agent.tau)
+        tau = self.get_cfg("tau", self.get_cfg("expectile", 0.7))
+        weight = torch.where(diff > 0, tau, 1 - tau)
         value_loss = (weight * (diff**2)).mean()
         opt_v.zero_grad()
         self.manual_backward(value_loss)
@@ -114,37 +162,56 @@ class IQLAgent(OfflineAgentBase):
         with torch.no_grad():
             adv = t_q_a - value
             adv = (adv - adv.mean()) / (adv.std() + 1e-8)
-            weights = torch.exp(cfg.agent.beta * adv)
+            beta = self.get_cfg("beta", self.get_cfg("temperature", 3.0))
+            weights = torch.exp(beta * adv)
             weights = torch.clamp(weights, max=100.0)
             
-        _, log_probs, _, _ = self.actor.get_action_and_value(obs, actions)
+        if self.is_modular:
+            logic_obs = self._prepare_logic_obs(obs, real_batch.get("logic_obs"))
+            _, log_probs, _, blend_entropy, _ = self.model(obs, logic_obs, action=actions)
+        else:
+            _, log_probs, _, _ = self.actor.get_action_and_value(obs, actions)
+            blend_entropy = None
+            
         actor_loss = -(weights * log_probs).mean()
         opt_a.zero_grad()
         self.manual_backward(actor_loss)
         opt_a.step()
         
         # Soft update target networks
-        self._soft_update(self.q_network, self.target_q_network)
-        self._soft_update(self.q_network2, self.target_q_network2)
+        soft_target_tau = self.get_cfg("soft_target_tau", 0.005)
+        self._soft_update(self.q_network, self.target_q_network, tau=soft_target_tau)
+        self._soft_update(self.q_network2, self.target_q_network2, tau=soft_target_tau)
         
         self._log_offline_transitions()
 
-        self.log_dict({
+        log_data = {
             "losses/q_loss": q_loss,
             "losses/value_loss": value_loss,
             "losses/actor_loss": actor_loss,
-        })
+        }
+        if self.is_modular and isinstance(blend_entropy, torch.Tensor):
+            log_data["losses/blend_entropy"] = blend_entropy.mean().item()
+        self.log_dict(log_data)
 
     def get_action_and_value(self, obs, logic_obs=None, action=None):
+        if self.is_modular:
+            logic_obs = self._prepare_logic_obs(obs, logic_obs)
+            return self.model.get_action_and_value(obs, logic_obs, action)
         return self.actor.get_action_and_value(obs, action)
 
-    def get_value(self, obs):
+    def get_value(self, obs, logic_obs=None):
         return self.value_network(obs)
 
     def configure_optimizers(self):
         opt_q = optim.Adam(list(self.q_network.parameters()) + list(self.q_network2.parameters()), lr=self.cfg.agent.lr)
         opt_v = optim.Adam(self.value_network.parameters(), lr=self.cfg.agent.lr)
-        opt_a = optim.Adam(self.actor.parameters(), lr=self.cfg.agent.lr)
+        
+        if self.is_modular:
+            actor_params = list(self.model.policy_modules.parameters()) + list(self.model.blender.parameters())
+            opt_a = optim.Adam(actor_params, lr=self.cfg.agent.lr)
+        else:
+            opt_a = optim.Adam(self.actor.parameters(), lr=self.cfg.agent.lr)
         return [opt_q, opt_v, opt_a]
 
     def validation_step(self, batch, batch_idx):
@@ -158,17 +225,15 @@ class IQLAgent(OfflineAgentBase):
             dones = val_batch["done"]
             
             with torch.no_grad():
-                # Value loss on validation
                 q1 = self.target_q_network(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
                 q2 = self.target_q_network2(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
                 target_v = torch.min(q1, q2)
                 v = self.value_network(obs).squeeze(-1)
                 u = target_v - v
-                expectile = self.get_cfg("expectile", 0.7)
+                expectile = self.get_cfg("tau", self.get_cfg("expectile", 0.7))
                 weight = torch.where(u > 0, expectile, 1 - expectile)
                 value_loss = (weight * (u ** 2)).mean()
                 
-                # Q loss on validation
                 next_v = self.value_network(next_obs).squeeze(-1)
                 q_target = rewards + self.cfg.env.gamma * next_v * (1 - dones)
                 pred_q1 = self.q_network(obs).gather(1, actions.unsqueeze(1)).squeeze(1)

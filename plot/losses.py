@@ -20,6 +20,7 @@ class LossesPlotter(BasePlotter):
             "losses/bellman_loss",
             "losses/cql_loss",
             "losses/entropy",
+            "losses/blend_entropy",
             "losses/actor_loss",
             "losses/q_loss",
             "losses/value_loss"
@@ -42,13 +43,14 @@ class LossesPlotter(BasePlotter):
 
         for method_name, versions in sorted(runs_data.items()):
             agent_loss_dir = losses_base_dir / method_name
-            agent_loss_dir.mkdir(parents=True, exist_ok=True)
             color, ls, marker = get_style_info(method_name)
             display_name = clean_label(method_name)
+            agent_saved = False
 
             for metric in metrics:
                 all_x = []
                 all_y = []
+                used_xlabel = None
                 for v_name, df in versions.items():
                     if metric in df.columns:
                         valid_df = df.dropna(subset=[metric])
@@ -59,18 +61,27 @@ class LossesPlotter(BasePlotter):
                                 s_x = full_x.loc[valid_df.index]
                                 if not s_x.empty and s_x.nunique() > 1 and not s_x.isna().any():
                                     x_vals = s_x.values
+                                    if used_xlabel is None:
+                                        used_xlabel = cfg.get("xlabel", x_axis_col.replace("_", " ").title())
                             if x_vals is None:
-                                if "epoch" in valid_df.columns and valid_df["epoch"].nunique() > 1:
-                                    x_vals = valid_df["epoch"].values
-                                elif "step" in valid_df.columns and valid_df["step"].nunique() > 1:
+                                if "step" in valid_df.columns and valid_df["step"].nunique() > 1:
                                     x_vals = valid_df["step"].values
+                                    if used_xlabel is None:
+                                        used_xlabel = cfg.get("xlabel", "Training Steps")
+                                elif "epoch" in valid_df.columns and valid_df["epoch"].nunique() > 1:
+                                    x_vals = valid_df["epoch"].values
+                                    if used_xlabel is None:
+                                        used_xlabel = cfg.get("xlabel", "Epoch")
                                 else:
                                     x_vals = valid_df.index.values
+                                    if used_xlabel is None:
+                                        used_xlabel = cfg.get("xlabel", "Index")
                             y_vals = valid_df[metric].values
                             all_x.append(x_vals)
                             all_y.append(y_vals)
 
                 if all_y:
+                    agent_loss_dir.mkdir(parents=True, exist_ok=True)
                     plt.figure(figsize=figsize)
                     if len(all_y) > 1:
                         min_len = min(len(y) for y in all_y)
@@ -87,7 +98,7 @@ class LossesPlotter(BasePlotter):
                         x_plot = all_x[0][:len(y_smoothed)]
                         plt.plot(x_plot, y_smoothed, label=display_name, color=color, linestyle=ls, linewidth=2.0)
 
-                    plt.xlabel(cfg.get("xlabel", x_axis_col.replace("_", " ").title()))
+                    plt.xlabel(used_xlabel or cfg.get("xlabel", "Training Steps"))
                     metric_clean_name = metric.split("/")[-1].replace("_", " ").title()
                     plt.ylabel(metric_clean_name)
                     plt.title(f"{display_name}: {metric_clean_name}")
@@ -100,6 +111,13 @@ class LossesPlotter(BasePlotter):
                     plt.savefig(out_path, dpi=dpi)
                     plt.close()
                     print(f"  Saved ({method_name}): {out_path}")
+                    agent_saved = True
+
+            if agent_loss_dir.exists() and not agent_saved and not any(agent_loss_dir.iterdir()):
+                try:
+                    agent_loss_dir.rmdir()
+                except Exception:
+                    pass
 
         # Also generate comparative plots across all methods in losses/
         loss_cfg = dict(cfg)

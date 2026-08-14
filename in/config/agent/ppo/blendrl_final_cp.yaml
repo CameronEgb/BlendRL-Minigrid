@@ -1,0 +1,12 @@
+defaults:
+  - /agent/ppo/blendrl_human_neural
+
+name: blendrl_final_cp
+lr: 0.003
+logic_lr: 0.003
+blender_lr: 0.01
+ent_coef: 0.005
+blend_ent_coef: 0.005
+num_minibatches: 4
+update_epochs: 10
+clip_coef: 0.2

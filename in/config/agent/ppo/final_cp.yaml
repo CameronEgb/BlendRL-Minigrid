@@ -1,5 +1,5 @@
 defaults:
-  - /agent/ppo_base
+  - /agent/ppo/dnn
 
 # Best parameters found from 100-trial sweep
 name: ppo_final_cp

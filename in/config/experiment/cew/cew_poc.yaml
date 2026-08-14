@@ -1,0 +1,26 @@
+# @package _global_
+defaults:
+  - override /env: cartpole
+
+experiment_id: cew_poc
+group: cew
+total_timesteps: 10000
+eval_episodes: 20
+online_methods: ppo/cp_tuned
+offline_methods: 
+  - cql/blendrl_human_cew
+  - cql/blendrl_cew_only
+  - cql/blendrl_human_neural
+intervals_count: 2
+
+agent:
+  epochs_per_interval: 2
+
+env:
+  architecture: mlp
+  rules: default
+
+save_dataset: true
+seed: 1
+local: true
+recover: false

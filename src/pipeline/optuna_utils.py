@@ -148,3 +148,51 @@ def create_optuna_study(storage_url, study_name):
         print(f"Pre-initialized Optuna study: {study_name}")
     except subprocess.CalledProcessError as e:
         print(f"Warning: Failed to pre-initialize Optuna study '{study_name}': {e.stderr.decode().strip()}")
+
+
+def promote_best_trial_checkpoint(group: str, experiment_id: str, agent_name: str, storage_url: str, study_name: str):
+    """After an Optuna sweep, queries the winning trial, copies its checkpoint
+    and hyperparameters to the main agent checkpoint root, and writes a summary."""
+    import shutil
+    import json
+    import yaml
+    from pathlib import Path
+    
+    best_id = get_best_trial_id(storage_url, study_name)
+    ckpt_root = Path("results/checkpoints") / group / experiment_id / agent_name
+    trial_ckpt_path = ckpt_root / best_id / "best_model.ckpt"
+    target_ckpt_path = ckpt_root / "best_model.ckpt"
+    
+    best_info = {"best_trial_id": best_id, "study_name": study_name}
+    
+    if storage_url:
+        try:
+            import optuna
+            study = optuna.load_study(study_name=study_name, storage=storage_url)
+            best_info["best_value"] = float(study.best_trial.value) if study.best_trial.value is not None else None
+            best_info["best_params"] = study.best_trial.params
+            best_info["direction"] = str(study.direction.name)
+            
+            # Write best params yaml
+            best_params_yaml = ckpt_root / "best_params.yaml"
+            with open(best_params_yaml, "w") as f:
+                yaml.dump(study.best_trial.params, f, default_flow_style=False)
+        except Exception as e:
+            print(f"Notice: Could not load full Optuna study details: {e}")
+            
+    if trial_ckpt_path.exists():
+        shutil.copy2(trial_ckpt_path, target_ckpt_path)
+        print(f"\n[Optuna Winner] Promoted Best Trial #{best_id} checkpoint -> {target_ckpt_path}")
+        if "best_value" in best_info and best_info["best_value"] is not None:
+            print(f"[Optuna Winner] Best Score ({best_info.get('direction', 'metric')}): {best_info['best_value']:.4f}")
+        if "best_params" in best_info:
+            print(f"[Optuna Winner] Best Hyperparameters: {best_info['best_params']}\n")
+    elif not target_ckpt_path.exists():
+        all_ckpts = list(ckpt_root.rglob("best_model*.ckpt"))
+        if all_ckpts:
+            shutil.copy2(all_ckpts[0], target_ckpt_path)
+            
+    with open(ckpt_root / "best_trial_summary.json", "w") as f:
+        json.dump(best_info, f, indent=2)
+        
+    return best_id

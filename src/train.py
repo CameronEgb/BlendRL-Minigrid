@@ -22,13 +22,26 @@ try:
     ])
 except Exception:
     pass
+from pathlib import Path
 import lightning as L
 from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
-import os
 
 @hydra.main(version_base=None, config_path="../in/config", config_name="config")
 def main(cfg: DictConfig):
+    # Auto-infer experiment_id from Hydra task override if not explicitly specified
+    if cfg.get("experiment_id", "default_exp") == "default_exp":
+        try:
+            from hydra.core.hydra_config import HydraConfig
+            if HydraConfig.initialized():
+                for override in HydraConfig.get().overrides.task:
+                    if override.startswith("+experiment=") or override.startswith("experiment="):
+                        exp_stem = Path(override.split("=")[-1]).stem
+                        cfg.experiment_id = exp_stem
+                        break
+        except Exception:
+            pass
+
     print(OmegaConf.to_yaml(cfg))
     
     # Propagate reward type to environment variable
@@ -192,7 +205,8 @@ def main(cfg: DictConfig):
         check_val_every_n_epoch = 1000000 
     else:
         epochs_per_interval = cfg.agent.get("epochs_per_interval", 1)
-        max_epochs = cfg.intervals_count * epochs_per_interval
+        intervals_count = 1 if is_offline_only else cfg.get("intervals_count", 1)
+        max_epochs = intervals_count * epochs_per_interval
         eval_interval_epochs = cfg.agent.get("eval_interval_epochs", 1)
         limit_val_batches = 1.0
         check_val_every_n_epoch = eval_interval_epochs if eval_interval_epochs else 1
@@ -288,10 +302,25 @@ def main(cfg: DictConfig):
     with open(os.path.join(ckpt_dir, "runtime.json"), "w") as f:
         json.dump(runtime_info, f, indent=2)
 
+    try:
+        OmegaConf.save(config=cfg, f=os.path.join(ckpt_dir, "config.yaml"))
+        exp_ckpt_root = os.path.join("results/checkpoints", cfg.group, cfg.experiment_id)
+        os.makedirs(exp_ckpt_root, exist_ok=True)
+        OmegaConf.save(config=cfg, f=os.path.join(exp_ckpt_root, "config.yaml"))
+    except Exception as e:
+        print(f"Notice: Could not save checkpoint config.yaml: {e}")
+
     if hasattr(trainer, "logger") and hasattr(trainer.logger, "log_dir") and trainer.logger.log_dir:
         os.makedirs(trainer.logger.log_dir, exist_ok=True)
         with open(os.path.join(trainer.logger.log_dir, "runtime.json"), "w") as f:
             json.dump(runtime_info, f, indent=2)
+        try:
+            OmegaConf.save(config=cfg, f=os.path.join(trainer.logger.log_dir, "config.yaml"))
+            exp_log_root = os.path.join("results/logs", cfg.group, cfg.experiment_id)
+            os.makedirs(exp_log_root, exist_ok=True)
+            OmegaConf.save(config=cfg, f=os.path.join(exp_log_root, "config.yaml"))
+        except Exception as e:
+            print(f"Notice: Could not save logger config.yaml: {e}")
 
     # Guarantee final model checkpoint is saved to disk
     final_ckpt_target = os.path.join(ckpt_dir, "best_model.ckpt")

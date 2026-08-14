@@ -1,0 +1,13 @@
+defaults:
+  - /agent/cql/dnn
+
+name: blendrl_cql_human_neural
+algorithm: blendrl_cql
+actor_mode: hybrid
+blender_mode: neural
+blend_function: softmax
+
+modules:
+  - type: nsfr
+    rules: default
+  - type: neural

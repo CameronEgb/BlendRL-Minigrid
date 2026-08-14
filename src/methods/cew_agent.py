@@ -10,7 +10,7 @@ from src.methods.cew_utils import run_CLIP, run_ECM, rule_creation, run_FYD, Mul
 from src.methods.registry import register_agent
 from src.methods.base_agent import OfflineAgentBase
 
-@register_agent("cew")
+@register_agent("cew", "cew_fyd")
 class CEWAgent(OfflineAgentBase):
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__(cfg)

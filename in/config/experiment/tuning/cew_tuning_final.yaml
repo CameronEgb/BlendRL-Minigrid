@@ -1,0 +1,30 @@
+# @package _global_
+defaults:
+  - override /env: cartpole
+  - override /agent: cew/base
+
+experiment_id: cew_tuning_final
+group: tuning
+total_timesteps: 100000
+intervals_count: 10
+eval_episodes: 100
+online_methods: []
+offline_methods: cew,cew_fyd
+offline_datasets: ppo/cp_tuned
+
+agent:
+  lr: 3e-4
+  batch_size: 32
+  epochs_per_interval: 100
+  ecm_dthr: 0.1
+  eps: 0.2
+  kappa: 0.6
+  cql_alpha: 1.0
+
+env:
+  gamma: 0.99
+
+save_dataset: false
+seed: 1
+local: true
+recover: false

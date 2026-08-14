@@ -1,0 +1,11 @@
+name: iql_dnn
+algorithm: iql
+lr: 3e-4
+batch_size: 256
+expectile: 0.7
+temperature: 3.0
+soft_target_tau: 0.005
+gamma: 0.99
+hidden_sizes: [256, 256]
+epochs_per_interval: 50
+eval_interval_epochs: 10

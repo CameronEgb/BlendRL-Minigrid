@@ -1,0 +1,20 @@
+# @package _global_
+defaults:
+  - mimic/_base
+  - override /agent: cql/blendrl_human_neural
+  - override /hydra/sweeper: optuna_offline
+
+agent:
+  epochs_per_interval: 10
+  eval_interval_epochs: 2
+
+hydra:
+  sweeper:
+    n_trials: 40
+    params:
+      agent.lr: interval(1e-4, 1e-3)
+      agent.cql_alpha: interval(0.1, 5.0)
+      agent.batch_size: choice(32, 64, 128, 256)
+      ++agent.ecm_dthr: interval(0.01, 0.5)
+      ++agent.soft_target_tau: interval(0.001, 0.1)
+      agent.blender_mode: choice('logic', 'neural')

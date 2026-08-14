@@ -1,5 +1,5 @@
 defaults:
-  - /agent/ppo_base
+  - /agent/ppo/dnn
 
 name: ppo_cp_tuned
 lr: 0.003

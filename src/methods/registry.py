@@ -49,6 +49,9 @@ def get_agent_class(algo_name: str):
     Raises:
         ValueError: If no registered prefix matches the algorithm name.
     """
+    if not AGENT_REGISTRY:
+        auto_discover()
+
     # Try exact match first
     if algo_name in AGENT_REGISTRY:
         return AGENT_REGISTRY[algo_name]
@@ -95,3 +98,9 @@ def auto_discover():
                 importlib.import_module(f"methods.{module_info.name}")
             except Exception:
                 print(f"[Warning] Failed to auto-discover agent module '{module_info.name}': {e}")
+
+
+def list_registered_agents():
+    """Return sorted list of registered algorithm prefixes."""
+    auto_discover()
+    return sorted(AGENT_REGISTRY.keys())

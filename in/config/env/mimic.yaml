@@ -7,3 +7,4 @@ rules: default
 reasoner: nsfr
 architecture: mlp
 reward_type: outcome
+dataset_name: mimic_lazy_0_interventions_balanced.npz

@@ -1,6 +1,19 @@
 #!/usr/bin/env python3
 import os
 import sys
+
+# Ensure project root and src are in sys.path
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+src_path = os.path.join(PROJECT_ROOT, "src")
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+fyd_path = os.path.join(PROJECT_ROOT, "src", "fyd_repo", "src")
+if fyd_path not in sys.path:
+    sys.path.insert(0, fyd_path)
+
+import argparse
 import torch
 import numpy as np
 import pandas as pd
@@ -8,7 +21,7 @@ from pathlib import Path
 from typing import Optional
 from sklearn.metrics import roc_auc_score, average_precision_score
 
-from plot.base import BasePlotter
+from plot.base import BasePlotter, clean_label
 
 class PolicyEvalPlotter(BasePlotter):
     def __init__(self):
@@ -16,9 +29,10 @@ class PolicyEvalPlotter(BasePlotter):
 
     def run(self, exp_id: str, cli_overrides: Optional[dict] = None):
         cfg, group, output_dir = self.get_effective_config(exp_id, cli_overrides)
+        clean_exp = Path(exp_id).stem
         
         env_name = cfg.get("env", {}).get("name", "mimic") if isinstance(cfg.get("env"), dict) else str(cfg.get("env", "mimic"))
-        if env_name != "mimic":
+        if env_name != "mimic" and group != "mimic":
             # Policy alignment evaluation is designed for MIMIC clinical decisions
             return
 
@@ -48,18 +62,36 @@ class PolicyEvalPlotter(BasePlotter):
         device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
         total_steps = len(all_clin_acts)
 
-        ckpt_root = Path("results/checkpoints") / group / exp_id
+        ckpt_root = Path("results/checkpoints") / group / clean_exp
+        if not ckpt_root.exists():
+            ckpt_root = Path("results/checkpoints") / clean_exp
         if not ckpt_root.exists():
             print(f"Notice [policy_eval]: No checkpoints found at {ckpt_root}")
             return
 
+        # Determine active methods from config if defined
+        exp_cfg = self.get_experiment_config(exp_id)
+        active_methods = set()
+        for key in ["online_methods", "offline_methods"]:
+            val = exp_cfg.get(key, [])
+            if val:
+                if isinstance(val, (list, tuple)):
+                    methods = list(val)
+                else:
+                    methods = [item.strip() for item in str(val).split(",") if item.strip()]
+                for m in methods:
+                    active_methods.add(str(m).replace("/", "_"))
+
         # Discover agent checkpoints
         method_ckpts = {}
-        for method_dir in ckpt_root.iterdir():
+        for method_dir in sorted(ckpt_root.iterdir()):
             if method_dir.is_dir():
+                m_name = method_dir.name
+                if active_methods and m_name not in active_methods:
+                    continue
                 ckpts = list(method_dir.rglob("best_model*.ckpt"))
                 if ckpts:
-                    method_ckpts[method_dir.name] = ckpts[0]
+                    method_ckpts[m_name] = ckpts[0]
 
         if not method_ckpts:
             print(f"Notice [policy_eval]: No policy checkpoints found in {ckpt_root}")
@@ -90,13 +122,11 @@ class PolicyEvalPlotter(BasePlotter):
         from src.method_registry import get_style as get_method_style
 
         from src.methods.cql_agent import CQLAgent
-        from src.methods.blendrl_cql_agent import BlendRLCQLAgent
         from src.methods.cew_agent import CEWAgent
         from src.methods.iql_agent import IQLAgent
-        from src.methods.blendrl_iql_agent import BlendRLIQLAgent
 
         def load_policy_agent(path, dev):
-            for cls in [BlendRLCQLAgent, CQLAgent, CEWAgent, BlendRLIQLAgent, IQLAgent]:
+            for cls in [CQLAgent, CEWAgent, IQLAgent]:
                 try:
                     ag = cls.load_from_checkpoint(str(path), map_location=dev, weights_only=False)
                     ag.to(dev)
@@ -110,6 +140,38 @@ class PolicyEvalPlotter(BasePlotter):
         num_patients = X.shape[0]
         outcomes = data['y'].squeeze() if 'y' in data else np.zeros(num_patients)
         patient_agreements = {}
+
+        def get_policy_probs_and_actions(ag, obs_b):
+            if hasattr(ag, "is_modular") and ag.is_modular:
+                logic_obs = ag._prepare_logic_obs(obs_b) if hasattr(ag, "_prepare_logic_obs") else obs_b.unsqueeze(1).repeat(1, 2, 1)
+                probs, _ = ag.model.actor(obs_b, logic_obs)
+                acts = torch.argmax(probs, dim=-1)
+                return probs, acts
+            elif hasattr(ag, "actor") and hasattr(ag.actor, "get_action_probs"):
+                probs = ag.actor.get_action_probs(obs_b)
+                acts = torch.argmax(probs, dim=-1)
+                return probs, acts
+            elif hasattr(ag, "fuzzy_model") and ag.fuzzy_model is not None:
+                q = ag.fuzzy_model(obs_b.to("cpu"))
+                probs = torch.softmax(q, dim=-1).to(obs_b.device)
+                acts = torch.argmax(probs, dim=-1)
+                return probs, acts
+            elif hasattr(ag, "q_network"):
+                q = ag.q_network(obs_b)
+                probs = torch.softmax(q, dim=-1)
+                acts = torch.argmax(probs, dim=-1)
+                return probs, acts
+            elif hasattr(ag, "model") and hasattr(ag.model, "get_q_values"):
+                q = ag.model.get_q_values(obs_b)
+                probs = torch.softmax(q, dim=-1)
+                acts = torch.argmax(probs, dim=-1)
+                return probs, acts
+            else:
+                out = ag.get_action_and_value(obs_b)
+                act = out[0] if isinstance(out, (tuple, list)) else out
+                probs = torch.zeros((obs_b.shape[0], 2), device=obs_b.device)
+                probs.scatter_(1, act.unsqueeze(1).long(), 1.0)
+                return probs, act
 
         batch_size = 10000
         for method_name, ckpt_path in sorted(method_ckpts.items()):
@@ -126,37 +188,12 @@ class PolicyEvalPlotter(BasePlotter):
                     b_end = min(b_start + batch_size, total_steps)
                     obs_batch = torch.tensor(all_obs[b_start:b_end], dtype=torch.float32).to(device)
 
-                    if hasattr(agent, "get_action_and_value"):
-                        act, log_p, ent, val = agent.get_action_and_value(obs_batch)
-                        policy_acts = act.cpu().numpy() if isinstance(act, torch.Tensor) else np.array(act)
-                    elif hasattr(agent, "actor") and hasattr(agent.actor, "get_action_probs"):
-                        probs = agent.actor.get_action_probs(obs_batch)
-                        policy_acts = torch.argmax(probs, dim=-1).cpu().numpy()
-                    elif hasattr(agent, "actor"):
-                        act, _, _, _ = agent.actor.get_action_and_value(obs_batch)
-                        policy_acts = act.cpu().numpy()
-                    elif hasattr(agent, "model"):
-                        q = agent.model.get_q_values(obs_batch, logic_state=None)
-                        policy_acts = torch.argmax(q, dim=-1).cpu().numpy()
-                    else:
-                        continue
-
-                    if hasattr(agent, "get_action_probs"):
-                        probs = agent.get_action_probs(obs_batch)
-                        admin_probs = probs[:, 1].cpu().numpy() if probs.shape[-1] > 1 else probs.squeeze().cpu().numpy()
-                    elif hasattr(agent, "actor") and hasattr(agent.actor, "get_action_probs"):
-                        probs = agent.actor.get_action_probs(obs_batch)
-                        admin_probs = probs[:, 1].cpu().numpy()
-                    elif hasattr(agent, "q_network"):
-                        q = agent.q_network(obs_batch)
-                        probs = torch.softmax(q, dim=-1)
-                        admin_probs = probs[:, 1].cpu().numpy()
-                    elif hasattr(agent, "model"):
-                        q = agent.model.get_q_values(obs_batch, logic_state=None)
-                        probs = torch.softmax(q, dim=-1)
+                    probs, policy_acts_tensor = get_policy_probs_and_actions(agent, obs_batch)
+                    policy_acts = policy_acts_tensor.cpu().numpy()
+                    if probs.shape[-1] > 1:
                         admin_probs = probs[:, 1].cpu().numpy()
                     else:
-                        admin_probs = (policy_acts == 1).astype(float)
+                        admin_probs = probs.squeeze().cpu().numpy()
 
                     all_admin_probs.extend(admin_probs)
                     all_policy_acts.extend(policy_acts)
@@ -180,7 +217,7 @@ class PolicyEvalPlotter(BasePlotter):
             auprc = average_precision_score(all_clin_acts, all_admin_probs) if len(np.unique(all_clin_acts)) > 1 else 0.0
 
             results.append({
-                "Method": method_name,
+                "Method": clean_label(method_name),
                 "Accuracy %": float(accuracy),
                 "Admin Rate %": float(admin_rate),
                 "AUC-ROC": float(auc_roc),

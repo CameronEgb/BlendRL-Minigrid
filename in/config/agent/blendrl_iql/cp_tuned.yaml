@@ -1,4 +1,0 @@
-defaults:
-  - /agent/blendrl_iql_base
-
-blend_ent_coef: 0.001

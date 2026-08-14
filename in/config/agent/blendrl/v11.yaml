@@ -1,6 +1,0 @@
-defaults:
-  - /agent: blendrl/v10
-  - _self_
-
-logic_lr: 0.0003
-blender_lr: 0.001

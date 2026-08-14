@@ -66,6 +66,11 @@ def get_requested_plots(exp_cfg: dict, exp_id: str) -> dict:
     elif isinstance(env_val, str):
         env_name = env_val
 
+    if not env_name and "group" in exp_cfg:
+        env_name = exp_cfg["group"]
+    if not env_name and "/" in exp_id:
+        env_name = exp_id.split("/")[0]
+
     # Also check for early_prediction task types
     task_name = exp_cfg.get("task", "")
     defaults = ENV_DEFAULT_PLOTS.get(env_name, FALLBACK_PLOTS)
@@ -79,16 +84,13 @@ def get_requested_plots(exp_cfg: dict, exp_id: str) -> dict:
     return result
 
 
-def run_experiment_plots(exp_id: str):
+def run_experiment_plots(exp_id: str, exp_config_name: str = None, style: str = None):
     print(f"\n==================================================")
     print(f"=== Auto-Generating Plots for Experiment: {exp_id} ===")
     print(f"==================================================")
 
-    exp_path = Path(f"in/config/experiment/{exp_id}.yaml")
-    exp_cfg = {}
-    if exp_path.exists():
-        with open(exp_path) as f:
-            exp_cfg = yaml.safe_load(f) or {}
+    dummy_plotter = BasePlotter("manager")
+    exp_cfg = dummy_plotter.get_experiment_config(exp_id, exp_config_name=exp_config_name)
 
     registry = discover_plotters()
     requested_modules = get_requested_plots(exp_cfg, exp_id)
@@ -98,7 +100,10 @@ def run_experiment_plots(exp_id: str):
             plotter_cls = registry[module_name]
             plotter = plotter_cls()
             try:
-                plotter.run(exp_id, cli_overrides=overrides if isinstance(overrides, dict) else None)
+                plot_overrides = overrides if isinstance(overrides, dict) else {}
+                if style:
+                    plot_overrides["style"] = style
+                plotter.run(exp_id, cli_overrides=plot_overrides if plot_overrides else None)
             except Exception as e:
                 print(f"Error running plotter '{module_name}' for '{exp_id}': {e}")
         else:
@@ -107,6 +112,8 @@ def run_experiment_plots(exp_id: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Orchestrate Experiment Plot Generation")
     parser.add_argument("experiment_id", type=str, help="Experiment ID to generate plots for")
+    parser.add_argument("--experiment", "-c", "--config", dest="experiment", type=str, default=None, help="Base experiment config name if different from experiment_id")
+    parser.add_argument("--style", type=str, default=None, help="Plot style config")
     args = parser.parse_args()
 
-    run_experiment_plots(args.experiment_id)
+    run_experiment_plots(args.experiment_id, exp_config_name=args.experiment, style=args.style)

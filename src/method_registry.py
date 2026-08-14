@@ -9,19 +9,18 @@ import re
 from typing import Tuple, Optional
 
 METHOD_STYLE = {
-    # key (checkpoint/log dir name)    label                       color          marker   linestyle
-    "cql":                          {"label": "CQL (Neural Only)",    "color": "tab:blue",   "marker": "o", "linestyle": "-"},
-    "blendrl_cql_human_neural":     {"label": "BlendRL Human+Neural", "color": "tab:orange", "marker": "s", "linestyle": "-"},
-    "blendrl_cql_human_cew":        {"label": "BlendRL Human+CEW",   "color": "tab:green",  "marker": "^", "linestyle": "--"},
-    "blendrl_cql_cew_only":         {"label": "BlendRL CEW Only",     "color": "tab:red",    "marker": "D", "linestyle": "-"},
-    "clinician":                    {"label": "Clinician (Dataset)",  "color": "tab:purple", "marker": "X", "linestyle": "-"},
-    # Standard RL methods
-    "ppo":                          {"label": "PPO",                  "color": "black",      "marker": "o", "linestyle": "--"},
-    "iql":                          {"label": "IQL",                  "color": "#1f77b4",    "marker": "d", "linestyle": "-"},
-    "blendrl":                      {"label": "BlendRL",              "color": "#2ca02c",    "marker": "^", "linestyle": "-"},
-    "blendrl_iql":                  {"label": "BlendRL-IQL",          "color": "#d62728",    "marker": "s", "linestyle": "-"},
-    "cew":                          {"label": "CEW",                  "color": "#ff7f0e",    "marker": "h", "linestyle": "-"},
+    # Clean harness/architecture keys
+    "cql_dnn":                      {"label": "CQL (Neural)",         "color": "tab:blue",   "marker": "o", "linestyle": "-"},
+    "cql_blendrl_human_neural":     {"label": "BlendRL Human+Neural", "color": "tab:orange", "marker": "s", "linestyle": "-"},
+    "cql_blendrl_human_cew":        {"label": "BlendRL Human+CEW",   "color": "tab:green",  "marker": "^", "linestyle": "--"},
+    "cql_blendrl_cew_only":         {"label": "BlendRL CEW Only",     "color": "tab:red",    "marker": "D", "linestyle": "-"},
+    "iql_dnn":                      {"label": "IQL (Neural)",         "color": "#1f77b4",    "marker": "d", "linestyle": "-"},
+    "iql_blendrl_human_neural":     {"label": "BlendRL Human+Neural", "color": "#d62728",    "marker": "s", "linestyle": "-"},
+    "ppo_dnn":                      {"label": "PPO (Neural)",         "color": "black",      "marker": "o", "linestyle": "--"},
+    "ppo_blendrl_human_neural":     {"label": "BlendRL Human+Neural", "color": "#2ca02c",    "marker": "^", "linestyle": "-"},
+    "cew_base":                     {"label": "CEW",                  "color": "#ff7f0e",    "marker": "h", "linestyle": "-"},
     "cew_fyd":                      {"label": "CEW+FYD",              "color": "#9467bd",    "marker": "p", "linestyle": "-"},
+    "clinician":                    {"label": "Clinician (Dataset)",  "color": "tab:purple", "marker": "X", "linestyle": "-"},
 }
 
 _DEFAULT_STYLE = {"label": None, "color": None, "marker": "o", "linestyle": "-"}

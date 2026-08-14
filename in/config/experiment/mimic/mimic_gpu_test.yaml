@@ -1,0 +1,11 @@
+# @package _global_
+defaults:
+  - mimic/_base
+
+consolidate: true
+offline_methods: [cql/dnn, cql/blendrl_human_neural, cql/blendrl_human_cew, cew/fyd]
+
+agent:
+  epochs_per_interval: 2
+  eval_interval_epochs: 1
+

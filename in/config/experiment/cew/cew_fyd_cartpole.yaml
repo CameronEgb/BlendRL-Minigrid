@@ -1,0 +1,32 @@
+# @package _global_
+defaults:
+  - override /env: cartpole
+  - override /mode: offline
+
+# Architecture
+env:
+  name: cartpole
+  architecture: mlp
+
+# Offline methods and datasets
+online_methods: []
+offline_methods: [cew/base, cew/fyd]
+offline_datasets: [ppo_cp_tuned]
+
+total_timesteps: 100000
+intervals_count: 5
+eval_episodes: 100
+
+agent:
+  epochs_per_interval: 100
+  eval_interval_epochs: 10
+  batch_size: 64
+
+mode:
+  dataset_path: in/datasets/ungrouped/cp_final/ppo_cp_tuned
+
+experiment_id: cew_fyd_cartpole
+group: cew
+seed: 1
+local: true
+recover: false

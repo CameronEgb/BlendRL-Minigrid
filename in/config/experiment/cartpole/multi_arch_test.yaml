@@ -1,0 +1,24 @@
+# @package _global_
+defaults:
+  - override /env: cartpole
+
+experiment_id: multi_arch_test
+group: cartpole
+total_timesteps: 50000
+eval_episodes: 100
+online_methods: ppo/cp_tuned
+offline_methods: 
+  - iql/blendrl_arch1
+  - iql/blendrl_arch2
+  - iql/blendrl_arch3
+  - iql/blendrl_arch4
+intervals_count: 5
+
+env:
+  architecture: mlp
+  rules: default
+
+save_dataset: true
+seed: 1
+local: true
+recover: false

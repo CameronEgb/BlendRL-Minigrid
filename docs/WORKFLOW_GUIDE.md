@@ -79,45 +79,57 @@ Neural architectures are instantiated via `get_neural_agent` in `src/utils.py`.
 Experiments are structured hierarchically under `in/config/`:
 * `in/config/config.yaml`: The base configuration file defining defaults, paths, and SLURM defaults.
 * `in/config/agent/`, `in/config/env/`, `in/config/mode/`: Directory-specific defaults for algorithms, environments, and online/offline modes.
-* `in/config/experiment/`: Custom YAML files to run specific experiment setups.
+* `in/config/hydra/sweeper/`: Reusable Optuna sweeper templates (`optuna_offline.yaml`, `optuna_online.yaml`).
+* `in/config/experiment/`: Group subdirectories (`cartpole/`, `mimic/`, `pyrenees/`, `cew/`, `tuning/`, `early_prediction/`, `quick_tests/`).
 
 ### Creating an Experiment Configuration
-To specify a new run (e.g., `in/config/experiment/cp_new_run.yaml`):
+To specify a new run (e.g., `in/config/experiment/mimic/mimic_cql.yaml`):
 1. Add `# @package _global_` at the top of the file.
-2. Override configurations using the `defaults` section:
+2. Override configurations using the `defaults` section (offline defaults auto-set `total_timesteps: auto`, `intervals_count: 1`, and `save_dataset: false`):
     ```yaml
     # @package _global_
     defaults:
-      - override /env: cartpole
+      - mimic/_base
 
-    experiment_id: cp_new_run
-    group: my_research_group
-    total_timesteps: 100000
-    online_methods: ppo/cp_tuned
-    offline_methods: iql/cp_tuned
+    offline_methods: [cql/dnn]
     ```
-3. Use `++` in CLI commands to override parameters on the fly:
+3. Group defaults (`_base.yaml`), dataset resolution, and `experiment_id` are automatically handled.
+4. **Override Experiment ID** (to prevent overwriting saved results across multiple runs of the same config template):
     ```bash
-    python run_pipeline.py cp_new_run ++agent.lr=0.001 ++seed=2
+    python run_pipeline.py mimic_cql --exp-id mimic_run_2
+    # Or shorthand alias:
+    python run_pipeline.py cp_final -e cp_run_v2
+    # Or Hydra override:
+    python run_pipeline.py quick_test experiment_id=test_run_b
+    ```
+5. Validate your configuration before running:
+    ```bash
+    python run_pipeline.py mimic_cql --dry-run
+    # Both shorthand 'mimic_cql' and path 'mimic/mimic_cql' work seamlessly!
     ```
 
-### Creating Early Prediction Experiments
-Early prediction tasks (`early_prediction_sweep` or `early_prediction_eval`) can also be dispatched through Hydra:
-1. Create `in/config/experiment/my_early_pred.yaml`:
-    ```yaml
-    # @package _global_
-    defaults:
-      - override /env: mimic
+### Hyperparameter Tuning with Optuna Sweepers
+Sweeps inherit from group `_base` and `optuna_offline` / `optuna_online` so you only define search `params`:
+```yaml
+# @package _global_
+defaults:
+  - mimic/_base
+  - override /hydra/sweeper: optuna_offline
 
-    task: early_prediction_sweep
-    experiment_id: my_early_pred
-    group: early_prediction
+offline_methods: [cql/dnn]
 
-    early_prediction:
-      checkpoint: "results/checkpoints/mimic/tune_mimic_cql"
-      dataset_path: "in/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
-      output_dir: "results/plots/early_prediction"
-      tau_step: 5
+agent:
+  epochs_per_interval: 50
+  batch_size: 64
+
+hydra:
+  sweeper:
+    n_trials: 40
+    params:
+      agent.lr: interval(1e-4, 1e-3)
+      agent.cql_alpha: interval(0.1, 5.0)
+```
+Upon sweep completion, `run_pipeline.py` automatically identifies the winning trial, copies its checkpoint to `results/checkpoints/[group]/[exp_id]/[agent]/best_model.ckpt`, saves `best_params.yaml`, and executes downstream evaluation and plotting with the winning model.
       epochs: 20
     ```
 2. Run via `run_pipeline.py` (or cluster alias `run`):

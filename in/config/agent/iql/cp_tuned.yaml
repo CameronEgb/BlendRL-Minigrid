@@ -1,5 +1,5 @@
 defaults:
-  - /agent/iql_base
+  - /agent/iql/dnn
 
 # CartPole-specific IQL overrides
 name: iql_cp_tuned

@@ -1,0 +1,10 @@
+defaults:
+  - /agent/cql/dnn
+
+name: blendrl_cql_cew_only
+algorithm: blendrl_cql
+actor_mode: logic
+
+modules:
+  - type: cew
+    fyd: true

@@ -1,0 +1,20 @@
+defaults:
+  - /agent/ppo/blendrl_human_neural
+
+name: blendrl_multi_logic
+lr: 0.005
+logic_lr: 0.005
+blender_lr: 0.01
+ent_coef: 0.005
+blend_ent_coef: 0.005
+num_minibatches: 4
+update_epochs: 10
+clip_coef: 0.2
+modules:
+  - type: nsfr
+    rules: default
+  - type: nsfr
+    rules: variant1
+  - type: neural
+blender_mode: neural
+blend_function: softmax

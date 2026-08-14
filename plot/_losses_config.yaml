@@ -16,3 +16,4 @@ metrics:
   - losses/value_loss
   - losses/bellman_loss
   - losses/cql_loss
+  - losses/blend_entropy

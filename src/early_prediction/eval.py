@@ -202,20 +202,11 @@ def load_policy_agent(ckpt_path, device):
         getattr(sys.modules.get('omegaconf.dictconfig', None), 'DictConfig', None)
     ])
 
-    # Try CQL first (most common), fall back to BlendRLCQL
     try:
         from src.methods.cql_agent import CQLAgent
         agent = CQLAgent.load_from_checkpoint(str(ckpt_path), map_location=device, weights_only=False)
         agent.eval()
         return agent, "cql"
-    except Exception:
-        pass
-
-    try:
-        from src.methods.blendrl_cql_agent import BlendRLCQLAgent
-        agent = BlendRLCQLAgent.load_from_checkpoint(str(ckpt_path), map_location=device, weights_only=False)
-        agent.eval()
-        return agent, "blendrl_cql"
     except Exception as e:
         print(f"WARNING: Could not load checkpoint {ckpt_path}: {e}")
         return None, None

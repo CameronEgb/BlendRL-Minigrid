@@ -15,12 +15,14 @@ from src.method_registry import clean_label
 # Pipeline modules (extracted from this file for modularity)
 from src.pipeline.optuna_utils import (
     get_best_trial_id, get_python_executable,
-    launch_optuna_dashboard, delete_optuna_study, create_optuna_study
+    launch_optuna_dashboard, delete_optuna_study, create_optuna_study,
+    promote_best_trial_checkpoint
 )
-from src.pipeline.config import normalize_agent_name, parse_method_list
+from src.pipeline.config import normalize_agent_name, parse_method_list, resolve_experiment_config_name
 from src.pipeline.datasets import (
-    find_dataset_globally, run_experiment, run_plotting, run_early_prediction_eval
+    find_dataset_globally, resolve_dataset_path, run_experiment, run_plotting, run_early_prediction_eval
 )
+from src.pipeline.validation import validate_experiment_config
 from src.pipeline.slurm import get_gres_header, generate_sbatch_script, submit_sbatch
 
 
@@ -75,7 +77,7 @@ def run_early_prediction_task(cfg, args, local_val, sanitized_extra_args, storag
                 print(f"Executing: {' '.join(cmd)}")
                 res = subprocess.run(cmd)
                 if not args.no_plot and res.returncode == 0:
-                    run_plotting(args.experiment, style=args.plot_style)
+                    run_plotting(cfg.experiment_id, style=args.plot_style, base_experiment=args.experiment)
                 sys.exit(res.returncode)
             else:
                 slurm_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
@@ -191,7 +193,7 @@ date
                 print(f"Executing: {' '.join(cmd)}")
                 res = subprocess.run(cmd)
                 if not args.no_plot and res.returncode == 0:
-                    run_plotting(args.experiment, style=args.plot_style)
+                    run_plotting(cfg.experiment_id, style=args.plot_style, base_experiment=args.experiment)
                 sys.exit(res.returncode)
             else:
                 slurm_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
@@ -323,7 +325,7 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
             agent_name_internal = normalize_agent_name(agent_config)
             study_name = f"{cfg.experiment_id}_{agent_name_internal}"
             
-            dataset_path = f"in/datasets/{cfg.group}/{args.experiment}/{agent_name_internal}"
+            dataset_path = f"in/datasets/{cfg.group}/{cfg.experiment_id}/{agent_name_internal}"
             
             # Check if dataset already exists to skip training
             has_pkl = False
@@ -369,9 +371,8 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
             
             # After training, find the best trial ID if we were sweeping
             if is_sweep:
-                best_id = get_best_trial_id(storage_url, study_name)
+                best_id = promote_best_trial_checkpoint(cfg.group, cfg.experiment_id, agent_name_internal, storage_url, study_name)
                 best_online_trial_ids[agent_config] = best_id
-                print(f"Best trial for {agent_config} was ID: {best_id}")
             else:
                 best_online_trial_ids[agent_config] = "0"
     else:
@@ -383,34 +384,21 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
             dataset_name_internal = normalize_agent_name(dataset_id)
             
             best_id = best_online_trial_ids.get(dataset_id, "0")
-            best_trial_path = Path("in/datasets") / cfg.group / args.experiment / dataset_name_internal / best_id
+            best_trial_path = Path("in/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal / best_id
             yaml_ds_path = cfg.mode.get("dataset_path", None) if hasattr(cfg, "mode") else None
             if best_trial_path.exists() and any(best_trial_path.glob("*.pkl")):
                 dataset_path = best_trial_path
-            elif yaml_ds_path and Path(yaml_ds_path).exists():
-                dataset_path = Path(yaml_ds_path)
             else:
-                alt_path = Path("in/datasets") / cfg.group / args.experiment / dataset_name_internal
-                if alt_path.exists() and any(alt_path.glob("*.pkl")):
-                    dataset_path = alt_path
-                else:
-                    group_shared_path = Path("in/datasets") / cfg.group / dataset_name_internal
-                    if group_shared_path.exists() and any(group_shared_path.glob("*.pkl")):
-                        dataset_path = group_shared_path
-                    else:
-                        global_match = find_dataset_globally(dataset_name_internal)
-                        if global_match:
-                            dataset_path = Path(global_match)
-                        elif yaml_ds_path:
-                            dataset_path = Path(yaml_ds_path)
-                        else:
-                            print(f"Error: Dataset '{dataset_id}' not found at {best_trial_path} or globally.")
-                            sys.exit(1)
+                try:
+                    dataset_path = resolve_dataset_path(dataset_id, group=cfg.group, experiment_id=cfg.experiment_id, yaml_ds_path=yaml_ds_path)
+                except FileNotFoundError as e:
+                    print(f"Error: {e}")
+                    sys.exit(1)
             print(f"Using dataset from: {dataset_path}")
 
             for agent_config in offline_list:
                 agent_name_internal = normalize_agent_name(agent_config)
-                study_name = f"{args.experiment}_{agent_name_internal}_{dataset_name_internal}"
+                study_name = f"{cfg.experiment_id}_{agent_name_internal}_{dataset_name_internal}"
                 
                 print(f"\n=== Phase: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
                 dataset_path_override = any("mode.dataset_path=" in arg for arg in sanitized_extra_args)
@@ -430,6 +418,9 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
                     delete_optuna_study(storage_url, study_name)
                     
                 run_experiment(overrides)
+
+                if is_sweep:
+                    promote_best_trial_checkpoint(cfg.group, cfg.experiment_id, agent_name_internal, storage_url, study_name)
     else:
         print("\n=== Skipping Offline Training Phase ===")
 
@@ -639,7 +630,7 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
             
             for agent_config in offline_list:
                 agent_name_internal = normalize_agent_name(agent_config)
-                study_name = f"{args.experiment}_{agent_name_internal}_{dataset_name_internal}"
+                study_name = f"{cfg.experiment_id}_{agent_name_internal}_{dataset_name_internal}"
                 
                 print(f"\n=== Preparing Slurm Job: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
                 job_name = f"{agent_name_internal}_{dataset_name_internal}_{cfg.experiment_id}"
@@ -737,6 +728,7 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
 def main():
     parser = argparse.ArgumentParser(description="NeSyRL Unified Experiment Pipeline")
     parser.add_argument("experiment", type=str, help="Experiment name from in/config/experiment/")
+    parser.add_argument("-e", "--exp-id", "--experiment-id", dest="exp_id", type=str, default=None, help="Override experiment ID (run/output directory name to prevent overwriting)")
     parser.add_argument("--local", type=str, default=None, help="Force local run (true/false)")
     parser.add_argument("--partition", type=str, default="gpu", help="Slurm partition")
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs per job")
@@ -748,16 +740,24 @@ def main():
     parser.add_argument("--no-plot", action="store_true", help="Skip automatic plotting")
     parser.add_argument("--no-online", action="store_true", help="Skip online training phase")
     parser.add_argument("--no-offline", action="store_true", help="Skip offline training phase")
+    parser.add_argument("--dry-run", "--validate", dest="dry_run", action="store_true", help="Validate experiment configuration and exit without running")
     parser.add_argument("--dash", action="store_true", help="Launch the Optuna dashboard during the run")
     parser.add_argument("--dash-only", action="store_true", help="Launch the persistent dashboard and exit")
     parser.add_argument("--remake", action="store_true", help="Force recalculation and overwrite of early prediction summaries")
     args, extra_args = parser.parse_known_args()
+
+    # Resolve experiment config path (supporting group subdirectories like mimic/mimic_cql or mimic_cql)
+    args.experiment = resolve_experiment_config_name(args.experiment)
 
     # Prepare extra_args:
     # sanitized_extra_args -> passed to train.py
     # overrides_for_compose -> passed to hydra.compose to read the config
     sanitized_extra_args = []
     overrides_for_compose = [f"+experiment={args.experiment}"]
+
+    if args.exp_id:
+        sanitized_extra_args.append(f"++experiment_id={args.exp_id}")
+        overrides_for_compose.append(f"++experiment_id={args.exp_id}")
     
     for arg in extra_args:
         # Skip local overrides as it is explicitly handled by the parser/sbatch generator
@@ -788,9 +788,31 @@ def main():
         initialize(version_base=None, config_path="in/config")
         # return_hydra_config=True is REQUIRED to see the hydra.sweeper node
         cfg = compose(config_name="config", overrides=overrides_for_compose, return_hydra_config=True)
+        exp_stem = Path(args.experiment).stem
+        if args.exp_id:
+            cfg.experiment_id = args.exp_id
+        elif not cfg.get("experiment_id") or cfg.experiment_id == "default_exp":
+            cfg.experiment_id = exp_stem
+        if not any("experiment_id=" in arg for arg in sanitized_extra_args):
+            sanitized_extra_args.append(f"++experiment_id={cfg.experiment_id}")
     except Exception as e:
         print(f"Error loading configuration: {e}")
         sys.exit(1)
+
+    is_sweep = "--multirun" in sanitized_extra_args or "-m" in sanitized_extra_args
+
+    # Pre-flight validation
+    try:
+        notices = validate_experiment_config(cfg, args.experiment, is_sweep=is_sweep)
+        for n in notices:
+            print(f"[Config Notice] {n}")
+    except ValueError as e:
+        print(f"\n{e}\n")
+        sys.exit(1)
+
+    if args.dry_run:
+        print(f"\n[Validation Success] Experiment config '{args.experiment}' is valid and ready to run.")
+        sys.exit(0)
 
     # Determine execution mode (local vs slurm cluster)
     local_val = cfg.get("local", True)
@@ -801,7 +823,6 @@ def main():
 
     # Check for Optuna storage in the config
     storage_url = None
-    is_sweep = "--multirun" in sanitized_extra_args or "-m" in sanitized_extra_args
     
     if "hydra" in cfg and "sweeper" in cfg.hydra and "storage" in cfg.hydra.sweeper:
         storage_url = cfg.hydra.sweeper.storage
@@ -809,7 +830,7 @@ def main():
         
     if local_val and storage_url and (args.dash or args.dash_only):
         # Resolve interpolation if any
-        storage_url = storage_url.replace("${experiment_id}", args.experiment)
+        storage_url = storage_url.replace("${experiment_id}", cfg.experiment_id)
         launch_optuna_dashboard(storage_url)
         
         if args.dash_only:
@@ -875,7 +896,7 @@ def main():
     # 4. Plotting
     if not args.no_plot:
         if local_val:
-            run_plotting(args.experiment, style=args.plot_style)
+            run_plotting(cfg.experiment_id, style=args.plot_style, base_experiment=args.experiment)
         else:
             if not bundled_plot and job_ids:
 
@@ -889,6 +910,8 @@ def main():
                 
                 project_root = os.getcwd()
                 plot_cmd = f"{project_root}/venv/bin/python3 plot/manager.py {actual_exp_id}"
+                if args.experiment and args.experiment != actual_exp_id:
+                    plot_cmd += f" --experiment {args.experiment}"
                 if args.plot_style:
                     plot_cmd += f" --style {args.plot_style}"
                     

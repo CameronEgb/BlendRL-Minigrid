@@ -1,0 +1,7 @@
+defaults:
+  - /agent/cew/base
+
+name: cew_fyd
+algorithm: cew_fyd
+fyd: true
+fyd_top_k: 50

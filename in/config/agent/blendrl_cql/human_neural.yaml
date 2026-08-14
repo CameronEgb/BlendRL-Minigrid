@@ -1,9 +1,0 @@
-defaults:
-  - /agent/blendrl_cql_base
-
-algorithm: blendrl_cql
-
-modules:
-  - type: nsfr
-    rules: default
-  - type: neural

@@ -1,5 +1,0 @@
-defaults:
-  - /agent: blendrl/v10
-  - _self_
-
-update_epochs: 15

@@ -66,9 +66,10 @@ class BaseAgent(L.LightningModule, ABC):
     # Network Utilities
     # ──────────────────────────────────────────────
 
-    def _soft_update(self, model, target_model):
+    def _soft_update(self, model, target_model, tau: Optional[float] = None):
         """Polyak averaging for target network updates."""
-        tau = self.get_cfg("soft_target_tau", 0.005)
+        if tau is None:
+            tau = self.get_cfg("soft_target_tau", 0.005)
         for param, target_param in zip(model.parameters(), target_model.parameters()):
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
@@ -152,7 +153,8 @@ class OfflineAgentBase(BaseAgent):
         """
         datamodule = getattr(self.trainer, "datamodule", None)
         if datamodule is not None and hasattr(datamodule, "reader") and datamodule.reader is not None:
-            intervals_count = self.cfg.get("intervals_count", 1)
+            is_offline_only = getattr(self.cfg.env, "offline_only", False) or getattr(self.cfg.env, "name", "") in ["mimic", "pyrenees"]
+            intervals_count = 1 if is_offline_only else self.cfg.get("intervals_count", 1)
             if intervals_count > 1:
                 epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
                 current_interval = self.current_epoch // epochs_per_interval
@@ -165,7 +167,8 @@ class OfflineAgentBase(BaseAgent):
     def _log_offline_transitions(self):
         """Calculate and log the current transition count for offline training."""
         cfg = self.cfg
-        intervals_count = cfg.get("intervals_count", 1)
+        is_offline_only = getattr(cfg.env, "offline_only", False) or getattr(cfg.env, "name", "") in ["mimic", "pyrenees"]
+        intervals_count = 1 if is_offline_only else cfg.get("intervals_count", 1)
         if intervals_count > 1:
             epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
             current_interval = self.current_epoch // epochs_per_interval

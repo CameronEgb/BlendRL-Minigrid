@@ -12,7 +12,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 from src.methods.cql_agent import CQLAgent
-from src.methods.blendrl_cql_agent import BlendRLCQLAgent
 
 def evaluate_mimic_policies(exp_id="mimic_test", group="mimic", dataset_path=None):
     if dataset_path is None:
@@ -28,12 +27,17 @@ def evaluate_mimic_policies(exp_id="mimic_test", group="mimic", dataset_path=Non
     X = data['X']        # (N, 240, 49)
     mask = data['mask']  # (N, 240, 1)
 
-    valid_mask = (mask.squeeze(-1) != -1) # (N, 240)
-    all_obs = X[:, :, :46][valid_mask]    # (Total_Steps, 46)
-    all_clin_acts = X[:, :, 47][valid_mask].astype(int) # (Total_Steps,)
+    # 1. Clinician Baseline Metrics
+    # Filter valid timesteps using mask
+    valid_indices = np.where(mask[:, :, 0] == 1)
+    all_obs = X[valid_indices]  # (Total_Valid_Timesteps, 49)
+    all_clin_acts = all_obs[:, 46].astype(int)  # Action is column index 46
+    
+    # Binary intervention ground truth: 1 if action in (1, 2, 3) else 0
+    all_binary_targets = (all_clin_acts > 0).astype(int)
+    total_steps = len(all_obs)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-    total_steps = len(all_clin_acts)
     print(f"Loaded {total_steps} valid transitions.", flush=True)
 
     ckpt_root = Path("results/checkpoints") / group / exp_id
@@ -51,12 +55,11 @@ def evaluate_mimic_policies(exp_id="mimic_test", group="mimic", dataset_path=Non
 
     results = []
 
-    # 1. Clinician Baseline
-    clin_admin_rate = (all_clin_acts == 1).mean() * 100.0
     results.append({
-        "Method": "Clinician (Baseline)",
-        "Accuracy %": 100.0,
-        "Admin Rate %": float(clin_admin_rate),
+        "Method": "Clinician (Dataset)",
+        "Overall Agreement": 1.0000,
+        "Zero-Action Agreement": 1.0000,
+        "Intervention Agreement": 1.0000,
         "AUC-ROC": 1.0000,
         "AUPRC": 1.0000,
         "Precision": 1.0000,
@@ -70,13 +73,10 @@ def evaluate_mimic_policies(exp_id="mimic_test", group="mimic", dataset_path=Non
         print(f"Evaluating {method_name} from {ckpt_path}...", flush=True)
         agent = None
         try:
-            agent = BlendRLCQLAgent.load_from_checkpoint(str(ckpt_path), map_location=device, weights_only=False)
-        except Exception:
-            try:
-                agent = CQLAgent.load_from_checkpoint(str(ckpt_path), map_location=device, weights_only=False)
-            except Exception as e:
-                print(f"  Warning: Could not load checkpoint {ckpt_path}: {e}", flush=True)
-                continue
+            agent = CQLAgent.load_from_checkpoint(str(ckpt_path), map_location=device, weights_only=False)
+        except Exception as e:
+            print(f"  Warning: Could not load checkpoint {ckpt_path}: {e}", flush=True)
+            continue
 
         agent.to(device)
         agent.eval()

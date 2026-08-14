@@ -2,3 +2,6 @@ name: offline
 type: offline
 dataset_path: "${dataset_root}/ppo" # Default to using PPO data
 save_dataset: false
+intervals_count: 1
+total_timesteps: auto
+online_methods: []

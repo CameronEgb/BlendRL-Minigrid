@@ -37,32 +37,122 @@ class ReportsPlotter(BasePlotter):
         super().__init__("reports")
 
     def _find_hydra_config(self, group: str, exp_id: str, method: str) -> dict:
-        """Attempt to load the resolved Hydra config for a specific method run.
-        Searches the most recent hydra output directory that matches this experiment."""
+        """Attempt to load the resolved config for a specific method run from checkpoints, logs, or Hydra outputs."""
+        clean_exp = Path(exp_id).stem
+        norm_method = method.replace("/", "_")
+
+        # 1. Check method-specific checkpoint directory
+        ckpt_method_dir = Path("results/checkpoints") / group / clean_exp / norm_method
+        if ckpt_method_dir.exists():
+            for cfg_path in sorted(ckpt_method_dir.rglob("config.yaml")):
+                try:
+                    with open(cfg_path) as f:
+                        data = yaml.safe_load(f)
+                    if data and "agent" in data:
+                        return data
+                except Exception:
+                    pass
+
+        # 2. Check method-specific logs directory
+        log_method_dir = Path("results/logs") / group / clean_exp / norm_method
+        if log_method_dir.exists():
+            for cfg_path in sorted(log_method_dir.rglob("config.yaml")):
+                try:
+                    with open(cfg_path) as f:
+                        data = yaml.safe_load(f)
+                    if data and "agent" in data:
+                        return data
+                except Exception:
+                    pass
+
+            for hp_path in sorted(log_method_dir.rglob("hparams.yaml")):
+                try:
+                    with open(hp_path) as f:
+                        hp_data = yaml.safe_load(f)
+                    if hp_data:
+                        if "cfg" in hp_data and isinstance(hp_data["cfg"], dict) and "agent" in hp_data["cfg"]:
+                            return hp_data["cfg"]
+                        if "agent" in hp_data:
+                            return hp_data
+                except Exception:
+                    pass
+
+        # 3. Check experiment root configs
+        for root_cand in [
+            Path("results/checkpoints") / group / clean_exp / "config.yaml",
+            Path("results/logs") / group / clean_exp / "config.yaml"
+        ]:
+            if root_cand.exists():
+                try:
+                    with open(root_cand) as f:
+                        data = yaml.safe_load(f)
+                    if data and "agent" in data:
+                        return data
+                except Exception:
+                    pass
+
+        # 4. Check in/config/agent/ directly
+        for agent_file in Path("in/config/agent").rglob("*.yaml"):
+            try:
+                with open(agent_file) as f:
+                    data = yaml.safe_load(f)
+                if data and (data.get("name") == norm_method or agent_file.stem == norm_method):
+                    return {"agent": data}
+            except Exception:
+                pass
+
+        # 5. Search recent Hydra outputs
         hydra_base = Path("results/hydra/outputs")
-        if not hydra_base.exists():
+        if hydra_base.exists():
+            for date_dir in sorted(hydra_base.iterdir(), reverse=True):
+                if not date_dir.is_dir():
+                    continue
+                for time_dir in sorted(date_dir.iterdir(), reverse=True):
+                    cfg_path = time_dir / ".hydra" / "config.yaml"
+                    if cfg_path.exists():
+                        try:
+                            with open(cfg_path) as f:
+                                run_cfg = yaml.safe_load(f) or {}
+                            exp_matches = (
+                                run_cfg.get("experiment_id") in (exp_id, clean_exp) or
+                                run_cfg.get("group") == group
+                            )
+                            agent_name = run_cfg.get("agent", {}).get("name", "")
+                            if exp_matches and (agent_name in (method, norm_method) or not agent_name):
+                                return run_cfg
+                        except Exception:
+                            continue
+        return {}
+
+    def _extract_agent_params(self, hydra_cfg: dict) -> dict:
+        """Extracts and flattens agent hyperparameters into a clean key-value dictionary."""
+        if not hydra_cfg:
             return {}
 
-        # Walk date dirs in reverse chronological order
-        for date_dir in sorted(hydra_base.iterdir(), reverse=True):
-            if not date_dir.is_dir():
-                continue
-            for time_dir in sorted(date_dir.iterdir(), reverse=True):
-                cfg_path = time_dir / ".hydra" / "config.yaml"
-                if cfg_path.exists():
-                    try:
-                        with open(cfg_path) as f:
-                            run_cfg = yaml.safe_load(f) or {}
-                        # Check if this run matches our experiment and method
-                        if (run_cfg.get("experiment_id") == exp_id and
-                                run_cfg.get("agent", {}).get("name", "") == method):
-                            return run_cfg
-                    except Exception:
-                        continue
-        return {}
+        agent_cfg = hydra_cfg.get("agent", {})
+        if not isinstance(agent_cfg, dict):
+            return {}
+
+        params = {}
+        # Unpack nested agent if present (e.g. agent.agent.cql)
+        if "agent" in agent_cfg and isinstance(agent_cfg["agent"], dict):
+            sub = agent_cfg["agent"]
+            for k, v in sub.items():
+                if isinstance(v, dict):
+                    for sub_k, sub_v in v.items():
+                        params[sub_k] = sub_v
+                else:
+                    params[k] = v
+
+        for k, v in agent_cfg.items():
+            if k not in ("agent", "_target_"):
+                params[k] = v
+
+        return params
 
     def run(self, exp_id: str, cli_overrides: Optional[dict] = None):
         cfg, group, output_dir = self.get_effective_config(exp_id, cli_overrides)
+        clean_exp = Path(exp_id).stem
         runs_data = self.load_metrics(group, exp_id)
         if not runs_data:
             return
@@ -80,59 +170,87 @@ class ReportsPlotter(BasePlotter):
         if cfg.get("include_hyperparameters", True):
             hp_path = output_dir / "hyperparameters_report.md"
             with open(hp_path, "w") as f:
-                f.write(f"# Hyperparameter Report: {exp_id}\n\n")
+                f.write(f"# Hyperparameter Report: {clean_exp}\n\n")
                 for method, versions in sorted(runs_data.items()):
                     f.write(f"## {clean_label(method)} (`{method}`)\n\n")
 
-                    # Try to load actual hyperparameters from Hydra config
+                    # Try to load actual hyperparameters from config
                     hydra_cfg = self._find_hydra_config(group, exp_id, method)
-                    agent_cfg = hydra_cfg.get("agent", {})
+                    agent_params = self._extract_agent_params(hydra_cfg)
 
-                    if agent_cfg:
+                    if agent_params:
                         # Extract key hyperparameters
-                        hp_keys = ["lr", "gamma", "tau", "beta", "cql_alpha",
-                                   "batch_size", "hidden_sizes", "epochs_per_interval",
-                                   "blend_ent_coef", "logic_lr", "actor_mode", "blender_mode"]
+                        hp_keys = [
+                            "algorithm", "lr", "learning_rate", "gamma", "batch_size",
+                            "cql_alpha", "soft_target_tau", "tau", "beta", "epochs_per_interval",
+                            "eval_interval_epochs", "actor_mode", "blender_mode", "blend_function",
+                            "modules", "hidden_sizes", "ecm_dthr", "fyd", "fyd_top_k"
+                        ]
                         f.write("| Parameter | Value |\n")
                         f.write("| --- | --- |\n")
+                        written_keys = set()
                         for key in hp_keys:
-                            if key in agent_cfg and agent_cfg[key] is not None:
-                                f.write(f"| `{key}` | `{agent_cfg[key]}` |\n")
-                        # Also include any remaining agent config keys not in the standard list
-                        extra_keys = set(agent_cfg.keys()) - set(hp_keys) - {"name", "modules", "_target_"}
+                            if key in agent_params and agent_params[key] is not None:
+                                val = agent_params[key]
+                                if key == "modules" and isinstance(val, list):
+                                    # Format module list nicely
+                                    mod_strs = []
+                                    for m in val:
+                                        if isinstance(m, dict):
+                                            m_type = m.get("type", "module")
+                                            m_rules = m.get("rules", "")
+                                            mod_strs.append(f"{m_type} (rules: {m_rules})" if m_rules else m_type)
+                                        else:
+                                            mod_strs.append(str(m))
+                                    f.write(f"| `{key}` | `{', '.join(mod_strs)}` |\n")
+                                else:
+                                    f.write(f"| `{key}` | `{val}` |\n")
+                                written_keys.add(key)
+
+                        # Include any remaining parameters
+                        extra_keys = set(agent_params.keys()) - set(hp_keys) - {"name", "_target_"}
                         for key in sorted(extra_keys):
-                            val = agent_cfg[key]
+                            val = agent_params[key]
                             if val is not None and not isinstance(val, (dict, list)):
                                 f.write(f"| `{key}` | `{val}` |\n")
                         f.write("\n")
                     else:
-                        f.write("_No Hydra config found for this run._\n\n")
+                        f.write("_No configuration found for this run._\n\n")
 
             print(f"  Saved: {hp_path}")
 
         if cfg.get("include_time_report", True):
-            time_path = output_dir / "time_report.md"
             time_csv_path = output_dir / "time_report.csv"
+            # Remove legacy markdown time report if present
+            old_time_md = output_dir / "time_report.md"
+            if old_time_md.exists():
+                try:
+                    old_time_md.unlink()
+                except Exception:
+                    pass
 
             timing_rows = []
 
             for method, versions in sorted(runs_data.items()):
                 method_label = clean_label(method)
+                norm_method = method.replace("/", "_")
                 times = []
                 gpu_device = None
                 peak_vram = None
 
                 for v_name, df in sorted(versions.items()):
                     t_sec = None
-                    # 1. Try loading from runtime.json
-                    v_log_dir = Path("results/logs") / group / exp_id / method / v_name
-                    v_ckpt_dir = Path("results/checkpoints") / group / exp_id / method / v_name.replace("version_", "")
+                    # 1. Try loading from runtime.json in version log or checkpoint
+                    v_log_dir = Path("results/logs") / group / clean_exp / norm_method / v_name
+                    v_num = v_name.replace("version_", "")
+                    v_ckpt_dir = Path("results/checkpoints") / group / clean_exp / norm_method / v_num
 
                     json_candidates = [
                         v_log_dir / "runtime.json",
                         v_ckpt_dir / "runtime.json",
-                        Path("results/logs") / group / exp_id / method / "runtime.json",
-                        Path("results/checkpoints") / group / exp_id / method / "runtime.json"
+                        Path("results/logs") / group / clean_exp / norm_method / "runtime.json",
+                        Path("results/checkpoints") / group / clean_exp / norm_method / "runtime.json",
+                        Path("results/checkpoints") / group / clean_exp / norm_method / "0" / "runtime.json",
                     ]
 
                     for json_path in json_candidates:
@@ -158,6 +276,27 @@ class ReportsPlotter(BasePlotter):
 
                     if t_sec is not None and t_sec > 0:
                         times.append((v_name, t_sec))
+
+                # If no times found per-version, check all runtime.json under checkpoint/log dirs
+                if not times:
+                    for scan_dir in [
+                        Path("results/checkpoints") / group / clean_exp / norm_method,
+                        Path("results/logs") / group / clean_exp / norm_method
+                    ]:
+                        if scan_dir.exists():
+                            for r_json in sorted(scan_dir.rglob("runtime.json")):
+                                try:
+                                    with open(r_json) as jf:
+                                        rdata = json.load(jf)
+                                        t_sec = float(rdata.get("training_time_seconds", 0.0))
+                                        if "gpu_device" in rdata and not gpu_device:
+                                            gpu_device = rdata["gpu_device"]
+                                        if "gpu_peak_alloc_gb" in rdata and (peak_vram is None or rdata["gpu_peak_alloc_gb"] > peak_vram):
+                                            peak_vram = float(rdata["gpu_peak_alloc_gb"])
+                                        if t_sec > 0:
+                                            times.append((r_json.parent.name, t_sec))
+                                except Exception:
+                                    pass
 
                 if times:
                     avg_time = sum(t for _, t in times) / len(times)
@@ -186,39 +325,21 @@ class ReportsPlotter(BasePlotter):
 
             has_gpu_data = any(row["peak_vram_gb"] is not None for row in timing_rows)
 
-            with open(time_path, "w") as f:
-                f.write(f"# Execution Time & Resource Report: {exp_id}\n\n")
+            csv_records = []
+            for row in timing_rows:
+                csv_rec = {
+                    "Method": row['method'],
+                    "Raw_Method": row['method_raw'],
+                    "Runs": row['num_runs'],
+                    "Avg_Time_Seconds": row['avg_time_sec'] if row['avg_time_sec'] is not None else "",
+                    "Formatted_Time": row['formatted_avg']
+                }
                 if has_gpu_data:
-                    f.write("| Method | Runs | Avg Training Time (s) | Formatted Time | Peak VRAM | GPU Device |\n")
-                    f.write("| --- | --- | --- | --- | --- | --- |\n")
-                else:
-                    f.write("| Method | Runs | Avg Training Time (s) | Formatted Time |\n")
-                    f.write("| --- | --- | --- | --- |\n")
-
-                csv_records = []
-                for row in timing_rows:
-                    time_str = f"{row['avg_time_sec']:.2f}" if row['avg_time_sec'] is not None else "N/A"
-                    vram_str = f"{row['peak_vram_gb']:.2f} GB" if row['peak_vram_gb'] is not None else "N/A"
-                    if has_gpu_data:
-                        f.write(f"| `{row['method']}` | {row['num_runs']} | {time_str} | {row['formatted_avg']} | {vram_str} | {row['gpu_device']} |\n")
-                    else:
-                        f.write(f"| `{row['method']}` | {row['num_runs']} | {time_str} | {row['formatted_avg']} |\n")
-
-                    csv_rec = {
-                        "Method": row['method'],
-                        "Raw_Method": row['method_raw'],
-                        "Runs": row['num_runs'],
-                        "Avg_Time_Seconds": row['avg_time_sec'] if row['avg_time_sec'] is not None else "",
-                        "Formatted_Time": row['formatted_avg']
-                    }
-                    if has_gpu_data:
-                        csv_rec["Peak_VRAM_GB"] = row['peak_vram_gb'] if row['peak_vram_gb'] is not None else ""
-                        csv_rec["GPU_Device"] = row['gpu_device']
-                    csv_records.append(csv_rec)
-                f.write("\n")
+                    csv_rec["Peak_VRAM_GB"] = row['peak_vram_gb'] if row['peak_vram_gb'] is not None else ""
+                    csv_rec["GPU_Device"] = row['gpu_device']
+                csv_records.append(csv_rec)
 
             pd.DataFrame(csv_records).to_csv(time_csv_path, index=False)
-            print(f"  Saved: {time_path}")
             print(f"  Saved: {time_csv_path}")
 
 if __name__ == "__main__":

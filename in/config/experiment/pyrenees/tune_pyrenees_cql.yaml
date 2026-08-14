@@ -1,0 +1,14 @@
+# @package _global_
+defaults:
+  - pyrenees/_base
+  - override /hydra/sweeper: optuna_offline
+
+experiment_id: tune_pyrenees_cql
+
+hydra:
+  sweeper:
+    n_trials: 30
+    params:
+      agent.lr: interval(1e-4, 1e-3)
+      agent.cql_alpha: interval(0.1, 5.0)
+      agent.soft_target_tau: interval(0.001, 0.05)

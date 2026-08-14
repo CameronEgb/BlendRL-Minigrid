@@ -1,9 +1,0 @@
-defaults:
-  - /agent/blendrl_iql_base
-
-lr: 0.01
-logic_lr: 0.01
-blender_lr: 0.01
-modules:
-  - type: neural
-blender_mode: neural

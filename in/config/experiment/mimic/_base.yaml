@@ -1,0 +1,22 @@
+# @package _global_
+defaults:
+  - override /env: mimic
+  - override /agent: cql/dnn
+  - override /mode: offline
+
+group: mimic
+offline_datasets: [mimic_lazy_0_interventions_balanced]
+offline_methods: [cql/dnn, cql/blendrl_human_neural, cql/blendrl_human_cew, cew/fyd]
+
+agent:
+  batch_size: 256
+  lr: 3e-4
+  cql_alpha: 1.0
+  epochs_per_interval: 50
+  eval_interval_epochs: 10
+
+plots:
+  losses:
+    metrics: ["losses/total_loss", "losses/bellman_loss", "losses/cql_loss", "losses/entropy", "losses/blend_entropy"]
+  policy_eval: {}
+  reports: {}

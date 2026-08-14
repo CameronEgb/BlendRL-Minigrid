@@ -1,9 +1,0 @@
-name: cew_fyd
-algorithm: cew_fyd
-lr: 1e-4
-batch_size: 64
-epochs_per_interval: 100
-ecm_dthr: 0.4
-cql_alpha: 0.5
-soft_target_tau: 0.005
-fyd_top_k: 50
