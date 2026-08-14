@@ -383,8 +383,13 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
             dataset_name_internal = normalize_agent_name(dataset_id)
             
             best_id = best_online_trial_ids.get(dataset_id, "0")
-            dataset_path = Path("in/datasets") / cfg.group / args.experiment / dataset_name_internal / best_id
-            if not dataset_path.exists():
+            best_trial_path = Path("in/datasets") / cfg.group / args.experiment / dataset_name_internal / best_id
+            yaml_ds_path = cfg.mode.get("dataset_path", None) if hasattr(cfg, "mode") else None
+            if best_trial_path.exists() and any(best_trial_path.glob("*.pkl")):
+                dataset_path = best_trial_path
+            elif yaml_ds_path and Path(yaml_ds_path).exists():
+                dataset_path = Path(yaml_ds_path)
+            else:
                 alt_path = Path("in/datasets") / cfg.group / args.experiment / dataset_name_internal
                 if alt_path.exists() and any(alt_path.glob("*.pkl")):
                     dataset_path = alt_path
@@ -396,8 +401,10 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
                         global_match = find_dataset_globally(dataset_name_internal)
                         if global_match:
                             dataset_path = Path(global_match)
+                        elif yaml_ds_path:
+                            dataset_path = Path(yaml_ds_path)
                         else:
-                            print(f"Error: Dataset '{dataset_id}' not found at {dataset_path} or globally.")
+                            print(f"Error: Dataset '{dataset_id}' not found at {best_trial_path} or globally.")
                             sys.exit(1)
             print(f"Using dataset from: {dataset_path}")
 
@@ -496,15 +503,25 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
         if not args.no_offline:
             for dataset_id in dataset_list:
                 dataset_name_internal = normalize_agent_name(dataset_id)
-                dataset_path = Path("in/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
-                if not (dataset_path.exists() and any(dataset_path.glob("*.pkl"))):
-                    group_shared_path = Path("in/datasets") / cfg.group / dataset_name_internal
-                    if group_shared_path.exists() and any(group_shared_path.glob("*.pkl")):
+                yaml_ds_path = cfg.mode.get("dataset_path", None) if hasattr(cfg, "mode") else None
+                exp_ds_path = Path("in/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
+                group_shared_path = Path("in/datasets") / cfg.group / dataset_name_internal
+                if exp_ds_path.exists() and any(exp_ds_path.glob("*.pkl")):
+                    dataset_path = exp_ds_path
+                elif yaml_ds_path and Path(yaml_ds_path).exists() and any(Path(yaml_ds_path).glob("*.pkl")):
+                    dataset_path = Path(yaml_ds_path)
+                elif group_shared_path.exists() and any(group_shared_path.glob("*.pkl")):
+                    dataset_path = group_shared_path
+                else:
+                    global_match = find_dataset_globally(dataset_name_internal)
+                    if global_match:
+                        dataset_path = Path(global_match)
+                    elif yaml_ds_path:
+                        dataset_path = Path(yaml_ds_path)
+                    elif group_shared_path.exists():
                         dataset_path = group_shared_path
                     else:
-                        global_match = find_dataset_globally(dataset_name_internal)
-                        if global_match:
-                            dataset_path = Path(global_match)
+                        dataset_path = exp_ds_path
 
                 for agent_config in offline_list:
                     agent_name_internal = normalize_agent_name(agent_config)
@@ -688,15 +705,25 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                     script_content += f"echo \"Using dataset: $D_PATH\"\n"
                     script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} ++mode.dataset_path=$D_PATH\n"
                 else:
-                    dataset_path = Path("in/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
-                    if not (dataset_path.exists() and any(dataset_path.glob("*.pkl"))):
-                        group_shared_path = Path("in/datasets") / cfg.group / dataset_name_internal
-                        if group_shared_path.exists() and any(group_shared_path.glob("*.pkl")):
+                    yaml_ds_path = cfg.mode.get("dataset_path", None) if hasattr(cfg, "mode") else None
+                    exp_ds_path = Path("in/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
+                    group_shared_path = Path("in/datasets") / cfg.group / dataset_name_internal
+                    if exp_ds_path.exists() and any(exp_ds_path.glob("*.pkl")):
+                        dataset_path = exp_ds_path
+                    elif yaml_ds_path and Path(yaml_ds_path).exists() and any(Path(yaml_ds_path).glob("*.pkl")):
+                        dataset_path = Path(yaml_ds_path)
+                    elif group_shared_path.exists() and any(group_shared_path.glob("*.pkl")):
+                        dataset_path = group_shared_path
+                    else:
+                        global_match = find_dataset_globally(dataset_name_internal)
+                        if global_match:
+                            dataset_path = Path(global_match)
+                        elif yaml_ds_path:
+                            dataset_path = Path(yaml_ds_path)
+                        elif group_shared_path.exists():
                             dataset_path = group_shared_path
                         else:
-                            global_match = find_dataset_globally(dataset_name_internal)
-                            if global_match:
-                                dataset_path = Path(global_match)
+                            dataset_path = exp_ds_path
                     overrides_slurm.append(f"++mode.dataset_path={dataset_path}")
                     overrides_slurm += sanitized_extra_args
                     script_content = generate_sbatch_script(

@@ -128,6 +128,23 @@ class DatasetReader:
             if p.exists():
                 self.files.extend(sorted(list(p.glob("*.pkl"))))
         
+        # Self-healing: if no PKL chunks found, check if a matching NPZ file exists to auto-convert
+        if not self.files:
+            import subprocess
+            for d in dataset_dirs:
+                p = Path(d)
+                npz_candidate = p.with_suffix(".npz")
+                if not npz_candidate.exists():
+                    npz_candidate = p.parent / f"{p.name}.npz"
+                if npz_candidate.exists():
+                    print(f"\n[DatasetReader] Detected NPZ dataset '{npz_candidate}' with no PKL chunks.")
+                    print(f"[DatasetReader] Auto-converting NPZ to PKL format at '{p}'...")
+                    script_path = Path(__file__).resolve().parent.parent / "scripts" / "convert_npz_to_pkl.py"
+                    subprocess.run([sys.executable, str(script_path), str(npz_candidate)], check=True)
+                    if p.exists():
+                        self.files.extend(sorted(list(p.glob("*.pkl"))))
+                    break
+
         if not self.files:
             print(f"Warning: No dataset files found in {dataset_dirs}")
 

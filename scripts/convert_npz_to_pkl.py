@@ -27,26 +27,32 @@ if not datasets_dir or not os.path.exists(datasets_dir):
             datasets_dir = candidate
             break
 
-# Select NPZ file (default to balanced dataset)
-npz_filename = os.environ.get("MIMIC_DATASET_NAME", "mimic_lazy_0_interventions_balanced.npz")
+# Select NPZ file
+npz_path = None
 if len(sys.argv) > 1:
-    npz_filename = sys.argv[1]
+    arg_target = sys.argv[1]
+    if os.path.exists(arg_target):
+        npz_path = os.path.abspath(arg_target)
+    elif os.path.exists(os.path.join(datasets_dir, arg_target)):
+        npz_path = os.path.join(datasets_dir, arg_target)
 
-npz_path = os.path.join(datasets_dir, npz_filename)
-if not os.path.exists(npz_path):
-    # Fallback to alternate filenames if default doesn't exist
-    for alt in ["mimic_lazy_0_interventions_balanced.npz", "mimic_lazy_0_interventions_flag.npz", "mimic_lazy_12_clean_with_interventions_corrected.npz", "mimic_expert_demonstrations.npz"]:
-        alt_p = os.path.join(datasets_dir, alt)
-        if os.path.exists(alt_p):
-            npz_path = alt_p
-            break
+if not npz_path:
+    npz_filename = os.environ.get("MIMIC_DATASET_NAME", "mimic_lazy_0_interventions_balanced.npz")
+    npz_path = os.path.join(datasets_dir, npz_filename)
+    if not os.path.exists(npz_path):
+        # Fallback to alternate filenames if default doesn't exist
+        for alt in ["mimic_lazy_0_interventions_balanced.npz", "mimic_lazy_0_interventions_flag.npz", "mimic_lazy_12_clean_with_interventions_corrected.npz", "mimic_expert_demonstrations.npz"]:
+            alt_p = os.path.join(datasets_dir, alt)
+            if os.path.exists(alt_p):
+                npz_path = alt_p
+                break
 
-if not os.path.exists(npz_path):
+if not npz_path or not os.path.exists(npz_path):
     print(f"Error: NPZ dataset not found at {npz_path}")
     sys.exit(1)
 
 npz_stem = Path(npz_path).stem
-out_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), f"../in/datasets/mimic/{npz_stem}"))
+out_dir = str(Path(npz_path).parent / npz_stem)
 
 print(f"Loading NPZ dataset from {npz_path}...")
 data = np.load(npz_path, allow_pickle=True)
