@@ -951,7 +951,7 @@ def main():
                         f.write(f"{jid}\n")
             
             ran_methods = []
-            for m in online_methods + offline_methods:
+            for m in online_list + offline_list:
                 cl = clean_label(normalize_agent_name(m))
                 if cl not in ran_methods:
                     ran_methods.append(cl)
