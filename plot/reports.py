@@ -69,6 +69,14 @@ class ReportsPlotter(BasePlotter):
 
         print(f"=== Generating Markdown Reports for '{exp_id}' ===")
 
+        # Clean up legacy markdown comparison report if present
+        old_report = output_dir / "methods_comparison_report.md"
+        if old_report.exists():
+            try:
+                old_report.unlink()
+            except Exception:
+                pass
+
         if cfg.get("include_hyperparameters", True):
             hp_path = output_dir / "hyperparameters_report.md"
             with open(hp_path, "w") as f:
