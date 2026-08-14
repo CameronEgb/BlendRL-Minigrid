@@ -60,16 +60,11 @@ def marker(name: str) -> str:
 
 
 def resolve_mimic_dataset(args):
-    """Resolve the MIMIC .npz dataset path from args or standard fallback locations."""
+    """Resolve the MIMIC .npz dataset path from args or standard dataset directories."""
     if args.dataset_path and os.path.exists(args.dataset_path):
         return os.path.abspath(args.dataset_path)
 
     fname = os.path.basename(args.dataset_path) if args.dataset_path else args.dataset_name
-    candidate_names = [fname]
-    for alt in ["mimic_lazy_0_interventions_balanced.npz", "mimic_lazy_0_interventions_flag.npz", "mimic_lazy_12_clean_with_interventions_corrected.npz", "mimic_lazy_12_clean_with_interventions.npz", "mimic_lazy_12_clean.npz"]:
-        if alt not in candidate_names:
-            candidate_names.append(alt)
-
     candidate_dirs = [
         os.path.join(os.getcwd(), "in/datasets/mimic"),
         os.path.join(os.getcwd(), "in/datasets/MIMIC 2"),
@@ -83,16 +78,15 @@ def resolve_mimic_dataset(args):
         "/mnt/beegfs/cegbert/NeSyRL/in/datasets",
     ]
 
-    for c_name in candidate_names:
-        for c_dir in candidate_dirs:
-            cand = os.path.join(c_dir, c_name)
-            if os.path.exists(cand):
-                return os.path.abspath(cand)
+    for c_dir in candidate_dirs:
+        cand = os.path.join(c_dir, fname)
+        if os.path.exists(cand):
+            return os.path.abspath(cand)
 
     raise FileNotFoundError(
-        f"MIMIC dataset '{fname}' not found in any standard location. "
-        f"Tried candidate names: {candidate_names}"
+        f"MIMIC dataset '{fname}' not found in any standard location: {candidate_dirs}"
     )
+
 
 
 

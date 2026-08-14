@@ -39,13 +39,6 @@ if len(sys.argv) > 1:
 if not npz_path:
     npz_filename = os.environ.get("MIMIC_DATASET_NAME", "mimic_lazy_0_interventions_balanced.npz")
     npz_path = os.path.join(datasets_dir, npz_filename)
-    if not os.path.exists(npz_path):
-        # Fallback to alternate filenames if default doesn't exist
-        for alt in ["mimic_lazy_0_interventions_balanced.npz", "mimic_lazy_0_interventions_flag.npz", "mimic_lazy_12_clean_with_interventions_corrected.npz", "mimic_expert_demonstrations.npz"]:
-            alt_p = os.path.join(datasets_dir, alt)
-            if os.path.exists(alt_p):
-                npz_path = alt_p
-                break
 
 if not npz_path or not os.path.exists(npz_path):
     print(f"Error: NPZ dataset not found at {npz_path}")
