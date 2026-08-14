@@ -35,6 +35,10 @@ def moving_average(a: np.ndarray, n: int = 5) -> np.ndarray:
 
 def deep_update(source: dict, overrides: dict) -> dict:
     """Recursively updates dictionary source with overrides."""
+    if source is None:
+        source = {}
+    if overrides is None or not isinstance(overrides, dict):
+        return dict(source)
     result = dict(source)
     for key, value in overrides.items():
         if isinstance(value, dict) and key in result and isinstance(result[key], dict):
@@ -42,6 +46,40 @@ def deep_update(source: dict, overrides: dict) -> dict:
         else:
             result[key] = value
     return result
+
+def get_canonical_method_name(name: str) -> str:
+    """Map method aliases to canonical registered name."""
+    name = str(name).replace("/", "_")
+    alias_map = {
+        "blendrl_cql_human_neural": "cql_blendrl_human_neural",
+        "blendrl_cql_human_cew": "cql_blendrl_human_cew",
+        "blendrl_cql_cew_only": "cql_blendrl_cew_only",
+        "blendrl_iql_human_neural": "iql_blendrl_human_neural",
+        "blendrl_ppo_human_neural": "ppo_blendrl_human_neural",
+        "cql": "cql_dnn",
+        "iql": "iql_dnn",
+        "ppo": "ppo_dnn",
+    }
+    return alias_map.get(name, name)
+
+def get_method_aliases(name: str) -> set:
+    """Return all known aliases for a given method name."""
+    canon = get_canonical_method_name(name)
+    raw = str(name).replace("/", "_")
+    aliases = {name, canon, raw}
+    if "cql_blendrl_" in canon:
+        aliases.add(canon.replace("cql_blendrl_", "blendrl_cql_"))
+    elif "blendrl_cql_" in canon:
+        aliases.add(canon.replace("blendrl_cql_", "cql_blendrl_"))
+    if canon == "cql_dnn":
+        aliases.add("cql")
+    elif canon == "cql":
+        aliases.add("cql_dnn")
+    if canon == "iql_dnn":
+        aliases.add("iql")
+    elif canon == "ppo_dnn":
+        aliases.add("ppo")
+    return aliases
 
 class BasePlotter:
     name: str = "base"
@@ -212,40 +250,49 @@ class BasePlotter:
             return {}
 
         exp_cfg = self.get_experiment_config(exp_id)
-        active_methods = set()
+        active_aliases = set()
+        has_active_filter = False
         for key in ["online_methods", "offline_methods"]:
             val = exp_cfg.get(key, [])
             if val:
+                has_active_filter = True
                 if isinstance(val, (list, tuple)):
                     methods = list(val)
                 else:
                     methods = [item.strip() for item in str(val).split(",") if item.strip()]
                 for m in methods:
-                    active_methods.add(str(m).replace("/", "_"))
+                    active_aliases.update(get_method_aliases(m))
 
         results = {}
-        for method_dir in exp_dir.iterdir():
+        for method_dir in sorted(exp_dir.iterdir()):
             if not method_dir.is_dir():
                 continue
-            method_name = method_dir.name
-            if active_methods and method_name not in active_methods:
+            raw_method_name = method_dir.name
+            if has_active_filter and raw_method_name not in active_aliases:
                 continue
-            results[method_name] = {}
-            
+
+            canon_name = get_canonical_method_name(raw_method_name)
+            if canon_name not in results:
+                results[canon_name] = {}
+
             # Check version_X subdirectories
-            version_dirs = [d for d in method_dir.glob("version_*") if d.is_dir()]
+            version_dirs = sorted([d for d in method_dir.glob("version_*") if d.is_dir()])
             if not version_dirs:
                 version_dirs = [method_dir]
-                
+
             for v_dir in version_dirs:
                 csv_path = v_dir / "metrics.csv"
                 if csv_path.exists():
                     try:
                         df = pd.read_csv(csv_path)
-                        results[method_name][v_dir.name] = df
+                        if not df.empty:
+                            v_key = f"{raw_method_name}_{v_dir.name}" if canon_name in results and v_dir.name in results[canon_name] else v_dir.name
+                            results[canon_name][v_key] = df
                     except Exception as e:
                         print(f"Error reading {csv_path}: {e}")
-        return results
+
+        # Filter out empty method entries
+        return {k: v for k, v in results.items() if v}
 
     def plot_metric_series(self, exp_id: str, group: str, output_dir: Path, 
                            metrics: list, cfg: dict):

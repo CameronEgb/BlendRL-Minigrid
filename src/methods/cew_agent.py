@@ -200,6 +200,37 @@ class CEWAgent(OfflineAgentBase):
         # Dummy optimizer to satisfy Lightning until self_organize is called
         return optim.Adam([torch.zeros(1, requires_grad=True)], lr=1e-4)
 
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        checkpoint["cew_rules"] = self.rules
+        checkpoint["cew_antecedents"] = self.antecedents
+        checkpoint["cew_self_organized"] = self.self_organized
+
+    def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        sd = checkpoint.get("state_dict", {})
+        if "cew_rules" in checkpoint and checkpoint["cew_rules"] is not None and "cew_antecedents" in checkpoint:
+            self.rules = checkpoint["cew_rules"]
+            self.antecedents = checkpoint["cew_antecedents"]
+            self.self_organized = checkpoint.get("cew_self_organized", True)
+            n_in = self.observation_space[0] if hasattr(self, "observation_space") and len(self.observation_space) > 0 else 46
+            self.fuzzy_model = MultiFLC(
+                n_inputs=n_in,
+                n_outputs=self.n_actions,
+                antecedents=self.antecedents,
+                rules=self.rules,
+                learning_rate=self.lr,
+                cql_alpha=self.get_cfg("cql_alpha", 1.0)
+            ).to("cpu")
+            self.target_fuzzy_model = MultiFLC(
+                n_inputs=n_in,
+                n_outputs=self.n_actions,
+                antecedents=self.antecedents,
+                rules=self.rules
+            ).to("cpu")
+        elif "fuzzy_model.flcs.0.links" in sd:
+            self.fuzzy_model = MultiFLC.from_state_dict_shapes("fuzzy_model.", sd, self.n_actions).to("cpu")
+            self.target_fuzzy_model = MultiFLC.from_state_dict_shapes("target_fuzzy_model.", sd, self.n_actions).to("cpu")
+            self.self_organized = True
+
     def get_action_and_value(self, obs, logic_obs=None, action=None):
         if not self.self_organized or self.fuzzy_model is None:
             return torch.zeros(obs.shape[0], dtype=torch.long, device=self.device), \

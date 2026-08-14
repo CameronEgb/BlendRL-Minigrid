@@ -1,7 +1,7 @@
 defaults:
   - /agent/cql/dnn
 
-name: blendrl_cql_human_neural
+name: cql_blendrl_human_neural
 algorithm: blendrl_cql
 actor_mode: hybrid
 blender_mode: neural

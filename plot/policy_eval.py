@@ -71,27 +71,32 @@ class PolicyEvalPlotter(BasePlotter):
 
         # Determine active methods from config if defined
         exp_cfg = self.get_experiment_config(exp_id)
-        active_methods = set()
+        from plot.base import get_canonical_method_name, get_method_aliases
+        active_aliases = set()
+        has_active_filter = False
         for key in ["online_methods", "offline_methods"]:
             val = exp_cfg.get(key, [])
             if val:
+                has_active_filter = True
                 if isinstance(val, (list, tuple)):
                     methods = list(val)
                 else:
                     methods = [item.strip() for item in str(val).split(",") if item.strip()]
                 for m in methods:
-                    active_methods.add(str(m).replace("/", "_"))
+                    active_aliases.update(get_method_aliases(m))
 
         # Discover agent checkpoints
         method_ckpts = {}
         for method_dir in sorted(ckpt_root.iterdir()):
             if method_dir.is_dir():
                 m_name = method_dir.name
-                if active_methods and m_name not in active_methods:
+                if has_active_filter and m_name not in active_aliases:
                     continue
                 ckpts = list(method_dir.rglob("best_model*.ckpt"))
                 if ckpts:
-                    method_ckpts[m_name] = ckpts[0]
+                    canon = get_canonical_method_name(m_name)
+                    if canon not in method_ckpts or m_name == canon:
+                        method_ckpts[canon] = ckpts[0]
 
         if not method_ckpts:
             print(f"Notice [policy_eval]: No policy checkpoints found in {ckpt_root}")
@@ -255,9 +260,12 @@ class PolicyEvalPlotter(BasePlotter):
             fig, ax1 = plt.subplots(figsize=(10, 6))
             ax2 = ax1.twinx()
 
-            first_counts = None
+            method_names = list(patient_agreements.items())
+            K = len(method_names)
+            total_bar_width = 7.5
+            bar_width = total_bar_width / max(K, 1)
 
-            for method_name, agr in patient_agreements.items():
+            for k_idx, (method_name, agr) in enumerate(method_names):
                 means, sems, counts = [], [], []
                 for b_idx in range(10):
                     low, high = bins[b_idx], bins[b_idx + 1]
@@ -274,9 +282,6 @@ class PolicyEvalPlotter(BasePlotter):
                         means.append(np.nan)
                         sems.append(0.0)
 
-                if first_counts is None:
-                    first_counts = counts
-
                 means_arr = np.array(means)
                 sems_arr = np.array(sems)
                 valid = ~np.isnan(means_arr)
@@ -285,30 +290,36 @@ class PolicyEvalPlotter(BasePlotter):
                 label = style["label"]
                 color = style["color"]
                 marker = style["marker"]
+                linestyle = style.get("linestyle", "-")
 
+                # Bar position for method in grouped bar chart
+                offset = (k_idx - (K - 1) / 2.0) * bar_width
+                bar_x = bin_centers + offset
+                ax2.bar(bar_x, counts, width=bar_width * 0.9, color=color, alpha=0.18,
+                        edgecolor=color, linewidth=0.8, zorder=1)
+
+                # Line plot on ax1 overtop
                 ax1.plot(bin_centers[valid], means_arr[valid], marker=marker, color=color,
-                         label=label, linewidth=2.5, markersize=7)
+                         linestyle=linestyle, label=label, linewidth=2.5, markersize=7, zorder=3)
                 ax1.fill_between(bin_centers[valid],
                                  means_arr[valid] - sems_arr[valid],
                                  means_arr[valid] + sems_arr[valid],
-                                 color=color, alpha=0.12)
-
-            if first_counts is not None:
-                ax2.bar(bin_centers, first_counts, width=8, color='tab:blue', alpha=0.15,
-                        label='Trajectory Count', zorder=1)
-                ax2.set_ylabel("Patient Trajectory Count", fontsize=12, fontweight="bold", color="tab:blue")
-                ax2.tick_params(axis='y', labelcolor="tab:blue")
+                                 color=color, alpha=0.12, zorder=2)
 
             ax1.set_xlabel("Clinician – RL Policy Agreement (%)", fontsize=12, fontweight="bold")
             ax1.set_ylabel("True Septic Shock Rate (%)", fontsize=12, fontweight="bold")
             ax1.set_xticks(np.arange(0, 101, 10))
-            ax1.grid(True, linestyle="--", alpha=0.5)
+            ax1.set_xlim(-2, 102)
+            ax1.grid(True, linestyle="--", alpha=0.4, zorder=0)
 
+            ax2.set_ylabel("Patient Trajectory Count (Histogram)", fontsize=12, fontweight="bold", color="#555555")
+            ax2.tick_params(axis='y', labelcolor="#555555")
+
+            # Legend
             lines1, labels1 = ax1.get_legend_handles_labels()
-            lines2, labels2 = ax2.get_legend_handles_labels()
-            ax1.legend(lines1 + lines2, labels1 + labels2, fontsize=10, loc="best")
+            ax1.legend(lines1, labels1, fontsize=10, loc="best", framealpha=0.9)
 
-            ax1.set_title(f"Septic Shock Rate vs. Clinician Agreement ({exp_id})", fontsize=13, fontweight="bold")
+            ax1.set_title(f"Septic Shock Rate vs. Clinician Agreement ({clean_exp})", fontsize=13, fontweight="bold")
 
             fig.tight_layout()
             plot_path = output_dir / "agreement_vs_shock.png"

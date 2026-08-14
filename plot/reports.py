@@ -13,16 +13,18 @@ import json
 import yaml
 from typing import Optional
 
-from plot.base import BasePlotter, clean_label
+from plot.base import BasePlotter, clean_label, get_method_aliases
 
 
-def format_duration(seconds: Optional[float]) -> str:
-    if seconds is None or seconds < 0:
+def format_duration(seconds: float) -> str:
+    """Formats seconds into human readable time (e.g., 2m 30.5s or 1h 15m 10s)."""
+    if seconds is None or seconds <= 0:
         return "N/A"
-    seconds = float(seconds)
+    
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = seconds % 60
+    
     if hours > 0:
         return f"{hours}h {minutes}m {secs:.1f}s"
     elif minutes > 0:
@@ -39,31 +41,32 @@ class ReportsPlotter(BasePlotter):
     def _find_hydra_config(self, group: str, exp_id: str, method: str) -> dict:
         """Attempt to load the resolved config for a specific method run from checkpoints, logs, or Hydra outputs."""
         clean_exp = Path(exp_id).stem
-        norm_method = method.replace("/", "_")
+        aliases = get_method_aliases(method)
 
-        # 1. Check method-specific checkpoint directory
-        ckpt_method_dir = Path("results/checkpoints") / group / clean_exp / norm_method
-        if ckpt_method_dir.exists():
-            for cfg_path in sorted(ckpt_method_dir.rglob("config.yaml")):
-                try:
-                    with open(cfg_path) as f:
-                        data = yaml.safe_load(f)
-                    if data and "agent" in data:
-                        return data
-                except Exception:
-                    pass
+        for alias in aliases:
+            # 1. Check method-specific checkpoint directory
+            ckpt_method_dir = Path("results/checkpoints") / group / clean_exp / alias
+            if ckpt_method_dir.exists():
+                for cfg_path in sorted(ckpt_method_dir.rglob("config.yaml")):
+                    try:
+                        with open(cfg_path) as f:
+                            data = yaml.safe_load(f)
+                        if data and "agent" in data:
+                            return data
+                    except Exception:
+                        pass
 
-        # 2. Check method-specific logs directory
-        log_method_dir = Path("results/logs") / group / clean_exp / norm_method
-        if log_method_dir.exists():
-            for cfg_path in sorted(log_method_dir.rglob("config.yaml")):
-                try:
-                    with open(cfg_path) as f:
-                        data = yaml.safe_load(f)
-                    if data and "agent" in data:
-                        return data
-                except Exception:
-                    pass
+            # 2. Check method-specific logs directory
+            log_method_dir = Path("results/logs") / group / clean_exp / alias
+            if log_method_dir.exists():
+                for cfg_path in sorted(log_method_dir.rglob("config.yaml")):
+                    try:
+                        with open(cfg_path) as f:
+                            data = yaml.safe_load(f)
+                        if data and "agent" in data:
+                            return data
+                    except Exception:
+                        pass
 
             for hp_path in sorted(log_method_dir.rglob("hparams.yaml")):
                 try:
@@ -237,21 +240,21 @@ class ReportsPlotter(BasePlotter):
                 times = []
                 gpu_device = None
                 peak_vram = None
+                aliases = get_method_aliases(method)
 
                 for v_name, df in sorted(versions.items()):
                     t_sec = None
-                    # 1. Try loading from runtime.json in version log or checkpoint
-                    v_log_dir = Path("results/logs") / group / clean_exp / norm_method / v_name
                     v_num = v_name.replace("version_", "")
-                    v_ckpt_dir = Path("results/checkpoints") / group / clean_exp / norm_method / v_num
-
-                    json_candidates = [
-                        v_log_dir / "runtime.json",
-                        v_ckpt_dir / "runtime.json",
-                        Path("results/logs") / group / clean_exp / norm_method / "runtime.json",
-                        Path("results/checkpoints") / group / clean_exp / norm_method / "runtime.json",
-                        Path("results/checkpoints") / group / clean_exp / norm_method / "0" / "runtime.json",
-                    ]
+                    
+                    json_candidates = []
+                    for alias in aliases:
+                        json_candidates.extend([
+                            Path("results/logs") / group / clean_exp / alias / v_name / "runtime.json",
+                            Path("results/checkpoints") / group / clean_exp / alias / v_num / "runtime.json",
+                            Path("results/logs") / group / clean_exp / alias / "runtime.json",
+                            Path("results/checkpoints") / group / clean_exp / alias / "runtime.json",
+                            Path("results/checkpoints") / group / clean_exp / alias / "0" / "runtime.json",
+                        ])
 
                     for json_path in json_candidates:
                         if json_path.exists():
@@ -277,26 +280,27 @@ class ReportsPlotter(BasePlotter):
                     if t_sec is not None and t_sec > 0:
                         times.append((v_name, t_sec))
 
-                # If no times found per-version, check all runtime.json under checkpoint/log dirs
+                # If no times found per-version, check all runtime.json under checkpoint/log dirs across aliases
                 if not times:
-                    for scan_dir in [
-                        Path("results/checkpoints") / group / clean_exp / norm_method,
-                        Path("results/logs") / group / clean_exp / norm_method
-                    ]:
-                        if scan_dir.exists():
-                            for r_json in sorted(scan_dir.rglob("runtime.json")):
-                                try:
-                                    with open(r_json) as jf:
-                                        rdata = json.load(jf)
-                                        t_sec = float(rdata.get("training_time_seconds", 0.0))
-                                        if "gpu_device" in rdata and not gpu_device:
-                                            gpu_device = rdata["gpu_device"]
-                                        if "gpu_peak_alloc_gb" in rdata and (peak_vram is None or rdata["gpu_peak_alloc_gb"] > peak_vram):
-                                            peak_vram = float(rdata["gpu_peak_alloc_gb"])
-                                        if t_sec > 0:
-                                            times.append((r_json.parent.name, t_sec))
-                                except Exception:
-                                    pass
+                    for alias in aliases:
+                        for scan_dir in [
+                            Path("results/checkpoints") / group / clean_exp / alias,
+                            Path("results/logs") / group / clean_exp / alias
+                        ]:
+                            if scan_dir.exists():
+                                for r_json in sorted(scan_dir.rglob("runtime.json")):
+                                    try:
+                                        with open(r_json) as jf:
+                                            rdata = json.load(jf)
+                                            t_sec = float(rdata.get("training_time_seconds", 0.0))
+                                            if "gpu_device" in rdata and not gpu_device:
+                                                gpu_device = rdata["gpu_device"]
+                                            if "gpu_peak_alloc_gb" in rdata and (peak_vram is None or rdata["gpu_peak_alloc_gb"] > peak_vram):
+                                                peak_vram = float(rdata["gpu_peak_alloc_gb"])
+                                            if t_sec > 0:
+                                                times.append((r_json.parent.name, t_sec))
+                                    except Exception:
+                                        pass
 
                 if times:
                     avg_time = sum(t for _, t in times) / len(times)

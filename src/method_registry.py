@@ -10,10 +10,14 @@ from typing import Tuple, Optional
 
 METHOD_STYLE = {
     # Clean harness/architecture keys
+    "cql":                          {"label": "CQL (Neural)",         "color": "tab:blue",   "marker": "o", "linestyle": "-"},
     "cql_dnn":                      {"label": "CQL (Neural)",         "color": "tab:blue",   "marker": "o", "linestyle": "-"},
     "cql_blendrl_human_neural":     {"label": "BlendRL Human+Neural", "color": "tab:orange", "marker": "s", "linestyle": "-"},
+    "blendrl_cql_human_neural":     {"label": "BlendRL Human+Neural", "color": "tab:orange", "marker": "s", "linestyle": "-"},
     "cql_blendrl_human_cew":        {"label": "BlendRL Human+CEW",   "color": "tab:green",  "marker": "^", "linestyle": "--"},
+    "blendrl_cql_human_cew":        {"label": "BlendRL Human+CEW",   "color": "tab:green",  "marker": "^", "linestyle": "--"},
     "cql_blendrl_cew_only":         {"label": "BlendRL CEW Only",     "color": "tab:red",    "marker": "D", "linestyle": "-"},
+    "blendrl_cql_cew_only":         {"label": "BlendRL CEW Only",     "color": "tab:red",    "marker": "D", "linestyle": "-"},
     "iql_dnn":                      {"label": "IQL (Neural)",         "color": "#1f77b4",    "marker": "d", "linestyle": "-"},
     "iql_blendrl_human_neural":     {"label": "BlendRL Human+Neural", "color": "#d62728",    "marker": "s", "linestyle": "-"},
     "ppo_dnn":                      {"label": "PPO (Neural)",         "color": "black",      "marker": "o", "linestyle": "--"},

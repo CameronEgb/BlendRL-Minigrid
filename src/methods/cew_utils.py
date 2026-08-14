@@ -245,7 +245,20 @@ class FLC(nn.Module):
         else:
             self.consequences = Parameter(torch.tensor(consequences, dtype=torch.float32))
             
-        self.register_buffer('feature_map', torch.tensor([i for i, ids in enumerate(self.input_variable_ids) for _ in ids], dtype=torch.long))
+    @classmethod
+    def from_shapes(cls, transformed_len, n_rules, out_features=1):
+        flc = cls.__new__(cls)
+        super(FLC, flc).__init__()
+        flc.in_features = transformed_len
+        flc.out_features = out_features
+        flc.transformed_len = transformed_len
+        flc.input_variable_ids = []
+        flc.register_buffer('links', torch.zeros((transformed_len, n_rules), dtype=torch.float32))
+        flc.register_buffer('links_mask', torch.zeros((transformed_len, n_rules), dtype=torch.float32))
+        flc.register_buffer('feature_map', torch.zeros(transformed_len, dtype=torch.long))
+        flc.input_terms = GaussianLayer(transformed_len, [0.0]*transformed_len, [1.0]*transformed_len)
+        flc.consequences = Parameter(torch.zeros(n_rules, out_features, dtype=torch.float32))
+        return flc
 
     def forward(self, X):
         if self.transformed_len == 0 or self.links.shape[1] == 0:
@@ -283,6 +296,8 @@ class MultiFLC(nn.Module):
         self.n_inputs = n_inputs
         self.n_outputs = n_outputs
         self.cql_alpha = cql_alpha
+        self.antecedents = antecedents
+        self.rules = rules
         
         if not antecedents:
             antecedents = [[] for _ in range(n_inputs)]
@@ -290,6 +305,29 @@ class MultiFLC(nn.Module):
         # Original code used multiple MISO FLCs
         self.flcs = nn.ModuleList([FLC(n_inputs, 1, antecedents, rules) for _ in range(n_outputs)])
         self.learning_rate = learning_rate
+
+    @classmethod
+    def from_state_dict_shapes(cls, prefix: str, state_dict: dict, n_outputs: int = 2):
+        mflc = cls.__new__(cls)
+        super(MultiFLC, mflc).__init__()
+        mflc.n_outputs = n_outputs
+        mflc.cql_alpha = 1.0
+        mflc.learning_rate = 1e-3
+        mflc.antecedents = None
+        mflc.rules = None
+        flcs_list = []
+        for out_idx in range(n_outputs):
+            flc_prefix = f"{prefix}flcs.{out_idx}."
+            links_key = f"{flc_prefix}links"
+            cons_key = f"{flc_prefix}consequences"
+            if links_key in state_dict and cons_key in state_dict:
+                transformed_len = state_dict[links_key].shape[0]
+                n_rules = state_dict[links_key].shape[1]
+                out_features = state_dict[cons_key].shape[1]
+                flcs_list.append(FLC.from_shapes(transformed_len, n_rules, out_features))
+        mflc.flcs = nn.ModuleList(flcs_list)
+        mflc.n_inputs = flcs_list[0].transformed_len if flcs_list else 0
+        return mflc
 
     def forward(self, X):
         X_flat = X.reshape(X.shape[0], -1)

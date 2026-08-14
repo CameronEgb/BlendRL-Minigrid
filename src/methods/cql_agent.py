@@ -282,3 +282,35 @@ class CQLAgent(OfflineAgentBase):
         opt_q = optim.Adam(self.q_network.parameters(), lr=self.cfg.agent.lr)
         opt_a = optim.Adam(self.actor.parameters(), lr=self.cfg.agent.lr)
         return [opt_q, opt_a]
+
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        if self.is_modular:
+            cew_states = []
+            for i, m in enumerate(self.model.policy_modules):
+                if i < len(self.model.module_types) and self.model.module_types[i] == "cew":
+                    cew_states.append({
+                        "index": i,
+                        "antecedents": getattr(m, "antecedents", None),
+                        "rules": getattr(m, "rules", None),
+                        "n_inputs": getattr(m, "n_inputs", None),
+                        "n_outputs": getattr(m, "n_outputs", None),
+                    })
+            if cew_states:
+                checkpoint["cew_modules_state"] = cew_states
+
+    def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        sd = checkpoint.get("state_dict", {})
+        if self.is_modular:
+            from src.methods.cew_utils import MultiFLC
+            for i, m_type in enumerate(self.model.module_types):
+                if m_type == "cew":
+                    prefix = f"model.policy_modules.{i}."
+                    if f"{prefix}flcs.0.links" in sd:
+                        new_m = MultiFLC.from_state_dict_shapes(prefix, sd, self.n_actions)
+                        self.model.policy_modules[i] = new_m
+                        self.model.actor.policy_modules[i] = new_m
+                        
+                        target_prefix = f"target_model.policy_modules.{i}."
+                        new_target = MultiFLC.from_state_dict_shapes(target_prefix, sd, self.n_actions)
+                        self.target_model.policy_modules[i] = new_target
+                        self.target_model.actor.policy_modules[i] = new_target
