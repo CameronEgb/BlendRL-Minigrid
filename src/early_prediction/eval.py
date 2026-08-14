@@ -65,25 +65,35 @@ def resolve_mimic_dataset(args):
         return os.path.abspath(args.dataset_path)
 
     fname = os.path.basename(args.dataset_path) if args.dataset_path else args.dataset_name
-    candidates = [
-        os.path.join(os.getcwd(), "in/datasets/mimic", fname),
-        os.path.join(os.getcwd(), "in/datasets/MIMIC 2", fname),
-        os.path.join(os.getcwd(), "in/datasets", fname),
-        os.path.join(PROJECT_ROOT, "in/datasets/mimic", fname),
-        os.path.join(PROJECT_ROOT, "in/datasets", fname),
-        "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2/" + fname,
-        "/hpc/home/cegbert1/Offline-BlendRL/in/datasets/mimic/" + fname,
-        "/hpc/home/cegbert1/Offline-BlendRL/in/datasets/" + fname,
-        "/mnt/beegfs/cegbert/NeSyRL/in/datasets/mimic/" + fname,
-        "/mnt/beegfs/cegbert/NeSyRL/in/datasets/" + fname,
+    candidate_names = [fname]
+    for alt in ["mimic_lazy_0_interventions_balanced.npz", "mimic_lazy_0_interventions_flag.npz", "mimic_lazy_12_clean_with_interventions_corrected.npz", "mimic_lazy_12_clean_with_interventions.npz", "mimic_lazy_12_clean.npz"]:
+        if alt not in candidate_names:
+            candidate_names.append(alt)
+
+    candidate_dirs = [
+        os.path.join(os.getcwd(), "in/datasets/mimic"),
+        os.path.join(os.getcwd(), "in/datasets/MIMIC 2"),
+        os.path.join(os.getcwd(), "in/datasets"),
+        os.path.join(PROJECT_ROOT, "in/datasets/mimic"),
+        os.path.join(PROJECT_ROOT, "in/datasets"),
+        "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2",
+        "/hpc/home/cegbert1/Offline-BlendRL/in/datasets/mimic",
+        "/hpc/home/cegbert1/Offline-BlendRL/in/datasets",
+        "/mnt/beegfs/cegbert/NeSyRL/in/datasets/mimic",
+        "/mnt/beegfs/cegbert/NeSyRL/in/datasets",
     ]
-    for cand in candidates:
-        if os.path.exists(cand):
-            return os.path.abspath(cand)
+
+    for c_name in candidate_names:
+        for c_dir in candidate_dirs:
+            cand = os.path.join(c_dir, c_name)
+            if os.path.exists(cand):
+                return os.path.abspath(cand)
+
     raise FileNotFoundError(
         f"MIMIC dataset '{fname}' not found in any standard location. "
-        f"Tried: {candidates}"
+        f"Tried candidate names: {candidate_names}"
     )
+
 
 
 def discover_single_policy(path: Path) -> dict:

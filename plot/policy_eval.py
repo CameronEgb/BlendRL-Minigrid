@@ -23,7 +23,14 @@ class PolicyEvalPlotter(BasePlotter):
             return
 
         dataset_path = cfg.get("mode", {}).get("dataset_path", "in/datasets/mimic/mimic_lazy_0_interventions_balanced")
-        npz_candidate = Path("in/datasets/mimic/mimic_lazy_0_interventions_balanced.npz")
+        env_ds = cfg.get("env", {}).get("dataset_name", "mimic_lazy_0_interventions_balanced.npz") if isinstance(cfg.get("env"), dict) else "mimic_lazy_0_interventions_balanced.npz"
+        npz_candidate = Path("in/datasets/mimic") / env_ds
+        if not npz_candidate.exists():
+            for alt in ["mimic_lazy_0_interventions_balanced.npz", "mimic_lazy_0_interventions_flag.npz", "mimic_lazy_12_clean_with_interventions_corrected.npz", "mimic_lazy_12_clean_with_interventions.npz", "mimic_lazy_12_clean.npz"]:
+                alt_p = Path("in/datasets/mimic") / alt
+                if alt_p.exists():
+                    npz_candidate = alt_p
+                    break
         
         if not npz_candidate.exists():
             print(f"Notice [policy_eval]: NPZ dataset not found at {npz_candidate}, skipping policy eval metrics.")

@@ -205,7 +205,8 @@ def main(cfg: DictConfig):
         "limit_train_batches": 1.0,
         "limit_val_batches": limit_val_batches,
         "check_val_every_n_epoch": check_val_every_n_epoch,
-        "log_every_n_steps": 1
+        "log_every_n_steps": 1,
+        "num_sanity_val_steps": 0
     }
     
     # Merge with overrides from the config file if they exist
