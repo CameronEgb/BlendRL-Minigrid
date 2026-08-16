@@ -9,7 +9,7 @@ from pathlib import Path
 
 from src.pipeline.config import normalize_agent_name
 from src.pipeline.datasets import ensure_online_dataset_path, resolve_dataset_path, run_experiment
-from src.pipeline.optuna_utils import delete_optuna_study, promote_best_trial_checkpoint
+from src.pipeline.optuna_utils import delete_optuna_study, get_next_study_name, promote_best_trial_checkpoint
 
 
 def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanitized_extra_args, storage_url, is_sweep):
@@ -28,7 +28,7 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
     if not args.no_online:
         for agent_config in online_list:
             agent_name_internal = normalize_agent_name(agent_config)
-            study_name = f"{cfg.experiment_id}_{agent_name_internal}"
+            study_name = get_next_study_name(storage_url, cfg.experiment_id, agent_name_internal)
             
             dataset_path, has_pkl = ensure_online_dataset_path(
                 group=cfg.group,
@@ -87,7 +87,7 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
 
             for agent_config in offline_list:
                 agent_name_internal = normalize_agent_name(agent_config)
-                study_name = f"{cfg.experiment_id}_{agent_name_internal}_{dataset_name_internal}"
+                study_name = get_next_study_name(storage_url, cfg.experiment_id, agent_name_internal)
                 
                 print(f"\n=== Phase: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
                 dataset_path_override = any("mode.dataset_path=" in arg for arg in sanitized_extra_args)

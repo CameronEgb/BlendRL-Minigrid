@@ -9,7 +9,7 @@ from pathlib import Path
 
 from src.pipeline.config import normalize_agent_name
 from src.pipeline.datasets import ensure_online_dataset_path, resolve_dataset_path
-from src.pipeline.optuna_utils import DEFAULT_OPTUNA_DB_URL, create_optuna_study, delete_optuna_study
+from src.pipeline.optuna_utils import DEFAULT_OPTUNA_DB_URL, create_optuna_study, delete_optuna_study, get_next_study_name
 from src.pipeline.slurm import generate_sbatch_header, generate_sbatch_script, submit_sbatch
 
 
@@ -130,7 +130,7 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
     if not args.no_online:
         for agent_config in online_list:
             agent_name_internal = normalize_agent_name(agent_config)
-            study_name = f"{cfg.experiment_id}_{agent_name_internal}"
+            study_name = get_next_study_name(storage_url, cfg.experiment_id, agent_name_internal)
             
             dataset_path, has_pkl = ensure_online_dataset_path(
                 group=cfg.group,
@@ -183,7 +183,7 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
             
             for agent_config in offline_list:
                 agent_name_internal = normalize_agent_name(agent_config)
-                study_name = f"{cfg.experiment_id}_{agent_name_internal}_{dataset_name_internal}"
+                study_name = get_next_study_name(storage_url, cfg.experiment_id, agent_name_internal)
                 
                 print(f"\n=== Preparing Slurm Job: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
                 job_name = f"{agent_name_internal}_{dataset_name_internal}_{cfg.experiment_id}"

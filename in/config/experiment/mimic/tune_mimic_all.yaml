@@ -8,6 +8,9 @@ agent:
   epochs_per_interval: 2
   eval_interval_epochs: 1
 
+env:
+  reward_type: tqn
+
 hydra:
   sweeper:
     n_trials: 30

@@ -36,3 +36,4 @@ tensorboard/mimic/tune_mimic_cql
 in/config/experiment/mimic/mimic_comparison.yaml
 in/config/experiment/mimic/mimic_cql.yaml
 in/config/experiment/mimic/tune_mimic_cql.yaml
+in/config/experiment/mimic/tune_mimic_tqn.yaml

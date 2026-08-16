@@ -103,43 +103,71 @@ def launch_optuna_dashboard(storage_url):
         print("Please ensure 'optuna-dashboard' is installed in your environment.")
 
 
+def get_optuna_storage(storage_url: str):
+    """Safely return an Optuna RDBStorage object with timeout and clean schema handling."""
+    if not storage_url:
+        return None
+    import optuna
+    if storage_url.startswith("sqlite:///"):
+        db_raw = storage_url.replace("sqlite:///", "").split("?")[0]
+        if db_raw and os.path.dirname(db_raw):
+            os.makedirs(os.path.dirname(os.path.abspath(db_raw)), exist_ok=True)
+        # If DB file exists but is 0 bytes (empty file created by touch/connect),
+        # remove it so Optuna creates the full table schema cleanly without AssertionError
+        if os.path.exists(db_raw) and os.path.getsize(db_raw) == 0:
+            try:
+                os.remove(db_raw)
+            except OSError:
+                pass
+        return optuna.storages.RDBStorage(
+            url=f"sqlite:///{db_raw}",
+            engine_kwargs={"connect_args": {"timeout": 60}}
+        )
+    return storage_url
+
+
+def get_next_study_name(storage_url: str, experiment_id: str, agent_name: str) -> str:
+    """Generate clean [experiment]_[method]_v[number] study name."""
+    base_prefix = f"{experiment_id}_{agent_name}"
+    if not storage_url:
+        return f"{base_prefix}_v0"
+    try:
+        import optuna
+        storage = get_optuna_storage(storage_url)
+        existing_summaries = optuna.get_all_study_summaries(storage=storage)
+        existing_names = {s.study_name for s in existing_summaries}
+        version = 0
+        while f"{base_prefix}_v{version}" in existing_names:
+            version += 1
+        return f"{base_prefix}_v{version}"
+    except Exception:
+        return f"{base_prefix}_v0"
+
+
 def delete_optuna_study(storage_url, study_name):
     """Deletes an existing study from the Optuna database to start fresh."""
-    if not storage_url or not storage_url.startswith("sqlite:///"):
+    if not storage_url:
         return
-        
-    venv_python = get_python_executable()
-    cmd = [
-        venv_python, "-c",
-        f"import optuna; "
-        f"optuna.delete_study(study_name='{study_name}', storage='{storage_url}')"
-    ]
     try:
-        subprocess.run(cmd, check=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
-        print(f"Overwriting existing Optuna study: {study_name}")
-    except subprocess.CalledProcessError:
-        pass # Study didn't exist or other error
+        import optuna
+        storage = get_optuna_storage(storage_url)
+        optuna.delete_study(study_name=study_name, storage=storage)
+        print(f"Reset existing Optuna study: {study_name}")
+    except Exception:
+        pass
 
 
-def create_optuna_study(storage_url, study_name):
+def create_optuna_study(storage_url, study_name, direction="minimize"):
     """Pre-creates/initializes an Optuna study to avoid schema initialization race conditions on cluster nodes."""
-    if not storage_url or not storage_url.startswith("sqlite:///"):
+    if not storage_url:
         return
-        
-    venv_python = get_python_executable()
-    cmd = [
-        venv_python, "-c",
-        f"import optuna, sqlite3, os; "
-        f"db_raw = '{storage_url}'.replace('sqlite:///', '').split('?')[0]; "
-        f"os.makedirs(os.path.dirname(os.path.abspath(db_raw)), exist_ok=True) if os.path.dirname(db_raw) else None; "
-        f"conn = sqlite3.connect(db_raw, timeout=60); conn.execute('PRAGMA journal_mode=WAL;'); conn.close(); "
-        f"optuna.create_study(study_name='{study_name}', storage='{storage_url}', load_if_exists=True)"
-    ]
     try:
-        subprocess.run(cmd, check=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+        import optuna
+        storage = get_optuna_storage(storage_url)
+        optuna.create_study(study_name=study_name, storage=storage, load_if_exists=True, direction=direction)
         print(f"Pre-initialized Optuna study: {study_name}")
-    except subprocess.CalledProcessError as e:
-        print(f"Warning: Failed to pre-initialize Optuna study '{study_name}': {e.stderr.decode().strip()}")
+    except Exception as e:
+        print(f"Warning: Failed to pre-initialize Optuna study '{study_name}': {e}")
 
 
 def promote_best_trial_checkpoint(group: str, experiment_id: str, agent_name: str, storage_url: str, study_name: str):
