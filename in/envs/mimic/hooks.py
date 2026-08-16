@@ -14,7 +14,7 @@ class Hooks:
         import torch
         import numpy as np
         
-        reward_type = os.environ.get("MIMIC_REWARD_TYPE", "outcome").lower()
+        reward_type = os.environ.get("MIMIC_REWARD_TYPE", "tqn").lower()
         
         # Only apply to MIMIC-shaped observations (46 features)
         if reader.obs.shape[-1] != 46:

@@ -209,7 +209,7 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
             
             is_done = (step_idx == len(valid_steps) - 1)
             
-            reward_type = os.environ.get("MIMIC_REWARD_TYPE", "outcome").lower()
+            reward_type = os.environ.get("MIMIC_REWARD_TYPE", "tqn").lower()
             if reward_type == "outcome":
                 outcome = self.y[traj, 0]
                 terminal_reward = 15.0 if outcome == 0 else -15.0

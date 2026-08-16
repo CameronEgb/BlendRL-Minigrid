@@ -6,5 +6,5 @@ gae_lambda: 0.95
 rules: default
 reasoner: nsfr
 architecture: mlp
-reward_type: outcome
+reward_type: tqn
 dataset_name: mimic_lazy_0_interventions_balanced.npz
