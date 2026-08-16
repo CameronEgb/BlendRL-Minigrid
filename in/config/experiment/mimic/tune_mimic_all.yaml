@@ -10,6 +10,14 @@ agent:
   epochs_per_interval: 2
   eval_interval_epochs: 1
 
+  cql:
+    cql_alpha: 2.0
+    weight_decay: 1e-4
+
+  blendrl:
+    blender_mode: neural
+    blend_function: softmax
+
 env:
   reward_type: tqn
 

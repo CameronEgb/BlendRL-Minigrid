@@ -8,4 +8,17 @@ offline_methods: [cql/dnn, cql/blendrl_human_neural, cql/blendrl_human_cew, cew/
 agent:
   epochs_per_interval: 2
   eval_interval_epochs: 1
+  batch_size: 1024
+
+  cql:
+    cql_alpha: 2.0
+    weight_decay: 1e-4
+
+  cew:
+    ecm_dthr: 0.1
+    fyd_top_k: 50
+
+  blendrl:
+    blender_mode: neural
+    blend_function: softmax
 

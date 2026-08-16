@@ -81,8 +81,6 @@ class CQLAgent(OfflineAgentBase):
                 self.q_network = QNetwork(n_actions=self.n_actions)
                 self.target_q_network = QNetwork(n_actions=self.n_actions)
                 
-            from src.utils import get_neural_agent
-            self.actor = get_neural_agent(cfg.env.name, self.n_actions, self.device, arch_name=cfg.env.architecture, hidden_sizes=hidden_sizes)
             self.target_q_network.load_state_dict(self.q_network.state_dict())
 
     def _prepare_logic_obs(self, obs, logic_obs=None):
@@ -96,13 +94,13 @@ class CQLAgent(OfflineAgentBase):
         if self.is_modular:
             logic_obs = self._prepare_logic_obs(obs, logic_obs)
             return self.model(obs, logic_obs, action=action)
-        probs = self.actor.get_action_probs(obs)
+        q_vals = self.q_network.get_q_values(obs) if hasattr(self.q_network, "get_q_values") else self.q_network(obs)
+        probs = torch.softmax(q_vals, dim=-1)
         dist = torch.distributions.Categorical(probs)
         if action is None:
-            action = dist.sample()
+            action = torch.argmax(q_vals, dim=-1)
         logprob = dist.log_prob(action)
         entropy = dist.entropy()
-        q_vals = self.q_network.get_q_values(obs)
         value = q_vals.max(dim=-1)[0]
         return action, logprob, entropy, value
 
@@ -197,7 +195,9 @@ class CQLAgent(OfflineAgentBase):
             self._soft_update(self.model, self.target_model, tau=soft_target_tau)
         else:
             blend_entropy = None
-            opt_q, opt_a = self.optimizers()
+            opt = getattr(self, "opt", self.optimizers())
+            if isinstance(opt, list):
+                opt = opt[0]
             with torch.no_grad():
                 next_q = self.target_q_network(next_obs)
                 next_v = torch.max(next_q, dim=1)[0]
@@ -210,26 +210,14 @@ class CQLAgent(OfflineAgentBase):
             cql_loss = (logsumexp_qvalues - q_action).mean()
             q_loss = bellman_loss + cql_alpha * cql_loss
             
-            opt_q.zero_grad()
+            opt.zero_grad()
             self.manual_backward(q_loss)
-            opt_q.step()
-            
-            probs = self.actor.get_action_probs(obs)
-            log_probs = torch.log(probs + 1e-12)
-            entropy = -(probs * log_probs).sum(dim=1)
-            ent_coef = self.get_cfg("ent_coef", 0.05)
-            q_detached = all_q_values.detach()
-            adv = q_detached - q_detached.mean(dim=1, keepdim=True)
-            adv_std = q_detached.std(dim=1, keepdim=True)
-            adv_norm = adv / (adv_std + 1e-6) if adv_std.max() > 0 else adv
-            actor_loss = -(probs * adv_norm).sum(dim=1).mean() - ent_coef * entropy.mean()
-            
-            opt_a.zero_grad()
-            self.manual_backward(actor_loss)
-            opt_a.step()
+            opt.step()
             
             soft_target_tau = self.get_cfg("soft_target_tau", 0.005)
             self._soft_update(self.q_network, self.target_q_network, tau=soft_target_tau)
+
+            actor_loss = 0.0
 
         self._log_offline_transitions()
         log_data = {
@@ -304,9 +292,7 @@ class CQLAgent(OfflineAgentBase):
         lr = self.get_cfg("lr", 3e-4)
         if self.is_modular:
             return optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
-        opt_q = optim.Adam(self.q_network.parameters(), lr=lr, weight_decay=weight_decay)
-        opt_a = optim.Adam(self.actor.parameters(), lr=lr, weight_decay=weight_decay)
-        return [opt_q, opt_a]
+        return optim.Adam(self.q_network.parameters(), lr=lr, weight_decay=weight_decay)
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         if self.is_modular:

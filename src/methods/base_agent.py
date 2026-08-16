@@ -38,32 +38,55 @@ class BaseAgent(L.LightningModule, ABC):
     def get_cfg(self, key, default=None):
         """Unified config traversal — searches agent, env, then top-level config.
         
-        Handles Hydra's nested DictConfig structures, including cases where
-        agent config contains a nested 'agent' key from inheritance.
+        Handles Hydra's nested DictConfig structures, dotted keys (e.g. 'cql.cql_alpha'),
+        and sub-dictionaries (e.g., cfg.agent.cew, cfg.agent.cql, cfg.agent.blendrl).
         """
         cfg = self.cfg
         
-        # Search in agent config (with recursive nesting support)
+        def _get_nested(root, k):
+            if not isinstance(root, (dict, DictConfig)):
+                return None, False
+            if k in root:
+                return root[k], True
+            if "." in k:
+                parts = k.split(".")
+                curr = root
+                for p in parts:
+                    if isinstance(curr, (dict, DictConfig)) and p in curr:
+                        curr = curr[p]
+                    else:
+                        return None, False
+                return curr, True
+            return None, False
+
+        # Search in agent config
         if hasattr(cfg, "agent"):
-            if key in cfg.agent:
-                return cfg.agent[key]
+            val, found = _get_nested(cfg.agent, key)
+            if found:
+                return val
             # Handle double-nested agent config from Hydra inheritance
             if "agent" in cfg.agent and isinstance(cfg.agent.agent, (dict, DictConfig)):
-                if key in cfg.agent.agent:
-                    return cfg.agent.agent[key]
-            # Check nested sub-dictionaries in cfg.agent (e.g., cfg.agent.cew, cfg.agent.cql)
+                val, found = _get_nested(cfg.agent.agent, key)
+                if found:
+                    return val
+            # Search sub-dictionaries in cfg.agent (e.g., cfg.agent.cew, cfg.agent.cql, cfg.agent.blendrl)
             for sub_k, sub_v in cfg.agent.items():
-                if isinstance(sub_v, (dict, DictConfig)) and key in sub_v:
-                    return sub_v[key]
-        
+                if isinstance(sub_v, (dict, DictConfig)):
+                    val, found = _get_nested(sub_v, key)
+                    if found:
+                        return val
+
         # Search in env config
-        if hasattr(cfg, "env") and key in cfg.env:
-            return cfg.env[key]
-        
+        if hasattr(cfg, "env"):
+            val, found = _get_nested(cfg.env, key)
+            if found:
+                return val
+
         # Search in top-level config
-        if key in cfg:
-            return cfg[key]
-        
+        val, found = _get_nested(cfg, key)
+        if found:
+            return val
+
         return default
 
     # ──────────────────────────────────────────────
