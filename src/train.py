@@ -330,6 +330,8 @@ def main(cfg: DictConfig):
 
     # Return metric for Optuna
     if is_offline_only:
+        if "val/robust_loss" in trainer.callback_metrics:
+            return trainer.callback_metrics["val/robust_loss"].item()
         if "val/loss" in trainer.callback_metrics:
             return trainer.callback_metrics["val/loss"].item()
         if "losses/bellman_loss" in trainer.callback_metrics:

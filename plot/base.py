@@ -22,64 +22,8 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 
-# Import styling from the unified method registry
-from src.method_registry import clean_label, get_style_info
-
-def moving_average(a: np.ndarray, n: int = 5) -> np.ndarray:
-    if len(a) == 0: return np.array([])
-    n = min(len(a), max(1, n))
-    a_padded = np.pad(a, (n-1, 0), mode='edge')
-    ret = np.cumsum(a_padded, dtype=float)
-    ret[n:] = ret[n:] - ret[:-n]
-    return ret[n - 1:] / n
-
-def deep_update(source: dict, overrides: dict) -> dict:
-    """Recursively updates dictionary source with overrides."""
-    if source is None:
-        source = {}
-    if overrides is None or not isinstance(overrides, dict):
-        return dict(source)
-    result = dict(source)
-    for key, value in overrides.items():
-        if isinstance(value, dict) and key in result and isinstance(result[key], dict):
-            result[key] = deep_update(result[key], value)
-        else:
-            result[key] = value
-    return result
-
-def get_canonical_method_name(name: str) -> str:
-    """Map method aliases to canonical registered name."""
-    name = str(name).replace("/", "_")
-    alias_map = {
-        "blendrl_cql_human_neural": "cql_blendrl_human_neural",
-        "blendrl_cql_human_cew": "cql_blendrl_human_cew",
-        "blendrl_cql_cew_only": "cql_blendrl_cew_only",
-        "blendrl_iql_human_neural": "iql_blendrl_human_neural",
-        "blendrl_ppo_human_neural": "ppo_blendrl_human_neural",
-        "cql": "cql_dnn",
-        "iql": "iql_dnn",
-        "ppo": "ppo_dnn",
-    }
-    return alias_map.get(name, name)
-
-def get_method_aliases(name: str) -> set:
-    """Return all known aliases for a given method name."""
-    canon = get_canonical_method_name(name)
-    raw = str(name).replace("/", "_")
-    aliases = {name, canon, raw}
-    if "cql_blendrl_" in canon:
-        aliases.add(canon.replace("cql_blendrl_", "blendrl_cql_"))
-    elif "blendrl_cql_" in canon:
-        aliases.add(canon.replace("blendrl_cql_", "cql_blendrl_"))
-    if canon == "cql_dnn":
-        aliases.add("cql")
-    elif canon == "cql":
-        aliases.add("cql_dnn")
-    if canon == "iql_dnn":
-        aliases.add("iql")
-    elif canon == "ppo_dnn":
-        aliases.add("ppo")
-    return aliases
+# Import styling and alias resolution from the unified method registry
+from src.method_registry import clean_label, get_style_info, get_canonical_method_name, get_method_aliases
 
 class BasePlotter:
     name: str = "base"

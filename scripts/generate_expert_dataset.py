@@ -7,24 +7,12 @@ from torch.utils.data import DataLoader, Dataset
 from sklearn.model_selection import train_test_split
 
 # Dynamic dataset directory detection
-datasets_dir = os.environ.get("MIMIC_DATASET_DIR", "")
-if not datasets_dir or not os.path.exists(datasets_dir):
-    for candidate in [
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets/mimic")),
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets")),
-        os.path.abspath(os.path.join(os.getcwd(), "in/datasets/mimic")),
-        os.path.abspath(os.path.join(os.getcwd(), "in/datasets")),
-        "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2",
-        "/mnt/beegfs/cegbert/NeSyRL/in/datasets/mimic",
-        "/mnt/beegfs/cegbert/NeSyRL/in/datasets",
-        "/mnt/beegfs/cegbert/MIMIC 2"
-    ]:
-        if os.path.exists(candidate):
-            datasets_dir = candidate
-            break
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from src.pipeline.datasets import resolve_mimic_npz_path
 
-src_path = os.path.join(datasets_dir, "mimic_lazy_0_interventions_balanced.npz")
-out_path = os.path.join(datasets_dir, "mimic_expert_demonstrations.npz")
+src_path = str(resolve_mimic_npz_path("mimic_lazy_0_interventions_balanced.npz"))
+out_dir = os.path.dirname(src_path)
+out_path = os.path.join(out_dir, "mimic_expert_demonstrations.npz")
 
 if not os.path.exists(src_path):
     print(f"Error: Source dataset not found at {src_path}")

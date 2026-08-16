@@ -33,20 +33,8 @@ class CQLAgent(OfflineAgentBase):
         self.save_hyperparameters()
         self.lr = self.get_cfg("lr", 3e-4)
         
+        self._init_env(n_envs=1)
         algorithm = self.get_cfg("algorithm", self.get_cfg("name", cfg.env.name))
-        
-        from blendrl.env_vectorized import VectorizedNudgeBaseEnv
-        self.env = VectorizedNudgeBaseEnv.from_name(
-            cfg.env.name, 
-            n_envs=1, 
-            mode=algorithm, 
-            seed=cfg.seed
-        )
-        
-        dummy_logic, dummy_neural = self.env.reset()
-        self.observation_space = dummy_neural.shape[1:]
-        self.logic_observation_space = dummy_logic.shape[1:]
-        self.n_actions = self.env.n_actions if not callable(self.env.n_actions) else self.env.n_actions()
 
         # Check if modular/hybrid architecture is configured
         has_modules = bool(self.get_cfg("modules", []))
@@ -148,16 +136,25 @@ class CQLAgent(OfflineAgentBase):
                             self.opt = optim.Adam(self.model.parameters(), lr=lr)
 
     def training_step(self, batch, batch_idx):
-        datamodule = self.trainer.datamodule
+        datamodule = getattr(self.trainer, "datamodule", None)
         cfg = self.cfg
-        batch_size = self.get_cfg("batch_size", 256)
-        real_batch = datamodule.reader.sample(batch_size)
         
-        obs = real_batch["obs"].to(self.device)
-        actions = real_batch["action"].to(self.device)
-        rewards = real_batch["reward"].to(self.device)
-        next_obs = real_batch["next_obs"].to(self.device)
-        dones = real_batch["done"].to(self.device)
+        if isinstance(batch, dict) and "obs" in batch:
+            real_batch = batch
+        elif datamodule is not None and getattr(datamodule, "reader", None) is not None:
+            if isinstance(batch, torch.Tensor):
+                real_batch = datamodule.reader.get_batch(batch, device=self.device)
+            else:
+                batch_size = self.get_cfg("batch_size", 256)
+                real_batch = datamodule.reader.sample(batch_size)
+        else:
+            raise RuntimeError("CQLAgent requires an active offline dataset reader or batched dictionary.")
+        
+        obs = real_batch["obs"].to(self.device, non_blocking=True)
+        actions = real_batch["action"].to(self.device, non_blocking=True)
+        rewards = real_batch["reward"].to(self.device, non_blocking=True)
+        next_obs = real_batch["next_obs"].to(self.device, non_blocking=True)
+        dones = real_batch["done"].to(self.device, non_blocking=True)
         
         cql_alpha = self.get_cfg("cql_alpha", 1.0)
         gamma = cfg.env.gamma
@@ -178,11 +175,11 @@ class CQLAgent(OfflineAgentBase):
             logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
             cql_loss = (logsumexp_qvalues - q_action).mean()
             q_loss = bellman_loss + cql_alpha * cql_loss
-
-            _, log_probs, entropy, blend_entropy, _ = self.model(obs, logic_obs, action=actions)
-            with torch.no_grad():
-                q_val_act = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
-            actor_loss = -(q_val_act * log_probs).mean() - 0.01 * entropy.mean()
+            probs, weights = self.model.actor(obs, logic_obs)
+            log_probs = torch.log(probs + 1e-12)
+            entropy = -(probs * log_probs).sum(dim=1)
+            blend_entropy = -(weights * torch.log(weights + 1e-12)).sum(dim=1) if weights is not None else None
+            actor_loss = -(probs * all_q_values.detach()).sum(dim=1).mean() - 0.01 * entropy.mean()
 
             total_loss = q_loss + actor_loss
             
@@ -214,10 +211,10 @@ class CQLAgent(OfflineAgentBase):
             self.manual_backward(q_loss)
             opt_q.step()
             
-            _, log_probs, entropy, _ = self.actor.get_action_and_value(obs, actions)
-            with torch.no_grad():
-                q_val_act = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
-            actor_loss = -(q_val_act * log_probs).mean() - 0.01 * entropy.mean()
+            probs = self.actor.get_action_probs(obs)
+            log_probs = torch.log(probs + 1e-12)
+            entropy = -(probs * log_probs).sum(dim=1)
+            actor_loss = -(probs * all_q_values.detach()).sum(dim=1).mean() - 0.01 * entropy.mean()
             
             opt_a.zero_grad()
             self.manual_backward(actor_loss)
@@ -238,42 +235,61 @@ class CQLAgent(OfflineAgentBase):
             log_data["losses/blend_entropy"] = blend_entropy.mean().item()
         self.log_dict(log_data)
 
+    def on_validation_epoch_start(self):
+        self._val_step_losses = []
+
     def validation_step(self, batch, batch_idx):
         datamodule = getattr(self.trainer, "datamodule", None)
-        if datamodule is not None and getattr(datamodule, "val_reader", None) is not None:
+        if isinstance(batch, dict) and "obs" in batch:
+            val_batch = batch
+        elif datamodule is not None and getattr(datamodule, "val_reader", None) is not None:
             val_batch = datamodule.val_reader.get_batch(batch, device=self.device)
-            obs = val_batch["obs"]
-            actions = val_batch["action"]
-            rewards = val_batch["reward"]
-            next_obs = val_batch["next_obs"]
-            dones = val_batch["done"]
-            cql_alpha = self.get_cfg("cql_alpha", 1.0)
+        else:
+            return
+
+        obs = val_batch["obs"].to(self.device, non_blocking=True)
+        actions = val_batch["action"].to(self.device, non_blocking=True)
+        rewards = val_batch["reward"].to(self.device, non_blocking=True)
+        next_obs = val_batch["next_obs"].to(self.device, non_blocking=True)
+        dones = val_batch["done"].to(self.device, non_blocking=True)
+        cql_alpha = self.get_cfg("cql_alpha", 1.0)
             
-            with torch.no_grad():
-                if self.is_modular:
-                    logic_obs = self._prepare_logic_obs(obs, val_batch.get("logic_obs"))
-                    next_logic_obs = self._prepare_logic_obs(next_obs, val_batch.get("next_logic_obs"))
-                    next_q = self.target_model.get_q_values(next_obs, next_logic_obs)
-                    next_v = torch.max(next_q, dim=1)[0]
-                    q_target = rewards + self.cfg.env.gamma * next_v * (1 - dones)
-                    all_q_values = self.model.get_q_values(obs, logic_obs)
-                else:
-                    next_q = self.target_q_network(next_obs)
-                    next_v = torch.max(next_q, dim=1)[0]
-                    q_target = rewards + self.cfg.env.gamma * next_v * (1 - dones)
-                    all_q_values = self.q_network(obs)
-                    
-                q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
-                bellman_loss = F.mse_loss(q_action, q_target)
-                logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
-                cql_loss = (logsumexp_qvalues - q_action).mean()
-                val_loss = bellman_loss + cql_alpha * cql_loss
+        with torch.no_grad():
+            if self.is_modular:
+                logic_obs = self._prepare_logic_obs(obs, val_batch.get("logic_obs"))
+                next_logic_obs = self._prepare_logic_obs(next_obs, val_batch.get("next_logic_obs"))
+                next_q = self.target_model.get_q_values(next_obs, next_logic_obs)
+                next_v = torch.max(next_q, dim=1)[0]
+                q_target = rewards + self.cfg.env.gamma * next_v * (1 - dones)
+                all_q_values = self.model.get_q_values(obs, logic_obs)
+            else:
+                next_q = self.target_q_network(next_obs)
+                next_v = torch.max(next_q, dim=1)[0]
+                q_target = rewards + self.cfg.env.gamma * next_v * (1 - dones)
+                all_q_values = self.q_network(obs)
                 
-            self.log("val/loss", val_loss, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
-            self.log("val/bellman_loss", bellman_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
-            self.log("val/cql_loss", cql_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
-            self.log("val/q_mean", all_q_values.mean(), prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
-            return val_loss
+            q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
+            bellman_loss = F.mse_loss(q_action, q_target)
+            logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
+            cql_loss = (logsumexp_qvalues - q_action).mean()
+            val_loss = bellman_loss + cql_alpha * cql_loss
+            
+        self.log("val/loss", val_loss, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
+        self.log("val/bellman_loss", bellman_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+        self.log("val/cql_loss", cql_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+        self.log("val/q_mean", all_q_values.mean(), prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+        if hasattr(self, "_val_step_losses"):
+            self._val_step_losses.append(val_loss.detach())
+        return val_loss
+
+    def on_validation_epoch_end(self):
+        if hasattr(self, "_val_step_losses") and len(self._val_step_losses) > 0:
+            losses = torch.stack(self._val_step_losses)
+            mean_loss = losses.mean()
+            std_loss = losses.std() if len(losses) > 1 else torch.tensor(0.0, device=losses.device)
+            robust_loss = mean_loss + 3.0 * std_loss
+            self.log("val/robust_loss", robust_loss, prog_bar=True, sync_dist=True)
+            self.log("val/loss_std", std_loss, prog_bar=False, sync_dist=True)
 
     def configure_optimizers(self):
         if self.is_modular:

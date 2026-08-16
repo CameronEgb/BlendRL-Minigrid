@@ -141,7 +141,9 @@ class DatasetReader:
                     print(f"\n[DatasetReader] Detected NPZ dataset '{npz_candidate}' with no PKL chunks.")
                     print(f"[DatasetReader] Auto-converting NPZ to PKL format at '{p}'...")
                     script_path = Path(__file__).resolve().parent.parent / "scripts" / "convert_npz_to_pkl.py"
-                    subprocess.run([sys.executable, str(script_path), str(npz_candidate)], check=True)
+                    from src.pipeline.config import get_python_executable
+                    python_exe = get_python_executable()
+                    subprocess.run([python_exe, str(script_path), str(npz_candidate)], check=True)
                     if p.exists():
                         self.files.extend(sorted(list(p.glob("*.pkl"))))
                     break
@@ -160,25 +162,30 @@ class DatasetReader:
         for f in self.files:
             with open(f, "rb") as fh:
                 data = pickle.load(fh)
-                if not data: continue
+                if not data:
+                    continue
                 if not has_logic and data[0].get("logic_obs") is not None:
                     has_logic = True
                 
-                obs_list.append(np.array([t["obs"] for t in data]))
-                if has_logic: logic_obs_list.append(np.array([t["logic_obs"] for t in data]))
-                actions_list.append(np.array([t["action"] for t in data]))
-                rewards_list.append(np.array([t["reward"] for t in data]))
-                next_obs_list.append(np.array([t["next_obs"] for t in data]))
-                if has_logic: next_logic_obs_list.append(np.array([t["next_logic_obs"] for t in data]))
-                dones_list.append(np.array([t["done"] for t in data]))
+                obs_list.append(np.asarray([t["obs"] for t in data]))
+                if has_logic:
+                    logic_obs_list.append(np.asarray([t["logic_obs"] for t in data]))
+                actions_list.append(np.asarray([t["action"] for t in data]))
+                rewards_list.append(np.asarray([t["reward"] for t in data]))
+                next_obs_list.append(np.asarray([t["next_obs"] for t in data]))
+                if has_logic:
+                    next_logic_obs_list.append(np.asarray([t["next_logic_obs"] for t in data]))
+                dones_list.append(np.asarray([t["done"] for t in data]))
+                del data
 
         if obs_list:
-            # Do not force float32 here! Preserve uint8 for memory efficiency on image environments
-            self.obs = torch.tensor(np.concatenate(obs_list, axis=0))
-            self.actions = torch.tensor(np.concatenate(actions_list, axis=0))
-            self.rewards = torch.tensor(np.concatenate(rewards_list, axis=0))
-            self.next_obs = torch.tensor(np.concatenate(next_obs_list, axis=0))
-            self.dones = torch.tensor(np.concatenate(dones_list, axis=0))
+            # Use torch.from_numpy to share memory with NumPy concatenation without duplicating RAM
+            self.obs = torch.from_numpy(np.concatenate(obs_list, axis=0))
+            self.actions = torch.from_numpy(np.concatenate(actions_list, axis=0))
+            self.rewards = torch.from_numpy(np.concatenate(rewards_list, axis=0))
+            self.next_obs = torch.from_numpy(np.concatenate(next_obs_list, axis=0))
+            self.dones = torch.from_numpy(np.concatenate(dones_list, axis=0))
+            del obs_list, actions_list, rewards_list, next_obs_list, dones_list
             
             from src.pipeline.env_hooks import load_env_hooks
             env_name = os.environ.get("BLENDRL_ENV_NAME", "")
@@ -186,13 +193,20 @@ class DatasetReader:
             hooks.transform_rewards(self, None)  # cfg not available here, use env vars
             
             if has_logic:
-                self.logic_obs = torch.tensor(np.concatenate(logic_obs_list, axis=0))
-                self.next_logic_obs = torch.tensor(np.concatenate(next_logic_obs_list, axis=0))
+                self.logic_obs = torch.from_numpy(np.concatenate(logic_obs_list, axis=0))
+                self.next_logic_obs = torch.from_numpy(np.concatenate(next_logic_obs_list, axis=0))
+                del logic_obs_list, next_logic_obs_list
             else:
                 self.logic_obs = None
                 self.next_logic_obs = None
         else:
-            self.obs = torch.tensor([])
+            self.obs = torch.empty(0)
+            self.actions = torch.empty(0)
+            self.rewards = torch.empty(0)
+            self.next_obs = torch.empty(0)
+            self.dones = torch.empty(0)
+            self.logic_obs = None
+            self.next_logic_obs = None
             
         self.limit = len(self.obs)
     
@@ -233,22 +247,21 @@ class DatasetReader:
         if last:
             start = max(0, self.limit - batch_size)
             idxs = torch.arange(start, self.limit, device=target_device)
-            # If batch_size > available transitions, we just take what we have
         else:
             idxs = torch.randint(0, self.limit, (batch_size,), device=target_device)
         
         # Cast to correct types on the fly during transfer to device
         batch = {
-            "obs": self.obs[idxs].to(self.device, dtype=torch.float32),
-            "action": self.actions[idxs].to(self.device, dtype=torch.long),
-            "reward": self.rewards[idxs].to(self.device, dtype=torch.float32),
-            "next_obs": self.next_obs[idxs].to(self.device, dtype=torch.float32),
-            "done": self.dones[idxs].to(self.device, dtype=torch.float32)
+            "obs": self.obs[idxs].to(self.device, dtype=torch.float32, non_blocking=True),
+            "action": self.actions[idxs].to(self.device, dtype=torch.long, non_blocking=True),
+            "reward": self.rewards[idxs].to(self.device, dtype=torch.float32, non_blocking=True),
+            "next_obs": self.next_obs[idxs].to(self.device, dtype=torch.float32, non_blocking=True),
+            "done": self.dones[idxs].to(self.device, dtype=torch.float32, non_blocking=True)
         }
         
         if self.logic_obs is not None:
-            batch["logic_obs"] = self.logic_obs[idxs].to(self.device, dtype=torch.float32)
-            batch["next_logic_obs"] = self.next_logic_obs[idxs].to(self.device, dtype=torch.float32)
+            batch["logic_obs"] = self.logic_obs[idxs].to(self.device, dtype=torch.float32, non_blocking=True)
+            batch["next_logic_obs"] = self.next_logic_obs[idxs].to(self.device, dtype=torch.float32, non_blocking=True)
         else:
             batch["logic_obs"] = None
             batch["next_logic_obs"] = None
@@ -267,20 +280,19 @@ class DatasetReader:
         idxs = idxs.to(target_device)
         
         batch = {
-            "obs": self.obs[idxs].to(device, dtype=torch.float32),
-            "action": self.actions[idxs].to(device, dtype=torch.long),
-            "reward": self.rewards[idxs].to(device, dtype=torch.float32),
-            "next_obs": self.next_obs[idxs].to(device, dtype=torch.float32),
-            "done": self.dones[idxs].to(device, dtype=torch.float32)
+            "obs": self.obs[idxs].to(device, dtype=torch.float32, non_blocking=True),
+            "action": self.actions[idxs].to(device, dtype=torch.long, non_blocking=True),
+            "reward": self.rewards[idxs].to(device, dtype=torch.float32, non_blocking=True),
+            "next_obs": self.next_obs[idxs].to(device, dtype=torch.float32, non_blocking=True),
+            "done": self.dones[idxs].to(device, dtype=torch.float32, non_blocking=True)
         }
         
         if self.logic_obs is not None:
-            batch["logic_obs"] = self.logic_obs[idxs].to(device, dtype=torch.float32)
-            batch["next_logic_obs"] = self.next_logic_obs[idxs].to(device, dtype=torch.float32)
+            batch["logic_obs"] = self.logic_obs[idxs].to(device, dtype=torch.float32, non_blocking=True)
+            batch["next_logic_obs"] = self.next_logic_obs[idxs].to(device, dtype=torch.float32, non_blocking=True)
         else:
             batch["logic_obs"] = None
             batch["next_logic_obs"] = None
-            
         return batch
 
     def split(self, val_ratio=0.1, seed=42):

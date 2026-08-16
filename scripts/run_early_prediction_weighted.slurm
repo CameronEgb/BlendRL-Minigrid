@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --output=results/logs/%x_%j.out
 #SBATCH --error=results/logs/%x_%j.err
-#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-type=ALL
 #SBATCH --mail-user=cegbert@ncsu.edu
 
 echo "=== Weighted Sepsis Early Prediction Sweep Execution Start ==="
@@ -17,16 +17,7 @@ export PROJECT_ROOT=$(pwd)
 export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH
 
 # 2. Paths Configuration (Defaults for Cluster)
-DATASET_PATH="in/datasets/mimic/mimic_lazy_12_clean_with_interventions_corrected.npz"
-if [ ! -f "$DATASET_PATH" ]; then
-    DATASET_PATH="in/datasets/mimic_lazy_12_clean_with_interventions_corrected.npz"
-fi
-if [ ! -f "$DATASET_PATH" ]; then
-    DATASET_PATH="/mnt/beegfs/cegbert/NeSyRL/in/datasets/mimic/mimic_lazy_12_clean_with_interventions_corrected.npz"
-fi
-if [ ! -f "$DATASET_PATH" ]; then
-    DATASET_PATH="/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2/mimic_lazy_12_clean_with_interventions_corrected.npz"
-fi
+DATASET_PATH=$(python3 -c "import sys; sys.path.insert(0, '.'); from src.pipeline.datasets import resolve_mimic_npz_path; print(resolve_mimic_npz_path('mimic_lazy_12_clean_with_interventions_corrected.npz'))" 2>/dev/null || echo "in/datasets/mimic/mimic_lazy_12_clean_with_interventions_corrected.npz")
 
 CHECKPOINT="results/checkpoints/mimic/tune_mimic_all"
 

@@ -58,19 +58,8 @@ class PPOAgent(BaseAgent):
         self.norm_adv = self.get_cfg("norm_adv", True)
         self.clip_vloss = self.get_cfg("clip_vloss", True)
 
+        self._init_env(n_envs=self.num_envs)
         algorithm = self.get_cfg("algorithm", self.get_cfg("name", "ppo"))
-
-        self.env = VectorizedNudgeBaseEnv.from_name(
-            cfg.env.name, 
-            n_envs=self.num_envs, 
-            mode=algorithm, 
-            seed=self.get_cfg("seed", cfg.seed)
-        )
-        
-        dummy_logic, dummy_neural = self.env.reset()
-        self.observation_space = dummy_neural.shape[1:]
-        self.logic_observation_space = dummy_logic.shape[1:]
-        self.n_actions = self.env.n_actions if not callable(self.env.n_actions) else self.env.n_actions()
         
         # Check if modular/hybrid policy is configured
         has_modules = bool(self.get_cfg("modules", []))

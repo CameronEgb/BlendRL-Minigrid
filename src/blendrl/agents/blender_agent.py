@@ -14,9 +14,6 @@ from nudge.torch_utils import softor
 
 # from nudge.env import NudgeBaseEnv
 from torch.distributions.categorical import Categorical
-
-
-from torch.distributions import Categorical
 from nsfr.utils.common import load_module
 from nsfr.common import get_nsfr_model
 

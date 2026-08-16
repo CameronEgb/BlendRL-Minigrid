@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --output=results/logs/slurm/%x_%j.out
 #SBATCH --error=results/logs/slurm/%x_%j.err
-#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-type=ALL
 #SBATCH --mail-user=cegbert@ncsu.edu
 
 export PROJECT_ROOT=$(pwd)

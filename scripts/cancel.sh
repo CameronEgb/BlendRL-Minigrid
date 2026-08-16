@@ -9,9 +9,9 @@ EXP_ID=$1
 IDS_FILE="results/slurm_ids/${EXP_ID}.txt"
 
 # If exact file not found, try common mismatches or search in the slurm_ids directory
-if [ ! -f "$IDS_FILE" ]; then
+if [ ! -f "$IDS_FILE" ] && [ -d "results/slurm_ids" ]; then
     # Try searching for a file that contains the string
-    SEARCH_FILE=$(ls results/slurm_ids/ | grep "$EXP_ID" | head -n 1)
+    SEARCH_FILE=$(ls results/slurm_ids/ 2>/dev/null | grep "$EXP_ID" | head -n 1)
     if [ -n "$SEARCH_FILE" ]; then
         IDS_FILE="results/slurm_ids/$SEARCH_FILE"
         echo "Found potential match: $IDS_FILE"

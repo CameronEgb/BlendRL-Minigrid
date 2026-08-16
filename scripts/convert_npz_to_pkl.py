@@ -8,39 +8,15 @@ from pathlib import Path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.dataset_utils import DatasetWriter
 
-# Paths
-datasets_dir = os.environ.get("MIMIC_DATASET_DIR", "")
-if not datasets_dir or not os.path.exists(datasets_dir):
-    for candidate in [
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets/mimic")),
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "../in/datasets")),
-        os.path.abspath(os.path.join(os.getcwd(), "in/datasets/mimic")),
-        os.path.abspath(os.path.join(os.getcwd(), "in/datasets")),
-        "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2",
-        "/hpc/home/cegbert1/Offline-BlendRL/in/datasets/mimic",
-        "/hpc/home/cegbert1/Offline-BlendRL/in/datasets",
-        "/mnt/beegfs/cegbert/NeSyRL/in/datasets/mimic",
-        "/mnt/beegfs/cegbert/NeSyRL/in/datasets",
-        "/mnt/beegfs/cegbert/MIMIC 2"
-    ]:
-        if os.path.exists(candidate):
-            datasets_dir = candidate
-            break
+# Ensure project root is in sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from src.pipeline.datasets import resolve_mimic_npz_path
 
 # Select NPZ file
-npz_path = None
-if len(sys.argv) > 1:
-    arg_target = sys.argv[1]
-    if os.path.exists(arg_target):
-        npz_path = os.path.abspath(arg_target)
-    elif os.path.exists(os.path.join(datasets_dir, arg_target)):
-        npz_path = os.path.join(datasets_dir, arg_target)
+target_arg = sys.argv[1] if len(sys.argv) > 1 else None
+npz_path = str(resolve_mimic_npz_path(target_arg))
 
-if not npz_path:
-    npz_filename = os.environ.get("MIMIC_DATASET_NAME", "mimic_lazy_0_interventions_balanced.npz")
-    npz_path = os.path.join(datasets_dir, npz_filename)
-
-if not npz_path or not os.path.exists(npz_path):
+if not os.path.exists(npz_path):
     print(f"Error: NPZ dataset not found at {npz_path}")
     sys.exit(1)
 

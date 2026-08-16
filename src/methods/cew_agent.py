@@ -28,16 +28,8 @@ class CEWAgent(OfflineAgentBase):
         self.self_organized = False
         
         # Setup for evaluation
-        from blendrl.env_vectorized import VectorizedNudgeBaseEnv
-        self.eval_env = VectorizedNudgeBaseEnv.from_name(
-            cfg.env.name, 
-            n_envs=1, 
-            mode=self.algorithm, 
-            seed=cfg.seed
-        )
-        _, dummy_neural = self.eval_env.reset()
-        self.observation_space = dummy_neural.shape[1:]
-        self.n_actions = self.eval_env.n_actions if not callable(self.eval_env.n_actions) else self.eval_env.n_actions()
+        self._init_env(n_envs=1)
+        self.eval_env = self.env
 
     def on_train_epoch_start(self):
         """Handle interval-based dataset scaling and self-organization."""
@@ -118,10 +110,21 @@ class CEWAgent(OfflineAgentBase):
         print(f"Self-organization complete. MIMO Rules: {len(self.rules)}. Weights reset.")
 
     def training_step(self, batch, batch_idx):
-        if not self.self_organized: return
+        if not self.self_organized:
+            return
             
-        datamodule = self.trainer.datamodule
-        real_batch = datamodule.reader.sample(self.get_cfg("batch_size", 32))
+        datamodule = getattr(self.trainer, "datamodule", None)
+        if isinstance(batch, dict) and "obs" in batch:
+            real_batch = batch
+        elif datamodule is not None and getattr(datamodule, "reader", None) is not None:
+            if isinstance(batch, torch.Tensor):
+                real_batch = datamodule.reader.get_batch(batch, device="cpu")
+            else:
+                batch_size = self.get_cfg("batch_size", 32)
+                real_batch = datamodule.reader.sample(batch_size)
+        else:
+            return
+            
         obs = real_batch["obs"].to("cpu")
         actions = real_batch["action"].to("cpu")
         rewards = real_batch["reward"].to("cpu")
@@ -165,36 +168,55 @@ class CEWAgent(OfflineAgentBase):
             "train/rules": float(len(self.rules))
         })
 
+    def on_validation_epoch_start(self):
+        self._val_step_losses = []
+
     def validation_step(self, batch, batch_idx):
         if not self.self_organized or self.fuzzy_model is None or self.target_fuzzy_model is None:
             return
         datamodule = getattr(self.trainer, "datamodule", None)
-        if datamodule is not None and getattr(datamodule, "val_reader", None) is not None:
-            val_batch = datamodule.val_reader.get_batch(batch, device="cpu")
-            obs = val_batch["obs"]
-            actions = val_batch["action"]
-            rewards = val_batch["reward"]
-            next_obs = val_batch["next_obs"]
-            dones = val_batch["done"]
+        if isinstance(batch, dict) and "obs" in batch:
+            val_batch = batch
+        elif datamodule is not None and getattr(datamodule, "val_reader", None) is not None:
+            val_batch = datamodule.val_reader.get_batch(batch, device=self.device)
+        else:
+            return
+
+        obs = val_batch["obs"].to(self.device, non_blocking=True)
+        actions = val_batch["action"].to(self.device, non_blocking=True)
+        rewards = val_batch["reward"].to(self.device, non_blocking=True)
+        next_obs = val_batch["next_obs"].to(self.device, non_blocking=True)
+        dones = val_batch["done"].to(self.device, non_blocking=True)
             
-            with torch.no_grad():
-                next_q = self.target_fuzzy_model(next_obs)
-                next_v = torch.max(next_q, dim=1)[0]
-                q_target = rewards + self.get_cfg("gamma", 0.99) * next_v * (1 - dones)
-                
-                all_q_values = self.fuzzy_model(obs)
-                q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
-                
-                bellman_loss = F.mse_loss(q_action, q_target)
-                logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
-                cql_alpha = getattr(self.fuzzy_model, "cql_alpha", self.get_cfg("cql_alpha", 1.0))
-                cql_loss = (logsumexp_qvalues - q_action).mean()
-                val_loss = bellman_loss + cql_alpha * cql_loss
-                
-            self.log("val/loss", val_loss, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
-            self.log("val/bellman_loss", bellman_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
-            self.log("val/cql_loss", cql_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
-            return val_loss
+        with torch.no_grad():
+            next_q = self.target_fuzzy_model(next_obs)
+            next_v = torch.max(next_q, dim=1)[0]
+            q_target = rewards + self.get_cfg("gamma", 0.99) * next_v * (1 - dones)
+            
+            all_q_values = self.fuzzy_model(obs)
+            q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
+            
+            bellman_loss = F.mse_loss(q_action, q_target)
+            logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
+            cql_alpha = getattr(self.fuzzy_model, "cql_alpha", self.get_cfg("cql_alpha", 1.0))
+            cql_loss = (logsumexp_qvalues - q_action).mean()
+            val_loss = bellman_loss + cql_alpha * cql_loss
+            
+        self.log("val/loss", val_loss, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
+        self.log("val/bellman_loss", bellman_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+        self.log("val/cql_loss", cql_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+        if hasattr(self, "_val_step_losses"):
+            self._val_step_losses.append(val_loss.detach())
+        return val_loss
+
+    def on_validation_epoch_end(self):
+        if hasattr(self, "_val_step_losses") and len(self._val_step_losses) > 0:
+            losses = torch.stack(self._val_step_losses)
+            mean_loss = losses.mean()
+            std_loss = losses.std() if len(losses) > 1 else torch.tensor(0.0, device=losses.device)
+            robust_loss = mean_loss + 3.0 * std_loss
+            self.log("val/robust_loss", robust_loss, prog_bar=True, sync_dist=True)
+            self.log("val/loss_std", std_loss, prog_bar=False, sync_dist=True)
 
     def configure_optimizers(self):
         # Dummy optimizer to satisfy Lightning until self_organize is called

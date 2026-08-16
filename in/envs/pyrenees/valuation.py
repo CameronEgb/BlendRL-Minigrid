@@ -80,7 +80,11 @@ def _compute_gmm_posteriors(agent: th.Tensor) -> th.Tensor:
     dtype  = agent.dtype
 
     if _GMM_PARAMS is None:
-        return None
+        raise FileNotFoundError(
+            "Pyrenees GMM competency parameters not found. "
+            "Please run 'python scripts/fit_gmm_competency.py' to generate 'in/datasets/pyrenees/pyrenees_gmm_scaler.npz' "
+            "before evaluating logic rules on Pyrenees."
+        )
 
     feat_idx    = th.tensor(_GMM_PARAMS["feature_indices"], dtype=th.long, device=device)
     means       = th.tensor(_GMM_PARAMS["means"], dtype=dtype, device=device)             # (3, d)
@@ -111,22 +115,16 @@ def _compute_gmm_posteriors(agent: th.Tensor) -> th.Tensor:
 
 def low_competency(agent: th.Tensor) -> th.Tensor:
     posteriors = _compute_gmm_posteriors(agent)
-    if posteriors is None:
-        raise RuntimeError("GMM parameters for Pyrenees valuation are not available.")
     return posteriors[..., 0]
 
 
 def med_competency(agent: th.Tensor) -> th.Tensor:
     posteriors = _compute_gmm_posteriors(agent)
-    if posteriors is None:
-        raise RuntimeError("GMM parameters for Pyrenees valuation are not available.")
     return posteriors[..., 1]
 
 
 def high_competency(agent: th.Tensor) -> th.Tensor:
     posteriors = _compute_gmm_posteriors(agent)
-    if posteriors is None:
-        raise RuntimeError("GMM parameters for Pyrenees valuation are not available.")
     return posteriors[..., 2]
 
 

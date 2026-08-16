@@ -19,6 +19,7 @@ from plot.base import BasePlotter
 # Experiments can override by defining a `plots:` section in their YAML.
 ENV_DEFAULT_PLOTS = {
     "mimic":    ["losses", "policy_eval", "reports"],
+    "pyrenees": ["losses", "policy_eval", "reports"],
     "cartpole": ["convergence", "losses", "reports"],
 }
 FALLBACK_PLOTS = ["convergence", "losses", "reports"]
@@ -96,9 +97,6 @@ def run_experiment_plots(exp_id: str, exp_config_name: str = None, style: str = 
     clean_exp = Path(exp_id).stem
     output_dir = Path("results/plots") / group / clean_exp
 
-    if output_dir.exists():
-        print(f"Clearing previous plots from: {output_dir}")
-        shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     registry = discover_plotters()

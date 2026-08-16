@@ -220,6 +220,7 @@ class FLC(nn.Module):
             
         unique_id = 0
         centers = []; sigmas = []; self.input_variable_ids = []
+        feature_map = []
         for p in range(in_features):
             self.input_variable_ids.append([])
             for ant in antecedents[p]:
@@ -227,15 +228,18 @@ class FLC(nn.Module):
                 sigmas.append(ant['sigma'])
                 ant['id'] = unique_id
                 self.input_variable_ids[-1].append(unique_id)
+                feature_map.append(p)
                 unique_id += 1
         self.transformed_len = unique_id
         
         links = np.zeros((self.transformed_len, len(rules)))
         for r_idx, rule in enumerate(rules):
             for p, t_idx in enumerate(rule['A']):
-                links[antecedents[p][t_idx]['id'], r_idx] = 1
+                if p < len(antecedents) and t_idx < len(antecedents[p]) and 'id' in antecedents[p][t_idx]:
+                    links[antecedents[p][t_idx]['id'], r_idx] = 1
         self.register_buffer('links', torch.tensor(links, dtype=torch.float32))
         self.register_buffer('links_mask', (self.links == 0).float())
+        self.register_buffer('feature_map', torch.tensor(feature_map, dtype=torch.long))
         
         self.input_terms = GaussianLayer(self.transformed_len, centers, sigmas, trainable=trainable_antecedents)
         
@@ -284,6 +288,8 @@ class FLC(nn.Module):
         return self.forward(X)
 
     def get_rule_activations(self, X):
+        if self.transformed_len == 0 or self.links.shape[1] == 0:
+            return torch.zeros(X.shape[0], 0, device=X.device)
         X_trans = X.index_select(1, self.feature_map)
         mems = self.input_terms(X_trans)
         log_mems = torch.log(mems + 1e-12)
@@ -336,6 +342,10 @@ class MultiFLC(nn.Module):
 
     def get_q_values(self, X):
         return self.forward(X)
+
+    def get_action_probs(self, X):
+        q = self.forward(X)
+        return torch.softmax(q, dim=1)
 
     def get_action_and_value(self, obs, action=None):
         q = self.forward(obs)
@@ -455,7 +465,7 @@ class MamdaniAutoencoder(nn.Module):
         for r_idx, rule in enumerate(rules):
             for p_idx, t_idx in enumerate(rule['A']):
                 consequences[r_idx, p_idx] = antecedents[p_idx][t_idx]['center']
-        self.flc.consequences.data = torch.tensor(consequences, dtype=torch.float32)
+        self.flc.consequences.data = torch.as_tensor(consequences, dtype=torch.float32)
 
     def forward(self, x):
         reconstruction = self.flc(x)
@@ -467,7 +477,7 @@ def stabilize_antecedents(obs, antecedents, rules, device, lr=1e-3, epochs=10, b
     in_features = obs.shape[1]
     model = MamdaniAutoencoder(in_features, antecedents, rules).to(device)
     optimizer = optim.Adam(model.flc.input_terms.parameters(), lr=lr)
-    obs_tensor = torch.tensor(obs, dtype=torch.float32).to(device)
+    obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=device)
     
     with torch.no_grad():
         _, target_activations = model(obs_tensor)

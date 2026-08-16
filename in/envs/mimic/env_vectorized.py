@@ -123,34 +123,8 @@ class VectorizedNudgeEnv(VectorizedNudgeBaseEnv):
         self.seed = seed if seed is not None else 42
         
         # Load dataset
-        mimic_dir = os.environ.get("MIMIC_DATASET_DIR", "")
-        if not mimic_dir or not os.path.exists(mimic_dir):
-            for candidate in [
-                os.path.abspath(os.path.join(os.path.dirname(__file__), "../../datasets/mimic")),
-                os.path.abspath(os.path.join(os.getcwd(), "in/datasets/mimic")),
-                os.path.abspath(os.path.join(os.path.dirname(__file__), "../../datasets")),
-                os.path.abspath(os.path.join(os.getcwd(), "in/datasets")),
-                "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2",
-                "/hpc/home/cegbert1/Offline-BlendRL/in/datasets/mimic",
-                "/mnt/beegfs/cegbert/NeSyRL/in/datasets/mimic",
-                "/mnt/beegfs/cegbert/MIMIC 2"
-            ]:
-                if os.path.exists(candidate):
-                    mimic_dir = candidate
-                    break
-            
-        path = os.path.join(mimic_dir, dataset_name)
-        if not os.path.exists(path):
-            # Fallback to alternate dataset filenames if default dataset_name doesn't exist in mimic_dir
-            for alt_name in [
-                "mimic_lazy_12_clean_with_interventions_corrected.npz",
-                "mimic_lazy_0_interventions_flag.npz",
-                "mimic_expert_demonstrations.npz"
-            ]:
-                alt_path = os.path.join(mimic_dir, alt_name)
-                if os.path.exists(alt_path):
-                    path = alt_path
-                    break
+        from src.pipeline.datasets import resolve_mimic_npz_path
+        path = str(resolve_mimic_npz_path(dataset_name))
                     
         if not os.path.exists(path):
             raise FileNotFoundError(f"MIMIC dataset not found at {path}")

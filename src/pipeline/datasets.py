@@ -6,7 +6,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from src.pipeline.optuna_utils import get_python_executable
+from src.pipeline.config import get_python_executable
 
 
 def find_dataset_globally(agent_name_internal):
@@ -31,6 +31,43 @@ def find_dataset_globally(agent_name_internal):
     # Sort matches by path depth (fewer parts first) to prefer shallowest path
     matches.sort(key=lambda p: len(Path(p).parts))
     return matches[0]
+
+
+def ensure_online_dataset_path(group: str, experiment_id: str, agent_name_internal: str, is_sweep: bool = False):
+    """Determine expected online dataset path and ensure directory / symlink exists if dataset is available globally.
+    
+    Returns:
+        tuple[str, bool]: (dataset_path, has_existing_dataset)
+    """
+    if is_sweep:
+        dataset_path = f"in/datasets/{experiment_id}/{agent_name_internal}"
+    else:
+        dataset_path = f"in/datasets/{group}/{experiment_id}/{agent_name_internal}"
+        
+    has_pkl = False
+    if os.path.exists(dataset_path):
+        for root, dirs, files in os.walk(dataset_path):
+            if any(f.endswith(".pkl") for f in files):
+                has_pkl = True
+                break
+                
+    if not has_pkl:
+        found_path = find_dataset_globally(agent_name_internal)
+        if found_path:
+            print(f"Dataset found globally at {found_path}. Symlinking to expected path {dataset_path}...")
+            os.makedirs(os.path.dirname(dataset_path), exist_ok=True)
+            if os.path.lexists(dataset_path):
+                if os.path.isdir(dataset_path) and not os.path.islink(dataset_path):
+                    import shutil
+                    shutil.rmtree(dataset_path)
+                else:
+                    os.unlink(dataset_path)
+            # Use relative symlink to ensure compatibility on cluster nodes
+            rel_source = os.path.relpath(os.path.abspath(found_path), start=os.path.dirname(os.path.abspath(dataset_path)))
+            os.symlink(rel_source, dataset_path)
+            has_pkl = True
+
+    return dataset_path, has_pkl
 
 
 def resolve_dataset_path(dataset_id: str, group: str = "", experiment_id: str = "", yaml_ds_path: str = None) -> Path:
@@ -72,6 +109,45 @@ def resolve_dataset_path(dataset_id: str, group: str = "", experiment_id: str = 
         
     raise FileNotFoundError(
         f"Could not locate offline dataset '{dataset_id}' in standard dataset directories."
+    )
+
+
+def resolve_mimic_npz_path(filename_or_path: str = None) -> Path:
+    """Robustly resolve the filesystem path for a MIMIC NPZ dataset file.
+    
+    Raises FileNotFoundError if the file cannot be located.
+    """
+    if filename_or_path:
+        p = Path(filename_or_path)
+        if p.exists() and p.is_file():
+            return p.resolve()
+        filename = p.name
+    else:
+        filename = os.environ.get("MIMIC_DATASET_NAME", "") or "mimic_lazy_12_clean_with_interventions_corrected.npz"
+
+    candidate_dirs = [
+        os.environ.get("MIMIC_DATASET_DIR", ""),
+        Path("in/datasets/mimic"),
+        Path("in/datasets/MIMIC 2"),
+        Path("in/datasets"),
+        Path.home() / "Documents/NCSU/Research/datasets/MIMIC 2",
+        Path.home() / "Offline-BlendRL/in/datasets/mimic",
+        Path.home() / "Offline-BlendRL/in/datasets",
+        Path("/hpc/home/cegbert1/Offline-BlendRL/in/datasets/mimic"),
+        Path("/hpc/home/cegbert1/Offline-BlendRL/in/datasets"),
+    ]
+    candidate_dirs = [Path(d).resolve() for d in candidate_dirs if d and (isinstance(d, Path) or len(str(d)) > 0)]
+
+    for c_dir in candidate_dirs:
+        if not c_dir.exists():
+            continue
+        cand = c_dir / filename
+        if cand.exists() and cand.is_file():
+            return cand.resolve()
+
+    searched = [str(d) for d in candidate_dirs if d.exists()]
+    raise FileNotFoundError(
+        f"MIMIC dataset '{filename}' not found. Searched existing directories: {searched}"
     )
 
 

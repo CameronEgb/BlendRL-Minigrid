@@ -169,7 +169,7 @@ class NeuralPlayer:
     def __init__(self, args, model=None):
         self.args = args
         self.model = model
-        self.device = torch.device('cuda:0')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     def act(self, state):
         logic_state, neural_state = state

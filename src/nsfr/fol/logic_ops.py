@@ -252,7 +252,7 @@ def is_singleton(atoms):
 
 
 def is_entailed(e, clause, facts, n):
-    """
+    r"""
     decision function of ground atom is entailed by a clause and facts by n-step inference
 
     Inputs
@@ -279,7 +279,7 @@ def is_entailed(e, clause, facts, n):
 
 
 def t_p_n(clause, facts, n):
-    """
+    r"""
     applying the T_p operator n-times taking union of results 
 
     Inputs

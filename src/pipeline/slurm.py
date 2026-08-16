@@ -18,9 +18,9 @@ def get_gres_header(partition, gpus):
     return ""
 
 
-def generate_sbatch_script(job_name, cmd_args, log_dir, partition="gpu", gpus=1, cores=16, nodes=1, dependency=None, time="01:00:00"):
-    """Generate an SBATCH script string for Slurm submission."""
-    script = f"#!/bin/bash\n"
+def generate_sbatch_header(job_name, log_dir, partition="gpu", gpus=1, cores=16, nodes=1, time="01:00:00", dependency=None, dependency_type="afterok", mail_user="cegbert@ncsu.edu", mail_type="ALL"):
+    """Generate standardized SBATCH script header."""
+    script = "#!/bin/bash\n"
     script += f"#SBATCH --job-name={job_name}\n"
     script += f"#SBATCH --partition={partition}\n"
     script += get_gres_header(partition, gpus)
@@ -29,12 +29,26 @@ def generate_sbatch_script(job_name, cmd_args, log_dir, partition="gpu", gpus=1,
     script += f"#SBATCH --nodes={nodes}\n"
     script += f"#SBATCH --output={log_dir}/%x_%j.out\n"
     script += f"#SBATCH --error={log_dir}/%x_%j.err\n"
-    script += f"#SBATCH --mail-type=END,FAIL\n"
-    script += f"#SBATCH --mail-user=cegbert@ncsu.edu\n"
-
+    if mail_user:
+        script += f"#SBATCH --mail-type={mail_type}\n"
+        script += f"#SBATCH --mail-user={mail_user}\n"
     if dependency:
-        script += f"#SBATCH --dependency=afterok:{dependency}\n"
-        
+        script += f"#SBATCH --dependency={dependency_type}:{dependency}\n"
+    return script
+
+
+def generate_sbatch_script(job_name, cmd_args, log_dir, partition="gpu", gpus=1, cores=16, nodes=1, dependency=None, time="01:00:00"):
+    """Generate an SBATCH script string for Slurm submission."""
+    script = generate_sbatch_header(
+        job_name=job_name,
+        log_dir=log_dir,
+        partition=partition,
+        gpus=gpus,
+        cores=cores,
+        nodes=nodes,
+        time=time,
+        dependency=dependency
+    )
     script += f"\n"
     script += f"export PROJECT_ROOT={os.getcwd()}\n"
     script += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n"

@@ -81,6 +81,9 @@ The project uses a modular configuration system powered by Hydra.
     - **Local (Default):** `run_pipeline.py` defaults to local execution (`--local=True`), running experiments as standard subprocesses.
     - **Cluster:** Historically used for Slurm (`sbatch`) job submission.
     - **Cluster Push Mandate:** Whenever recommending or generating a command to run on the cluster (e.g., `local=false` or Slurm submission), the agent MUST push changes to GitHub so the codebase is ready to be pulled and run on the cluster.
+- **Filesystem Storage Rules:**
+    - `/mnt/beegfs/` is **slow** bulk network storage and MUST NEVER be used for active training, dataset loading, or fallback resolution paths.
+    - All datasets and training workloads must strictly execute from repository paths (`in/datasets/`) or local user storage (`/hpc/home/`).
 - **State Recovery:** For long Atari runs (e.g., Seaquest), use the `recover=true` Hydra override to resume training from the latest checkpoint. Training states are saved at evaluation intervals in `results/checkpoints/[GROUP]/[EXP_ID]/[AGENT]/`.
 
 ## 6. Hydra & Debugging Heuristics
@@ -135,17 +138,20 @@ Agents are implemented as PyTorch Lightning Modules in `src/methods/`:
 - **Environment Defaults:** `ENV_DEFAULT_PLOTS` in `plot/manager.py` defines which plotters run by default per environment. Experiments override via `plots:` in YAML.
 - **Shared Plotting:** `BasePlotter.plot_metric_series()` handles multi-method metric plotting with multi-version mean±SEM. Used by `ConvergencePlotter` and `LossesPlotter`.
 
-## 14. Pipeline Structure (`run_pipeline.py`)
-- **Helpers:** `normalize_agent_name()` converts `blendrl_cql/human_cew` → `blendrl_cql_human_cew`. `parse_method_list()` handles both YAML list and comma-separated string forms.
-- **Phase Dispatch:** `main()` is a thin dispatcher that calls:
-    - `run_early_prediction_task()` for standalone EP tasks
-    - `run_local_training()` for local Phase 1+2
-    - `run_slurm_training()` for cluster Phase 1+2 (returns `job_ids, eval_commands`)
-    - Phase 3 (local EP eval) and Phase 4 (plotting) remain inline in `main()`
+## 14. Pipeline Architecture (`run_pipeline.py` & `src/pipeline/`)
+- **Thin Orchestrator:** `run_pipeline.py` is a lightweight entry point (~180 lines) that validates configs and dispatches to specialized modules:
+    - **`src/pipeline/config.py`**: Name normalization (`normalize_agent_name`), method list parsing (`parse_method_list`), and CLI extra-argument sanitization (`filter_pipeline_args`).
+    - **`src/pipeline/datasets.py`**: Dataset path resolution (`resolve_dataset_path`), online dataset symlinking (`ensure_online_dataset_path`), experiment runners, and plotting dispatch.
+    - **`src/pipeline/slurm.py`**: Centralized Slurm header builder (`generate_sbatch_header`) with unified `--mail-type=ALL` and `--mail-user=cegbert@ncsu.edu` configuration, and job submission (`submit_sbatch`).
+    - **`src/pipeline/local_runner.py`**: Local sequential execution for online & offline RL phases.
+    - **`src/pipeline/slurm_runner.py`**: Remote Slurm cluster batch script generation and job dependency orchestration.
+    - **`src/pipeline/early_prediction_task.py`**: Standalone early prediction sweeps, checkpoint evaluations, and Optuna tuning.
+    - **`src/pipeline/optuna_utils.py`**: SQLite URL constants (`DEFAULT_OPTUNA_DB_URL`), Optuna study management, and background dashboard launching.
+    - **`src/pipeline/validation.py`**: Pre-flight validation checks for environment configs, sweep parameters, and offline-only dataset constraints.
 
 ## 15. Command & Workflow Reference
 For detailed instructions, Optuna hyperparameter tuning, plot style specs, custom agent implementation steps, and cluster workflow tutorials, refer to [`docs/WORKFLOW_GUIDE.md`](file:///Users/cameronegbert/Documents/NCSU/Research/NeSyRL/docs/WORKFLOW_GUIDE.md).
 
 ---
-*Last Updated: 2026-08-04*
+*Last Updated: 2026-08-14*
 

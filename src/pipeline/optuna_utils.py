@@ -11,21 +11,10 @@ import threading
 import webbrowser
 
 
-def get_python_executable():
-    """Returns the path to the python executable to use for all subprocesses."""
-    # If we are already running in the venv, use that
-    # Otherwise, look for venv/bin/python3
-    project_root = os.getcwd()
-    venv_python = os.path.join(project_root, "venv", "bin", "python3")
-    
-    # Check if we should use python3.13 specifically if it exists
-    venv_python_13 = os.path.join(project_root, "venv", "bin", "python3.13")
-    if os.path.exists(venv_python_13):
-        return venv_python_13
-        
-    if os.path.exists(venv_python):
-        return venv_python
-    return sys.executable
+DEFAULT_OPTUNA_DB_URL = "sqlite:///results/optuna/optuna.db"
+
+
+from src.pipeline.config import get_python_executable
 
 
 def get_best_trial_id(storage_url, study_name):

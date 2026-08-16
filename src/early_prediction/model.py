@@ -415,27 +415,8 @@ def evaluate_transformer_model(model, X_test, input_dim, device="cpu"):
     return probs
 
 def find_default_mimic_npz():
-    env_dir = os.environ.get("MIMIC_DATASET_DIR", "")
-    for filename in ["mimic_lazy_12_clean_with_interventions.npz", "mimic_lazy_0_interventions_flag.npz", "mimic_lazy_12_clean_with_interventions_corrected.npz"]:
-        if env_dir and os.path.exists(os.path.join(env_dir, filename)):
-            return os.path.join(env_dir, filename)
-    for candidate_dir in [
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../in/datasets/mimic")),
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../in/datasets")),
-        os.path.abspath(os.path.join(os.getcwd(), "in/datasets/mimic")),
-        os.path.abspath(os.path.join(os.getcwd(), "in/datasets")),
-        "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2",
-        "/hpc/home/cegbert1/Offline-BlendRL/in/datasets/mimic",
-        "/hpc/home/cegbert1/Offline-BlendRL/in/datasets",
-        "/mnt/beegfs/cegbert/NeSyRL/in/datasets/mimic",
-        "/mnt/beegfs/cegbert/NeSyRL/in/datasets",
-        "/mnt/beegfs/cegbert/MIMIC 2"
-    ]:
-        for filename in ["mimic_lazy_12_clean_with_interventions.npz", "mimic_lazy_0_interventions_flag.npz", "mimic_lazy_12_clean_with_interventions_corrected.npz"]:
-            candidate_file = os.path.join(candidate_dir, filename)
-            if os.path.exists(candidate_file):
-                return candidate_file
-    return "in/datasets/mimic/mimic_lazy_12_clean_with_interventions.npz"
+    from src.pipeline.datasets import resolve_mimic_npz_path
+    return str(resolve_mimic_npz_path())
 
 def load_target_params(tune_dir, m_cfg_name):
     target_key = m_cfg_name.lower().replace(" ", "_").replace("(", "").replace(")", "")

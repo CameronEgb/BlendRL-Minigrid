@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from plot.base import BasePlotter, clean_label
+from src.method_registry import get_style
+from src.pipeline.config import get_python_executable
 
 DISP_MAP = {
     "lstm_no_v": "LSTM (no V)",
@@ -81,9 +83,11 @@ class EarlyPredictionPlotter(BasePlotter):
             tau_arr = np.array(res["tau"])
             mean_arr = np.array(res["auc"])
             sem_arr = np.array(res["auc_sem"])
-            c_idx = idx % len(colors)
-            axes[0, 0].plot(tau_arr, mean_arr, marker=markers[c_idx], color=colors[c_idx], label=m_name, linewidth=2)
-            axes[0, 0].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[c_idx], alpha=0.15)
+            style = get_style(m_name)
+            c = style.get("color", colors[idx % len(colors)])
+            m = style.get("marker", markers[idx % len(markers)])
+            axes[0, 0].plot(tau_arr, mean_arr, marker=m, color=c, label=m_name, linewidth=2)
+            axes[0, 0].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=c, alpha=0.15)
         axes[0, 0].set_title("AUC-ROC vs. Lead Time (τ)", fontsize=12, fontweight='bold')
         axes[0, 0].set_xlabel("Lead Time (hours early - τ)", fontsize=11)
         axes[0, 0].set_ylabel("AUC-ROC", fontsize=11)
@@ -96,9 +100,11 @@ class EarlyPredictionPlotter(BasePlotter):
             tau_arr = np.array(res["tau"])
             mean_arr = np.array(res["auprc"])
             sem_arr = np.array(res["auprc_sem"])
-            c_idx = idx % len(colors)
-            axes[0, 1].plot(tau_arr, mean_arr, marker=markers[c_idx], color=colors[c_idx], label=m_name, linewidth=2)
-            axes[0, 1].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[c_idx], alpha=0.15)
+            style = get_style(m_name)
+            c = style.get("color", colors[idx % len(colors)])
+            m = style.get("marker", markers[idx % len(markers)])
+            axes[0, 1].plot(tau_arr, mean_arr, marker=m, color=c, label=m_name, linewidth=2)
+            axes[0, 1].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=c, alpha=0.15)
         axes[0, 1].set_title("AUPRC (PR-AUC) vs. Lead Time (τ)", fontsize=12, fontweight='bold')
         axes[0, 1].set_xlabel("Lead Time (hours early - τ)", fontsize=11)
         axes[0, 1].set_ylabel("AUPRC", fontsize=11)
@@ -111,9 +117,11 @@ class EarlyPredictionPlotter(BasePlotter):
             tau_arr = np.array(res["tau"])
             mean_arr = np.array(res["f1_opt"])
             sem_arr = np.array(res["f1_opt_sem"])
-            c_idx = idx % len(colors)
-            axes[1, 0].plot(tau_arr, mean_arr, marker=markers[c_idx], color=colors[c_idx], label=m_name, linewidth=2)
-            axes[1, 0].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[c_idx], alpha=0.15)
+            style = get_style(m_name)
+            c = style.get("color", colors[idx % len(colors)])
+            m = style.get("marker", markers[idx % len(markers)])
+            axes[1, 0].plot(tau_arr, mean_arr, marker=m, color=c, label=m_name, linewidth=2)
+            axes[1, 0].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=c, alpha=0.15)
         axes[1, 0].set_title("Optimal F1-Score (θ*) vs. Lead Time (τ)", fontsize=12, fontweight='bold')
         axes[1, 0].set_xlabel("Lead Time (hours early - τ)", fontsize=11)
         axes[1, 0].set_ylabel("Optimal F1-Score", fontsize=11)
@@ -126,9 +134,11 @@ class EarlyPredictionPlotter(BasePlotter):
             tau_arr = np.array(res["tau"])
             mean_arr = np.array(res.get("f1_05", res.get("f1_opt")))
             sem_arr = np.array(res.get("f1_05_sem", res.get("f1_opt_sem")))
-            c_idx = idx % len(colors)
-            axes[1, 1].plot(tau_arr, mean_arr, marker=markers[c_idx], color=colors[c_idx], label=m_name, linewidth=2)
-            axes[1, 1].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[c_idx], alpha=0.15)
+            style = get_style(m_name)
+            c = style.get("color", colors[idx % len(colors)])
+            m = style.get("marker", markers[idx % len(markers)])
+            axes[1, 1].plot(tau_arr, mean_arr, marker=m, color=c, label=m_name, linewidth=2)
+            axes[1, 1].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=c, alpha=0.15)
         axes[1, 1].set_title("Standard F1-Score (θ=0.5) vs. Lead Time (τ)", fontsize=12, fontweight='bold')
         axes[1, 1].set_xlabel("Lead Time (hours early - τ)", fontsize=11)
         axes[1, 1].set_ylabel("F1-Score (θ=0.5)", fontsize=11)
@@ -148,9 +158,11 @@ class EarlyPredictionPlotter(BasePlotter):
             tau_arr = np.array(res["tau"])
             mean_arr = np.array(res["auc"])
             sem_arr = np.array(res["auc_sem"])
-            c_idx = idx % len(colors)
-            axes2[0].plot(tau_arr, mean_arr, marker=markers[c_idx], color=colors[c_idx], label=m_name, linewidth=2)
-            axes2[0].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[c_idx], alpha=0.15)
+            style = get_style(m_name)
+            c = style.get("color", colors[idx % len(colors)])
+            m = style.get("marker", markers[idx % len(markers)])
+            axes2[0].plot(tau_arr, mean_arr, marker=m, color=c, label=m_name, linewidth=2)
+            axes2[0].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=c, alpha=0.15)
         axes2[0].set_title("AUC-ROC vs. Lead Time (τ)", fontsize=13, fontweight='bold')
         axes2[0].set_xlabel("Lead Time (hours early - τ)", fontsize=12)
         axes2[0].set_ylabel("AUC-ROC", fontsize=12)
@@ -162,9 +174,11 @@ class EarlyPredictionPlotter(BasePlotter):
             tau_arr = np.array(res["tau"])
             mean_arr = np.array(res["f1_opt"])
             sem_arr = np.array(res["f1_opt_sem"])
-            c_idx = idx % len(colors)
-            axes2[1].plot(tau_arr, mean_arr, marker=markers[c_idx], color=colors[c_idx], label=m_name, linewidth=2)
-            axes2[1].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=colors[c_idx], alpha=0.15)
+            style = get_style(m_name)
+            c = style.get("color", colors[idx % len(colors)])
+            m = style.get("marker", markers[idx % len(markers)])
+            axes2[1].plot(tau_arr, mean_arr, marker=m, color=c, label=m_name, linewidth=2)
+            axes2[1].fill_between(tau_arr, mean_arr - sem_arr, mean_arr + sem_arr, color=c, alpha=0.15)
         axes2[1].set_title("Optimal F1-Score vs. Lead Time (θ*)", fontsize=13, fontweight='bold')
         axes2[1].set_xlabel("Lead Time (hours early - τ)", fontsize=12)
         axes2[1].set_ylabel("F1-Score (θ*)", fontsize=12)
@@ -210,10 +224,8 @@ class EarlyPredictionPlotter(BasePlotter):
                 print(f"  EP eval outputs already exist at {output_dir}. Skipping re-evaluation.")
                 print(f"  (Pass remake=true in experiment config to force re-run.)")
             else:
-                print(f"  Found policy checkpoints under: {ckpt_dir}")
                 project_root = Path(__file__).parent.parent
-                venv_python = project_root / "venv" / "bin" / "python3"
-                python_exe = str(venv_python) if venv_python.exists() else sys.executable
+                python_exe = get_python_executable()
 
                 cmd = [
                     python_exe, "src/early_prediction/eval.py",

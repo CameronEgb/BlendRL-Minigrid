@@ -78,9 +78,8 @@ def extract_for_cgen_explaining(coin_jump):
             obj[i] = rand_noises[i]
         return obj
 
-    extracted_states = simulate_prob(extracted_states, num_of_object, key_picked)
-
-    return torch.tensor(extracted_states, device="cuda:0")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    return torch.tensor(extracted_states, device=device)
 
 
 def load_module(path: str):

@@ -42,3 +42,58 @@ def resolve_experiment_config_name(exp_input: str) -> str:
         return str(rel.with_suffix(""))
         
     return clean_input
+
+
+def filter_pipeline_args(extra_args, experiment: str, exp_id: str = None):
+    """Sanitize extra CLI arguments and build Hydra compose overrides.
+    
+    Returns:
+        tuple[list[str], list[str]]: (sanitized_extra_args, overrides_for_compose)
+    """
+    sanitized_extra_args = []
+    overrides_for_compose = [f"+experiment={experiment}"]
+
+    if exp_id:
+        sanitized_extra_args.append(f"++experiment_id={exp_id}")
+        overrides_for_compose.append(f"++experiment_id={exp_id}")
+    
+    for arg in extra_args:
+        # Skip local overrides as it is explicitly handled by the parser/sbatch generator
+        if "local=" in arg:
+            continue
+            
+        if "=" in arg:
+            # If it has a slash, it is a config group (e.g. hydra/sweeper=optuna), do not prepend ++
+            # Also, do not prepend ++ to sweep parameters (containing interval, choice, or range)
+            is_sweep_param = any(sw in arg for sw in ["interval(", "choice(", "range("])
+            if not (arg.startswith("+") or arg.startswith("++") or "/" in arg.split("=")[0] or is_sweep_param or arg.startswith("hydra.")):
+                sanitized_arg = "++" + arg
+            else:
+                sanitized_arg = arg
+            sanitized_extra_args.append(sanitized_arg)
+            # Exclude sweep parameters and hydra internal configs from compose configuration overrides
+            is_sweep = any(sw in sanitized_arg for sw in ["interval(", "choice(", "range("])
+            if not (is_sweep or is_hydra):
+                overrides_for_compose.append(sanitized_arg)
+        else:
+            # Flags like --multirun or -m should be passed to subprocess but NOT to compose
+            sanitized_extra_args.append(arg)
+
+    return sanitized_extra_args, overrides_for_compose
+
+
+def get_python_executable() -> str:
+    """Returns the path to the python executable to use for all subprocesses."""
+    import os
+    import sys
+    project_root = os.getcwd()
+    venv_python = os.path.join(project_root, "venv", "bin", "python3")
+    
+    # Check if we should use python3.13 specifically if it exists
+    venv_python_13 = os.path.join(project_root, "venv", "bin", "python3.13")
+    if os.path.exists(venv_python_13):
+        return venv_python_13
+        
+    if os.path.exists(venv_python):
+        return venv_python
+    return sys.executable

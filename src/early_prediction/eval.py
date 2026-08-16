@@ -59,33 +59,12 @@ def marker(name: str) -> str:
     return get_method_style(name)["marker"]
 
 
+from src.pipeline.datasets import resolve_mimic_npz_path
+
 def resolve_mimic_dataset(args):
     """Resolve the MIMIC .npz dataset path from args or standard dataset directories."""
-    if args.dataset_path and os.path.exists(args.dataset_path):
-        return os.path.abspath(args.dataset_path)
-
-    fname = os.path.basename(args.dataset_path) if args.dataset_path else args.dataset_name
-    candidate_dirs = [
-        os.path.join(os.getcwd(), "in/datasets/mimic"),
-        os.path.join(os.getcwd(), "in/datasets/MIMIC 2"),
-        os.path.join(os.getcwd(), "in/datasets"),
-        os.path.join(PROJECT_ROOT, "in/datasets/mimic"),
-        os.path.join(PROJECT_ROOT, "in/datasets"),
-        "/Users/cameronegbert/Documents/NCSU/Research/datasets/MIMIC 2",
-        "/hpc/home/cegbert1/Offline-BlendRL/in/datasets/mimic",
-        "/hpc/home/cegbert1/Offline-BlendRL/in/datasets",
-        "/mnt/beegfs/cegbert/NeSyRL/in/datasets/mimic",
-        "/mnt/beegfs/cegbert/NeSyRL/in/datasets",
-    ]
-
-    for c_dir in candidate_dirs:
-        cand = os.path.join(c_dir, fname)
-        if os.path.exists(cand):
-            return os.path.abspath(cand)
-
-    raise FileNotFoundError(
-        f"MIMIC dataset '{fname}' not found in any standard location: {candidate_dirs}"
-    )
+    fname = args.dataset_path or getattr(args, "dataset_name", None)
+    return str(resolve_mimic_npz_path(fname))
 
 
 
@@ -629,7 +608,8 @@ def main():
     mask = data["mask"]  # (N, 240, 1) or (N, 240)
 
     N_patients = len(X)
-    patient_lengths = np.array([(mask[i].squeeze() != -1).sum() for i in range(N_patients)])
+    mask_2d = mask.squeeze(-1) if mask.ndim == 3 else mask
+    patient_lengths = (mask_2d != -1).sum(axis=-1)
     print(f"Dataset: {N_patients} patients, shock rate: {y.mean():.3f}")
 
     # -----------------------------------------------------------------------
@@ -688,8 +668,8 @@ def main():
                 batch_sz = 128
                 with torch.no_grad():
                     for i in range(0, N_patients, batch_sz):
-                        batch_x = torch.tensor(X[i:i+batch_sz, :, :46],
-                                               dtype=torch.float32).to(device)
+                        batch_x = torch.as_tensor(X[i:i+batch_sz, :, :46],
+                                                  dtype=torch.float32, device=device)
                         B = batch_x.size(0)
                         flat_x = batch_x.view(-1, 46)
                         flat_q = agent_v.q_network(flat_x)

@@ -24,6 +24,8 @@ from src.early_prediction.model import (
     train_lstm_model, evaluate_lstm_model, find_default_mimic_npz
 )
 
+from src.pipeline.datasets import resolve_mimic_npz_path
+
 def compute_metric(y_true, probs, metric_name="auprc"):
     metric_name = metric_name.lower()
     if metric_name in ("acc", "accuracy"):
@@ -40,7 +42,7 @@ def compute_metric(y_true, probs, metric_name="auprc"):
         precisions, recalls, _ = precision_recall_curve(y_true, probs)
         return float(auc(recalls, precisions))
 
-def objective(trial, X, y, mask, patient_lengths, v_vals_all, args):
+def objective(trial, seq_data_dict, y_cohort, c_indices, args):
     model_target = args.model_target.lower()
     
     if model_target == "lstm_no_v":
@@ -59,26 +61,7 @@ def objective(trial, X, y, mask, patient_lengths, v_vals_all, args):
         model_type = trial.suggest_categorical("model_type", ["transformer", "lstm"])
         use_v_feat = trial.suggest_categorical("use_v_feat", [True, False])
 
-    tau = trial.suggest_categorical("tau", [9]) # Benchmark at tau=9h early prediction
-    steps_early = 2 * tau
-    w_steps = 2 * args.window_hours
-    
-    min_stay_steps = 2 * 36 + w_steps
-    c_indices = np.array([i for i in range(len(X)) if patient_lengths[i] >= min_stay_steps])
-    t_cutoffs = patient_lengths[c_indices] - steps_early
-    y_cohort = y[c_indices]
-    
-    seq_data = []
-    for i, original_idx in enumerate(c_indices):
-        tc = t_cutoffs[i]
-        st = max(0, tc - w_steps)
-        raw_seq = X[original_idx, st:tc, :49]
-        feat_seq = compute_volatility_features(raw_seq) if args.use_volatility else raw_seq
-        if use_v_feat and v_vals_all is not None:
-            v_seq = v_vals_all[original_idx, st:tc]
-            seq_data.append(np.concatenate([feat_seq, v_seq], axis=-1))
-        else:
-            seq_data.append(feat_seq)
+    seq_data = seq_data_dict["with_v"] if (use_v_feat and "with_v" in seq_data_dict) else seq_data_dict["no_v"]
             
     input_dim = seq_data[0].shape[-1]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -153,7 +136,7 @@ def main():
     parser = argparse.ArgumentParser(description="Modular Optuna Hyperparameter Search for Early Prediction Models")
     parser.add_argument("--n-trials", type=int, default=30, help="Number of Optuna trials")
     parser.add_argument("--model-target", type=str, default="all", help="Target architecture to tune: lstm_no_v, lstm_with_v, transformer_no_v, transformer_with_v, or all")
-    parser.add_argument("--dataset-path", type=str, default=find_default_mimic_npz())
+    parser.add_argument("--dataset-path", type=str, default=str(resolve_mimic_npz_path()))
     parser.add_argument("--checkpoint", type=str, default="results/checkpoints/mimic/tune_mimic_cql")
     parser.add_argument("--window-hours", type=int, default=12)
     parser.add_argument("--use-volatility", action="store_true", default=True)
@@ -168,7 +151,8 @@ def main():
     X = data['X']
     y = data['y'].squeeze()
     mask = data['mask']
-    patient_lengths = np.array([(mask[i].squeeze() != -1).sum() for i in range(len(X))])
+    mask_2d = mask.squeeze(-1) if mask.ndim == 3 else mask
+    patient_lengths = (mask_2d != -1).sum(axis=-1)
     
     # Pre-compute CQL state values V(s) if available
     v_vals_all = None
@@ -192,10 +176,10 @@ def main():
             v_vals_all = np.zeros((len(X), 240, 1), dtype=np.float32)
             with torch.no_grad():
                 for i in range(0, len(X), 128):
-                    batch_x = torch.tensor(X[i:i+128, :, :46], dtype=torch.float32).to(device)
+                    batch_x = torch.as_tensor(X[i:i+128, :, :46], dtype=torch.float32, device=device)
                     B_curr = batch_x.size(0)
                     flat_q = cql_agent.q_network(batch_x.view(-1, 46))
-                    v_vals = torch.max(flat_q.view(B_curr, 240, 2), dim=-1)[0].unsqueeze(-1).cpu().numpy()
+                    v_vals = torch.max(flat_q.view(B_curr, 240, -1), dim=-1)[0].unsqueeze(-1).cpu().numpy()
                     v_vals_all[i:i+128] = v_vals
         except Exception as e:
             print(f"Notice: CQL loading skipped: {e}")
@@ -203,10 +187,36 @@ def main():
             
     if v_vals_all is None:
         v_vals_all = np.zeros((len(X), 240, 1), dtype=np.float32)
+
+    # Pre-extract cohort sequences once across all trials
+    tau = 9
+    steps_early = 2 * tau
+    w_steps = 2 * args.window_hours
+    min_stay_steps = 2 * 36 + w_steps
+    c_indices = np.where(patient_lengths >= min_stay_steps)[0]
+    t_cutoffs = patient_lengths[c_indices] - steps_early
+    y_cohort = y[c_indices]
+
+    print(f"Pre-extracting features for {len(c_indices)} cohort patients (tau={tau}h, window={args.window_hours}h)...")
+    seq_data_base = []
+    seq_data_with_v = []
+    for i, original_idx in enumerate(c_indices):
+        tc = t_cutoffs[i]
+        st = max(0, tc - w_steps)
+        raw_seq = X[original_idx, st:tc, :49]
+        feat_seq = compute_volatility_features(raw_seq) if args.use_volatility else raw_seq
+        seq_data_base.append(feat_seq)
+        v_seq = v_vals_all[original_idx, st:tc]
+        seq_data_with_v.append(np.concatenate([feat_seq, v_seq], axis=-1))
+
+    seq_data_dict = {
+        "no_v": seq_data_base,
+        "with_v": seq_data_with_v
+    }
         
     study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=42))
     print(f"Starting Optuna Study for Target '{args.model_target}' over {args.n_trials} trials...")
-    study.optimize(lambda trial: objective(trial, X, y, mask, patient_lengths, v_vals_all, args), n_trials=args.n_trials)
+    study.optimize(lambda trial: objective(trial, seq_data_dict, y_cohort, c_indices, args), n_trials=args.n_trials)
     
     print("\n=== Optuna Study Complete ===")
     print(f"Target: {args.model_target}")

@@ -57,3 +57,39 @@ def get_style_info(name: str) -> Tuple[Optional[str], str, str]:
     """Return (color, linestyle, marker) tuple for matplotlib plotting."""
     s = get_style(name)
     return s["color"], s["linestyle"], s["marker"]
+
+
+def get_canonical_method_name(name: str) -> str:
+    """Map method aliases to canonical registered name."""
+    name = str(name).replace("/", "_")
+    alias_map = {
+        "blendrl_cql_human_neural": "cql_blendrl_human_neural",
+        "blendrl_cql_human_cew": "cql_blendrl_human_cew",
+        "blendrl_cql_cew_only": "cql_blendrl_cew_only",
+        "blendrl_iql_human_neural": "iql_blendrl_human_neural",
+        "blendrl_ppo_human_neural": "ppo_blendrl_human_neural",
+        "cql": "cql_dnn",
+        "iql": "iql_dnn",
+        "ppo": "ppo_dnn",
+    }
+    return alias_map.get(name, name)
+
+
+def get_method_aliases(name: str) -> set:
+    """Return all known aliases for a given method name."""
+    canon = get_canonical_method_name(name)
+    raw = str(name).replace("/", "_")
+    aliases = {name, canon, raw}
+    if "cql_blendrl_" in canon:
+        aliases.add(canon.replace("cql_blendrl_", "blendrl_cql_"))
+    elif "blendrl_cql_" in canon:
+        aliases.add(canon.replace("blendrl_cql_", "cql_blendrl_"))
+    if canon == "cql_dnn":
+        aliases.add("cql")
+    elif canon == "cql":
+        aliases.add("cql_dnn")
+    if canon == "iql_dnn":
+        aliases.add("iql")
+    elif canon == "ppo_dnn":
+        aliases.add("ppo")
+    return aliases

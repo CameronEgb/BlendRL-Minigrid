@@ -468,11 +468,8 @@ class EnvironmentEvaluatorCallback(L.Callback):
         eval_cumulative_rewards = np.zeros(n_eval_envs)
         
         logic_obs, obs = self.eval_env.reset()
-        obs = torch.Tensor(obs).to(pl_module.device)
-        logic_obs = torch.Tensor(logic_obs).to(pl_module.device)
-        
-        # Determine if the agent needs logic_obs
-        is_hybrid = base_algo_name and "blendrl" in base_algo_name
+        obs = torch.as_tensor(obs, dtype=torch.float32, device=pl_module.device)
+        logic_obs = torch.as_tensor(logic_obs, dtype=torch.float32, device=pl_module.device)
         
         while len(eval_total_rewards) < cfg.eval_episodes:
             with torch.no_grad():
@@ -482,8 +479,8 @@ class EnvironmentEvaluatorCallback(L.Callback):
                 action = res[0]
             
             (next_logic, next_obs), reward, terminations, truncations, infos = self.eval_env.step(action.cpu().numpy())
-            obs = torch.Tensor(next_obs).to(pl_module.device)
-            logic_obs = torch.Tensor(next_logic).to(pl_module.device)
+            obs = torch.as_tensor(next_obs, dtype=torch.float32, device=pl_module.device)
+            logic_obs = torch.as_tensor(next_logic, dtype=torch.float32, device=pl_module.device)
             
             for k in range(n_eval_envs):
                 eval_cumulative_rewards[k] += reward[k]

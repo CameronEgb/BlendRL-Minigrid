@@ -79,9 +79,11 @@ def simulate_prob(extracted_states, num_of_objs, key_picked):
 def load_model(model_dir,
                env_kwargs_override: dict = None,
                steps = None,
-               device=torch.device('cuda:0'),
+               device = None,
                explain=False):
     from blendrl.agents.blender_agent import BlenderActorCritic
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # Determine all relevant paths
     model_dir = Path(model_dir)
     config_path = model_dir / "config.yaml"
@@ -101,7 +103,7 @@ def load_model(model_dir,
 
     # Load model's configuration
     with open(config_path, "r") as f:
-        config = yaml.load(f, Loader=yaml.Loader)
+        config = yaml.safe_load(f)
 
     algorithm = config["algorithm"]
     environment = config["env_name"]
@@ -139,9 +141,11 @@ def load_model(model_dir,
 
 def load_model_train(model_dir,
                      n_envs,
-               device=torch.device('cuda:0'),
+               device = None,
                steps = None):
     from blendrl.agents.blender_agent import BlenderActorCritic
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # Determine all relevant paths
     model_dir = Path(model_dir)
     config_path = model_dir / "config.yaml"
@@ -161,7 +165,7 @@ def load_model_train(model_dir,
 
     # Load model's configuration
     with open(config_path, "r") as f:
-        config = yaml.load(f, Loader=yaml.Loader)
+        config = yaml.safe_load(f)
 
     algorithm = config["algorithm"]
     environment = config["env_name"]
@@ -264,8 +268,10 @@ def print_program_neumann(actor, mode):
 def load_neuralppo_model(model_dir,
                env_kwargs_override: dict = None,
                steps = None,
-               device=torch.device('cuda:0'),
+               device = None,
                explain=False):
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # Determine all relevant paths
     model_dir = Path(model_dir)
     config_path = model_dir / "config.yaml"
@@ -284,7 +290,7 @@ def load_neuralppo_model(model_dir,
     print("Loading model from", checkpoint_path)
 
     with open(config_path, "r") as f:
-        config = yaml.load(f, Loader=yaml.Loader)
+        config = yaml.safe_load(f)
 
     algorithm = config["algorithm"]
     environment = config["env_name"]

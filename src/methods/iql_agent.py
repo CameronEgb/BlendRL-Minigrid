@@ -27,19 +27,7 @@ class IQLAgent(OfflineAgentBase):
         super().__init__(cfg)
         self.save_hyperparameters()
         
-        algorithm = self.get_cfg("algorithm", self.get_cfg("name", cfg.env.name))
-
-        from blendrl.env_vectorized import VectorizedNudgeBaseEnv
-        self.env = VectorizedNudgeBaseEnv.from_name(
-            cfg.env.name, 
-            n_envs=1, 
-            mode=algorithm, 
-            seed=cfg.seed
-        )
-        dummy_logic, dummy_neural = self.env.reset()
-        self.observation_space = dummy_neural.shape[1:]
-        self.logic_observation_space = dummy_logic.shape[1:]
-        self.n_actions = self.env.n_actions if not callable(self.env.n_actions) else self.env.n_actions()
+        self._init_env(n_envs=1)
         
         hidden_sizes = cfg.agent.get("hidden_sizes", [256, 256])
         if hidden_sizes is not None:
@@ -114,16 +102,25 @@ class IQLAgent(OfflineAgentBase):
                         self.trainer.strategy.optimizers[2] = optim.Adam(actor_params, lr=lr)
 
     def training_step(self, batch, batch_idx):
-        datamodule = self.trainer.datamodule
+        datamodule = getattr(self.trainer, "datamodule", None)
         cfg = self.cfg
         
-        batch_size = self.get_cfg("batch_size", 256)
-        real_batch = datamodule.reader.sample(batch_size)
-        obs = real_batch["obs"].to(self.device)
-        actions = real_batch["action"].to(self.device)
-        rewards = real_batch["reward"].to(self.device)
-        next_obs = real_batch["next_obs"].to(self.device)
-        dones = real_batch["done"].to(self.device)
+        if isinstance(batch, dict) and "obs" in batch:
+            real_batch = batch
+        elif datamodule is not None and getattr(datamodule, "reader", None) is not None:
+            if isinstance(batch, torch.Tensor):
+                real_batch = datamodule.reader.get_batch(batch, device=self.device)
+            else:
+                batch_size = self.get_cfg("batch_size", 256)
+                real_batch = datamodule.reader.sample(batch_size)
+        else:
+            raise RuntimeError("IQLAgent requires an active offline dataset reader or batched dictionary.")
+            
+        obs = real_batch["obs"].to(self.device, non_blocking=True)
+        actions = real_batch["action"].to(self.device, non_blocking=True)
+        rewards = real_batch["reward"].to(self.device, non_blocking=True)
+        next_obs = real_batch["next_obs"].to(self.device, non_blocking=True)
+        dones = real_batch["done"].to(self.device, non_blocking=True)
         
         opt_q, opt_v, opt_a = self.optimizers()
         
@@ -216,33 +213,38 @@ class IQLAgent(OfflineAgentBase):
 
     def validation_step(self, batch, batch_idx):
         datamodule = getattr(self.trainer, "datamodule", None)
-        if datamodule is not None and getattr(datamodule, "val_reader", None) is not None:
+        if isinstance(batch, dict) and "obs" in batch:
+            val_batch = batch
+        elif datamodule is not None and getattr(datamodule, "val_reader", None) is not None:
             val_batch = datamodule.val_reader.get_batch(batch, device=self.device)
-            obs = val_batch["obs"]
-            actions = val_batch["action"]
-            rewards = val_batch["reward"]
-            next_obs = val_batch["next_obs"]
-            dones = val_batch["done"]
+        else:
+            return
+
+        obs = val_batch["obs"].to(self.device, non_blocking=True)
+        actions = val_batch["action"].to(self.device, non_blocking=True)
+        rewards = val_batch["reward"].to(self.device, non_blocking=True)
+        next_obs = val_batch["next_obs"].to(self.device, non_blocking=True)
+        dones = val_batch["done"].to(self.device, non_blocking=True)
             
-            with torch.no_grad():
-                q1 = self.target_q_network(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
-                q2 = self.target_q_network2(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
-                target_v = torch.min(q1, q2)
-                v = self.value_network(obs).squeeze(-1)
-                u = target_v - v
-                expectile = self.get_cfg("tau", self.get_cfg("expectile", 0.7))
-                weight = torch.where(u > 0, expectile, 1 - expectile)
-                value_loss = (weight * (u ** 2)).mean()
-                
-                next_v = self.value_network(next_obs).squeeze(-1)
-                q_target = rewards + self.cfg.env.gamma * next_v * (1 - dones)
-                pred_q1 = self.q_network(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
-                pred_q2 = self.q_network2(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
-                q_loss = F.mse_loss(pred_q1, q_target) + F.mse_loss(pred_q2, q_target)
-                
-                val_loss = value_loss + q_loss
-                
-            self.log("val/loss", val_loss, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
-            self.log("val/q_loss", q_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
-            self.log("val/value_loss", value_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
-            return val_loss
+        with torch.no_grad():
+            q1 = self.target_q_network(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
+            q2 = self.target_q_network2(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
+            target_v = torch.min(q1, q2)
+            v = self.value_network(obs).squeeze(-1)
+            u = target_v - v
+            expectile = self.get_cfg("tau", self.get_cfg("expectile", 0.7))
+            weight = torch.where(u > 0, expectile, 1 - expectile)
+            value_loss = (weight * (u ** 2)).mean()
+            
+            next_v = self.value_network(next_obs).squeeze(-1)
+            q_target = rewards + self.cfg.env.gamma * next_v * (1 - dones)
+            pred_q1 = self.q_network(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
+            pred_q2 = self.q_network2(obs).gather(1, actions.unsqueeze(1)).squeeze(1)
+            q_loss = F.mse_loss(pred_q1, q_target) + F.mse_loss(pred_q2, q_target)
+            
+            val_loss = value_loss + q_loss
+            
+        self.log("val/loss", val_loss, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
+        self.log("val/q_loss", q_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+        self.log("val/value_loss", value_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+        return val_loss
