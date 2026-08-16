@@ -5,21 +5,21 @@ defaults:
   - override /hydra/sweeper: optuna_offline
 
 agent:
-  epochs_per_interval: 10
-  eval_interval_epochs: 2
+  epochs_per_interval: 2
+  eval_interval_epochs: 1
 
 hydra:
   sweeper:
     n_trials: 30
     n_jobs: 4
     params:
-      agent.lr: interval(5e-5, 3e-3)
-      agent.cql_alpha: interval(0.05, 5.0)
+      agent.lr: interval(5e-5, 1e-3)
+      agent.cql_alpha: interval(0.1, 10.0)
       agent.batch_size: choice(512, 1024, 2048)
       agent.soft_target_tau: interval(0.001, 0.05)
       ++agent.gamma: choice(0.95, 0.98, 0.99)
-      ++agent.epochs_per_interval: choice(5, 10, 15, 20)
+      ++agent.epochs_per_interval: choice(1, 2, 3, 5)
       agent.blender_mode: choice('logic', 'neural')
       agent.blend_function: choice('softmax', 'gumbel')
-      ++agent.ecm_dthr: interval(0.02, 0.5)
-      ++agent.fyd_top_k: choice(20, 50, 100)
+      ++agent.weight_decay: choice(0.0, 1e-5, 1e-4, 1e-3)
+      ++agent.ent_coef: choice(0.01, 0.05, 0.1)

@@ -179,7 +179,8 @@ class CQLAgent(OfflineAgentBase):
             log_probs = torch.log(probs + 1e-12)
             entropy = -(probs * log_probs).sum(dim=1)
             blend_entropy = -(weights * torch.log(weights + 1e-12)).sum(dim=1) if weights is not None else None
-            actor_loss = -(probs * all_q_values.detach()).sum(dim=1).mean() - 0.01 * entropy.mean()
+            ent_coef = self.get_cfg("ent_coef", 0.01)
+            actor_loss = -(probs * all_q_values.detach()).sum(dim=1).mean() - ent_coef * entropy.mean()
 
             total_loss = q_loss + actor_loss
             
@@ -214,7 +215,12 @@ class CQLAgent(OfflineAgentBase):
             probs = self.actor.get_action_probs(obs)
             log_probs = torch.log(probs + 1e-12)
             entropy = -(probs * log_probs).sum(dim=1)
-            actor_loss = -(probs * all_q_values.detach()).sum(dim=1).mean() - 0.01 * entropy.mean()
+            ent_coef = self.get_cfg("ent_coef", 0.05)
+            q_detached = all_q_values.detach()
+            adv = q_detached - q_detached.mean(dim=1, keepdim=True)
+            adv_std = q_detached.std(dim=1, keepdim=True)
+            adv_norm = adv / (adv_std + 1e-6) if adv_std.max() > 0 else adv
+            actor_loss = -(probs * adv_norm).sum(dim=1).mean() - ent_coef * entropy.mean()
             
             opt_a.zero_grad()
             self.manual_backward(actor_loss)
@@ -292,11 +298,12 @@ class CQLAgent(OfflineAgentBase):
             self.log("val/loss_std", std_loss, prog_bar=False, sync_dist=True)
 
     def configure_optimizers(self):
+        weight_decay = self.get_cfg("weight_decay", 0.0)
+        lr = self.get_cfg("lr", 3e-4)
         if self.is_modular:
-            lr = self.get_cfg("lr", 3e-4)
-            return optim.Adam(self.model.parameters(), lr=lr)
-        opt_q = optim.Adam(self.q_network.parameters(), lr=self.cfg.agent.lr)
-        opt_a = optim.Adam(self.actor.parameters(), lr=self.cfg.agent.lr)
+            return optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
+        opt_q = optim.Adam(self.q_network.parameters(), lr=lr, weight_decay=weight_decay)
+        opt_a = optim.Adam(self.actor.parameters(), lr=lr, weight_decay=weight_decay)
         return [opt_q, opt_a]
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:

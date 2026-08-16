@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from typing import Optional
-from sklearn.metrics import roc_auc_score, average_precision_score
+from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_curve
 
 from plot.base import BasePlotter, clean_label
 
@@ -114,7 +114,9 @@ class PolicyEvalPlotter(BasePlotter):
             "AUPRC": 1.0000,
             "Precision": 1.0000,
             "Recall": 1.0000,
-            "F1 Score": 1.0000
+            "F1 Score": 1.0000,
+            "Best F1": 1.0000,
+            "Opt Threshold": 0.5000
         })
 
         # Add project root and src to sys.path if not present
@@ -221,6 +223,16 @@ class PolicyEvalPlotter(BasePlotter):
             auc_roc = roc_auc_score(all_clin_acts, all_admin_probs) if len(np.unique(all_clin_acts)) > 1 else 0.0
             auprc = average_precision_score(all_clin_acts, all_admin_probs) if len(np.unique(all_clin_acts)) > 1 else 0.0
 
+            # Calibrated optimal decision threshold for imbalanced clinical actions
+            if len(np.unique(all_clin_acts)) > 1 and len(all_admin_probs) > 0:
+                p_curve, r_curve, th_curve = precision_recall_curve(all_clin_acts, all_admin_probs)
+                f1_curve = 2 * (p_curve * r_curve) / (p_curve + r_curve + 1e-8)
+                best_idx = np.argmax(f1_curve)
+                best_f1 = float(f1_curve[best_idx])
+                best_thresh = float(th_curve[best_idx]) if best_idx < len(th_curve) else 0.5
+            else:
+                best_f1, best_thresh = float(f1), 0.5
+
             results.append({
                 "Method": clean_label(method_name),
                 "Accuracy %": float(accuracy),
@@ -229,7 +241,9 @@ class PolicyEvalPlotter(BasePlotter):
                 "AUPRC": float(auprc),
                 "Precision": float(precision),
                 "Recall": float(recall),
-                "F1 Score": float(f1)
+                "F1 Score": float(f1),
+                "Best F1": float(best_f1),
+                "Opt Threshold": float(best_thresh)
             })
 
             # Compute per-patient agreement for Agreement vs Shock plot

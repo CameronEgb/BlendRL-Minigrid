@@ -25,6 +25,25 @@ from typing import Dict, Any, List, Tuple, Optional
 # Import styling and alias resolution from the unified method registry
 from src.method_registry import clean_label, get_style_info, get_canonical_method_name, get_method_aliases
 
+def moving_average(a: np.ndarray, n: int = 5) -> np.ndarray:
+    if len(a) == 0:
+        return np.array([])
+    n = min(len(a), max(1, n))
+    a_padded = np.pad(a, (n - 1, 0), mode="edge")
+    ret = np.cumsum(a_padded, dtype=float)
+    ret[n:] = ret[n:] - ret[:-n]
+    return ret[n - 1:] / n
+
+def deep_update(base: dict, update: dict) -> dict:
+    """Recursively updates a nested dictionary."""
+    result = dict(base)
+    for k, v in update.items():
+        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+            result[k] = deep_update(result[k], v)
+        else:
+            result[k] = v
+    return result
+
 class BasePlotter:
     name: str = "base"
 

@@ -51,6 +51,10 @@ class BaseAgent(L.LightningModule, ABC):
             if "agent" in cfg.agent and isinstance(cfg.agent.agent, (dict, DictConfig)):
                 if key in cfg.agent.agent:
                     return cfg.agent.agent[key]
+            # Check nested sub-dictionaries in cfg.agent (e.g., cfg.agent.cew, cfg.agent.cql)
+            for sub_k, sub_v in cfg.agent.items():
+                if isinstance(sub_v, (dict, DictConfig)) and key in sub_v:
+                    return sub_v[key]
         
         # Search in env config
         if hasattr(cfg, "env") and key in cfg.env:
@@ -98,7 +102,7 @@ class BaseAgent(L.LightningModule, ABC):
             self.cfg.env.name,
             n_envs=n_envs,
             mode=algorithm,
-            seed=self.get_cfg("seed", self.cfg.seed)
+            seed=self.get_cfg("seed", getattr(self.cfg, "seed", 1))
         )
         
         dummy_logic, dummy_neural = self.env.reset()
