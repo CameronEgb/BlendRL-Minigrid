@@ -44,6 +44,7 @@ def main():
     parser.add_argument("--no-offline", action="store_true", help="Skip offline training phase")
     parser.add_argument("--dry-run", "--validate", dest="dry_run", action="store_true", help="Validate experiment configuration and exit without running")
     parser.add_argument("--dash", action="store_true", help="Launch the Optuna dashboard during the run")
+    parser.add_argument("--dash-only", action="store_true", help="Launch the persistent dashboard and exit")
     parser.add_argument("-s", "--sweep", action="store_true", help="Run hyperparameter sweep (enables Hydra --multirun)")
     parser.add_argument("--remake", action="store_true", help="Force recalculation and overwrite of early prediction summaries")
     args, extra_args = parser.parse_known_args()
