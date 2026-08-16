@@ -16,7 +16,7 @@ env:
 hydra:
   sweeper:
     n_trials: 30
-    n_jobs: 4
+    n_jobs: 2
     params:
       agent.lr: interval(5e-5, 1e-3)
       agent.cql_alpha: interval(0.1, 10.0)

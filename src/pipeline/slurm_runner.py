@@ -112,8 +112,10 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                         create_optuna_study(storage_url, study_name)
                     cmd_args += sanitized_extra_args
                     train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
-                    script_content += f'echo "=== [Phase: Offline Training] {agent_config} on {dataset_id} ==="\n'
-                    script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd}\n\n"
+                    script_content += f'echo "=== [Phase: Offline Training (Parallel GPU)] {agent_config} on {dataset_id} ==="\n'
+                    script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} &\n\n"
+
+        script_content += 'echo "Waiting for all concurrent training methods on GPU to complete..."\nwait\n\n'
 
         # 3. Final Plotting
         if not args.no_plot:
