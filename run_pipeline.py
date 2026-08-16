@@ -44,7 +44,7 @@ def main():
     parser.add_argument("--no-offline", action="store_true", help="Skip offline training phase")
     parser.add_argument("--dry-run", "--validate", dest="dry_run", action="store_true", help="Validate experiment configuration and exit without running")
     parser.add_argument("--dash", action="store_true", help="Launch the Optuna dashboard during the run")
-    parser.add_argument("--dash-only", action="store_true", help="Launch the persistent dashboard and exit")
+    parser.add_argument("-s", "--sweep", action="store_true", help="Run hyperparameter sweep (enables Hydra --multirun)")
     parser.add_argument("--remake", action="store_true", help="Force recalculation and overwrite of early prediction summaries")
     args, extra_args = parser.parse_known_args()
 
@@ -55,6 +55,9 @@ def main():
     sanitized_extra_args, overrides_for_compose = filter_pipeline_args(
         extra_args, experiment=args.experiment, exp_id=args.exp_id
     )
+
+    if args.sweep and "--multirun" not in sanitized_extra_args and "-m" not in sanitized_extra_args:
+        sanitized_extra_args.append("--multirun")
 
     # Load configuration to get method lists and Optuna info
     try:
@@ -72,7 +75,7 @@ def main():
         print(f"Error loading configuration: {e}")
         sys.exit(1)
 
-    is_sweep = "--multirun" in sanitized_extra_args or "-m" in sanitized_extra_args
+    is_sweep = args.sweep or "--multirun" in sanitized_extra_args or "-m" in sanitized_extra_args
 
     # Pre-flight validation
     try:

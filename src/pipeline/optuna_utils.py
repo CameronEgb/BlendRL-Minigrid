@@ -129,7 +129,10 @@ def create_optuna_study(storage_url, study_name):
     venv_python = get_python_executable()
     cmd = [
         venv_python, "-c",
-        f"import optuna; "
+        f"import optuna, sqlite3, os; "
+        f"db_raw = '{storage_url}'.replace('sqlite:///', '').split('?')[0]; "
+        f"os.makedirs(os.path.dirname(os.path.abspath(db_raw)), exist_ok=True) if os.path.dirname(db_raw) else None; "
+        f"conn = sqlite3.connect(db_raw, timeout=60); conn.execute('PRAGMA journal_mode=WAL;'); conn.close(); "
         f"optuna.create_study(study_name='{study_name}', storage='{storage_url}', load_if_exists=True)"
     ]
     try:
