@@ -28,7 +28,7 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
     if not args.no_online:
         for agent_config in online_list:
             agent_name_internal = normalize_agent_name(agent_config)
-            study_name = get_next_study_name(storage_url, cfg.experiment_id, agent_name_internal)
+            study_name = get_next_study_name(cfg.group, cfg.experiment_id, agent_name_internal)
             
             dataset_path, has_pkl = ensure_online_dataset_path(
                 group=cfg.group,
@@ -87,7 +87,7 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
 
             for agent_config in offline_list:
                 agent_name_internal = normalize_agent_name(agent_config)
-                study_name = get_next_study_name(storage_url, cfg.experiment_id, agent_name_internal)
+                study_name = get_next_study_name(cfg.group, cfg.experiment_id, agent_name_internal)
                 
                 print(f"\n=== Phase: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
                 dataset_path_override = any("mode.dataset_path=" in arg for arg in sanitized_extra_args)

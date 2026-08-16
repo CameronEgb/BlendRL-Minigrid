@@ -72,9 +72,8 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                     f"++dataset_path={dataset_path}"
                 ]
                 if is_sweep:
-                    study_name = get_next_study_name(storage_url, cfg.experiment_id, agent_name_internal)
+                    study_name = get_next_study_name(cfg.group, cfg.experiment_id, agent_name_internal)
                     cmd_args.append(f"++hydra.sweeper.study_name={study_name}")
-                    create_optuna_study(storage_url, study_name)
                 cmd_args += sanitized_extra_args
                 train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
                 script_content += f'echo "=== [Phase: Online Training] {agent_config} ==="\n'
@@ -107,9 +106,8 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                         f"++mode.dataset_path={dataset_path}"
                     ]
                     if is_sweep:
-                        study_name = get_next_study_name(storage_url, cfg.experiment_id, agent_name_internal)
+                        study_name = get_next_study_name(cfg.group, cfg.experiment_id, agent_name_internal)
                         cmd_args.append(f"++hydra.sweeper.study_name={study_name}")
-                        create_optuna_study(storage_url, study_name)
                     cmd_args += sanitized_extra_args
                     train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
                     script_content += f'echo "=== [Phase: Offline Training (Parallel GPU)] {agent_config} on {dataset_id} ==="\n'
@@ -167,9 +165,8 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                 f"++agent.name={agent_name_internal}"
             ]
             if is_sweep:
+                study_name = get_next_study_name(cfg.group, cfg.experiment_id, agent_name_internal)
                 overrides_slurm.append(f"++hydra.sweeper.study_name={study_name}")
-                delete_optuna_study(storage_url, study_name)
-                create_optuna_study(storage_url, study_name)
             else:
                 overrides_slurm.append(f"++dataset_path={dataset_path}")
             overrides_slurm += sanitized_extra_args
@@ -195,7 +192,7 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
             
             for agent_config in offline_list:
                 agent_name_internal = normalize_agent_name(agent_config)
-                study_name = get_next_study_name(storage_url, cfg.experiment_id, agent_name_internal)
+                study_name = get_next_study_name(cfg.group, cfg.experiment_id, agent_name_internal)
                 
                 print(f"\n=== Preparing Slurm Job: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
                 job_name = f"{agent_name_internal}_{dataset_name_internal}_{cfg.experiment_id}"
@@ -209,8 +206,6 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                 ]
                 if is_sweep:
                     overrides_slurm.append(f"++hydra.sweeper.study_name={study_name}")
-                    delete_optuna_study(storage_url, study_name)
-                    create_optuna_study(storage_url, study_name)
                 
                 if is_online and is_sweep:
                     storage_url_slurm = storage_url if storage_url else DEFAULT_OPTUNA_DB_URL

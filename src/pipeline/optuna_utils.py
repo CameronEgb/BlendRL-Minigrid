@@ -126,22 +126,28 @@ def get_optuna_storage(storage_url: str):
     return storage_url
 
 
-def get_next_study_name(storage_url: str, experiment_id: str, agent_name: str) -> str:
-    """Generate clean [experiment]_[method]_v[number] study name."""
+def get_next_study_name(group: str, experiment_id: str, agent_name: str, storage_url: str = None) -> str:
+    """Generate clean [experiment]_[method]_v[number] study name using existing run versions.
+    
+    Uses filesystem inspection to avoid database locking during batch submission.
+    """
     base_prefix = f"{experiment_id}_{agent_name}"
-    if not storage_url:
-        return f"{base_prefix}_v0"
-    try:
-        import optuna
-        storage = get_optuna_storage(storage_url)
-        existing_summaries = optuna.get_all_study_summaries(storage=storage)
-        existing_names = {s.study_name for s in existing_summaries}
-        version = 0
-        while f"{base_prefix}_v{version}" in existing_names:
-            version += 1
-        return f"{base_prefix}_v{version}"
-    except Exception:
-        return f"{base_prefix}_v0"
+    from pathlib import Path
+    
+    log_dir = Path("results/logs") / group / experiment_id / agent_name
+    ckpt_dir = Path("results/checkpoints") / group / experiment_id / agent_name
+    
+    existing_versions = [0]
+    for d in [log_dir, ckpt_dir]:
+        if d.exists():
+            for v_path in d.glob("version_*"):
+                if v_path.is_dir():
+                    try:
+                        existing_versions.append(int(v_path.name.split("_")[-1]) + 1)
+                    except ValueError:
+                        pass
+    version = max(existing_versions)
+    return f"{base_prefix}_v{version}"
 
 
 def delete_optuna_study(storage_url, study_name):
