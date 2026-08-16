@@ -48,9 +48,11 @@ class RLDataModule(L.LightningDataModule):
             self.val_dataset = None
             
     def train_dataloader(self):
-        batch_size = self.cfg.agent.get("batch_size", 256) if self.cfg.mode.type == "offline" else self.cfg.agent.get("batch_size", 1)
-        num_workers = self.cfg.get("num_workers", self.cfg.agent.get("num_workers", 0))
-        pin_memory = self.cfg.get("pin_memory", False)
+        batch_size = self.cfg.agent.get("batch_size", 1024) if self.cfg.mode.type == "offline" else self.cfg.agent.get("batch_size", 1)
+        default_workers = 2 if torch.cuda.is_available() else 0
+        num_workers = self.cfg.get("num_workers", self.cfg.agent.get("num_workers", default_workers))
+        pin_memory = self.cfg.get("pin_memory", torch.cuda.is_available())
+        persistent_workers = (num_workers > 0)
         if self.reader is not None:
             return DataLoader(
                 self.train_dataset,
@@ -58,21 +60,25 @@ class RLDataModule(L.LightningDataModule):
                 shuffle=True,
                 num_workers=num_workers,
                 pin_memory=pin_memory,
+                persistent_workers=persistent_workers,
                 collate_fn=lambda idxs: self.reader.get_batch(idxs)
             )
         return DataLoader(self.train_dataset, batch_size=batch_size, shuffle=True)
     
     def val_dataloader(self):
         if self.val_dataset is not None and self.val_reader is not None:
-            batch_size = self.cfg.agent.get("batch_size", 256)
-            num_workers = self.cfg.get("num_workers", self.cfg.agent.get("num_workers", 0))
-            pin_memory = self.cfg.get("pin_memory", False)
+            batch_size = self.cfg.agent.get("batch_size", 1024)
+            default_workers = 2 if torch.cuda.is_available() else 0
+            num_workers = self.cfg.get("num_workers", self.cfg.agent.get("num_workers", default_workers))
+            pin_memory = self.cfg.get("pin_memory", torch.cuda.is_available())
+            persistent_workers = (num_workers > 0)
             return DataLoader(
                 self.val_dataset,
                 batch_size=batch_size,
                 shuffle=False,
                 num_workers=num_workers,
                 pin_memory=pin_memory,
+                persistent_workers=persistent_workers,
                 collate_fn=lambda idxs: self.val_reader.get_batch(idxs)
             )
         return DataLoader(self.train_dataset, batch_size=1)

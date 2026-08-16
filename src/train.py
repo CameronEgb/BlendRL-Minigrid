@@ -220,8 +220,13 @@ def main(cfg: DictConfig):
         "limit_val_batches": limit_val_batches,
         "check_val_every_n_epoch": check_val_every_n_epoch,
         "log_every_n_steps": 1,
-        "num_sanity_val_steps": 0
+        "num_sanity_val_steps": 0,
+        "enable_progress_bar": False if not sys.stdout.isatty() else True,
     }
+    if torch.cuda.is_available():
+        torch.backends.cudnn.benchmark = True
+        precision_setting = cfg.get("precision", "bf16-mixed" if torch.cuda.is_bf16_supported() else "16-mixed")
+        trainer_kwargs["precision"] = precision_setting
     
     # Merge with overrides from the config file if they exist
     if "trainer" in cfg and cfg.trainer is not None:

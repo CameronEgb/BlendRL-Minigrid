@@ -31,6 +31,12 @@ class CEWAgent(OfflineAgentBase):
         self._init_env(n_envs=1)
         self.eval_env = self.env
 
+    def on_train_start(self):
+        if hasattr(self.trainer.datamodule, "reader") and self.trainer.datamodule.reader is not None:
+            self.trainer.datamodule.reader.device = self.device
+        if hasattr(self.trainer.datamodule, "val_reader") and self.trainer.datamodule.val_reader is not None:
+            self.trainer.datamodule.val_reader.device = self.device
+
     def on_train_epoch_start(self):
         """Handle interval-based dataset scaling and self-organization."""
         super().on_train_epoch_start()
@@ -95,14 +101,14 @@ class CEWAgent(OfflineAgentBase):
             rules=self.rules,
             learning_rate=self.lr,
             cql_alpha=self.get_cfg("cql_alpha", 1.0)
-        ).to("cpu") # Keep fuzzy logic on CPU
+        ).to(self.device)
         
         self.target_fuzzy_model = MultiFLC(
             n_inputs=obs.shape[1],
             n_outputs=self.n_actions,
             antecedents=self.antecedents,
             rules=self.rules
-        ).to("cpu")
+        ).to(self.device)
         self.target_fuzzy_model.load_state_dict(self.fuzzy_model.state_dict())
         
         self.opt_fuzzy = optim.Adam(self.fuzzy_model.parameters(), lr=self.lr)
@@ -118,18 +124,18 @@ class CEWAgent(OfflineAgentBase):
             real_batch = batch
         elif datamodule is not None and getattr(datamodule, "reader", None) is not None:
             if isinstance(batch, torch.Tensor):
-                real_batch = datamodule.reader.get_batch(batch, device="cpu")
+                real_batch = datamodule.reader.get_batch(batch, device=self.device)
             else:
-                batch_size = self.get_cfg("batch_size", 32)
+                batch_size = self.get_cfg("batch_size", 1024)
                 real_batch = datamodule.reader.sample(batch_size)
         else:
             return
             
-        obs = real_batch["obs"].to("cpu")
-        actions = real_batch["action"].to("cpu")
-        rewards = real_batch["reward"].to("cpu")
-        next_obs = real_batch["next_obs"].to("cpu")
-        dones = real_batch["done"].to("cpu")
+        obs = real_batch["obs"].to(self.device, non_blocking=True)
+        actions = real_batch["action"].to(self.device, non_blocking=True)
+        rewards = real_batch["reward"].to(self.device, non_blocking=True)
+        next_obs = real_batch["next_obs"].to(self.device, non_blocking=True)
+        dones = real_batch["done"].to(self.device, non_blocking=True)
         
         with torch.no_grad():
             next_q = self.target_fuzzy_model(next_obs)

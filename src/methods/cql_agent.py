@@ -116,6 +116,8 @@ class CQLAgent(OfflineAgentBase):
     def on_train_start(self):
         if hasattr(self.trainer.datamodule, "reader") and self.trainer.datamodule.reader is not None:
             self.trainer.datamodule.reader.device = self.device
+        if hasattr(self.trainer.datamodule, "val_reader") and self.trainer.datamodule.val_reader is not None:
+            self.trainer.datamodule.val_reader.device = self.device
 
     def on_train_epoch_start(self):
         super().on_train_epoch_start()
