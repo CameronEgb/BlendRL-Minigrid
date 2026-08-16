@@ -4,6 +4,8 @@ defaults:
   - override /agent: cql/blendrl_human_neural
   - override /hydra/sweeper: optuna_offline
 
+consolidate: true
+
 agent:
   epochs_per_interval: 2
   eval_interval_epochs: 1

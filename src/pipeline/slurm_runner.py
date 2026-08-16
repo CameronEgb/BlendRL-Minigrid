@@ -41,10 +41,10 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
     should_consolidate = getattr(args, "consolidate", False) or cfg.get("consolidate", False)
 
     # Consolidated Single 1-GPU Slurm Job Execution
-    if should_consolidate and not is_sweep:
+    if should_consolidate:
         print(f"\n=== Preparing Consolidated 1-GPU Slurm Job ({cfg.experiment_id}) ===")
         job_name = f"all_{cfg.experiment_id}"
-        cores = args.cores if args.cores != 16 else 4
+        cores = args.cores
         script_content = generate_sbatch_header(
             job_name=job_name,
             log_dir=log_dir,
@@ -70,7 +70,12 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                     f"agent={agent_config}",
                     f"++agent.name={agent_name_internal}",
                     f"++dataset_path={dataset_path}"
-                ] + sanitized_extra_args
+                ]
+                if is_sweep:
+                    study_name = get_next_study_name(storage_url, cfg.experiment_id, agent_name_internal)
+                    cmd_args.append(f"++hydra.sweeper.study_name={study_name}")
+                    create_optuna_study(storage_url, study_name)
+                cmd_args += sanitized_extra_args
                 train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
                 script_content += f'echo "=== [Phase: Online Training] {agent_config} ==="\n'
                 script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd}\n\n"
@@ -100,7 +105,12 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                         f"agent={agent_config}",
                         f"++agent.name={agent_name_internal}",
                         f"++mode.dataset_path={dataset_path}"
-                    ] + sanitized_extra_args
+                    ]
+                    if is_sweep:
+                        study_name = get_next_study_name(storage_url, cfg.experiment_id, agent_name_internal)
+                        cmd_args.append(f"++hydra.sweeper.study_name={study_name}")
+                        create_optuna_study(storage_url, study_name)
+                    cmd_args += sanitized_extra_args
                     train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
                     script_content += f'echo "=== [Phase: Offline Training] {agent_config} on {dataset_id} ==="\n'
                     script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd}\n\n"
