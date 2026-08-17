@@ -10,13 +10,16 @@ offline_methods:
   - cql/blendrl_human_dueling_resnet_rigid
   - cql/blendrl_human_dueling_resnet_continuous
   - cql/blendrl_cew_dueling_resnet
+  - cql/blendrl_cross_attention
 
 agent:
   epochs_per_interval: 25
   eval_interval_epochs: 5
   lr: 2e-4
   cql_alpha: 2.0
-  pos_action_weight: 6.0
+  pos_action_weight: 5.0
+  reward_scale: 0.1
+  bellman_loss: smooth_l1
   blend_ent_coef: 0.1
   ent_coef: 0.05
   weight_decay: 1e-4

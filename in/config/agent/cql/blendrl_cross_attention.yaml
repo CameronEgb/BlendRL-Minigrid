@@ -7,9 +7,8 @@ actor_mode: hybrid
 blender_mode: neural
 blend_function: softmax
 architecture: cross_attention
-pos_action_weight: 20.0
 
 modules:
   - type: nsfr
-    rules: default
+    rules: continuous
   - type: neural

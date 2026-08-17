@@ -105,6 +105,17 @@ class CQLAgent(OfflineAgentBase):
                 
             self.target_q_network.load_state_dict(self.q_network.state_dict())
 
+        target_admin_rate = self.get_cfg("target_admin_rate", None)
+        self.target_admin_rate = float(target_admin_rate) if target_admin_rate is not None else None
+        init_pos_w = 5.0
+        try:
+            val = float(self.get_cfg("pos_action_weight", 5.0))
+            init_pos_w = val
+        except (ValueError, TypeError):
+            pass
+        self.register_buffer("log_pos_weight", torch.tensor(math.log(max(init_pos_w, 1.0))))
+        self.pos_weight_lr = float(self.get_cfg("pos_weight_lr", 0.005))
+
     def _prepare_logic_obs(self, obs, logic_obs=None):
         if logic_obs is not None:
             return logic_obs.to(self.device)
@@ -175,25 +186,37 @@ class CQLAgent(OfflineAgentBase):
         obs = real_batch["obs"].to(self.device, non_blocking=True)
         actions = real_batch["action"].to(self.device, non_blocking=True)
         rewards = real_batch["reward"].to(self.device, non_blocking=True)
+        reward_scale = float(self.get_cfg("reward_scale", 1.0))
+        if reward_scale != 1.0:
+            rewards = rewards * reward_scale
+
         next_obs = real_batch["next_obs"].to(self.device, non_blocking=True)
         dones = real_batch["done"].to(self.device, non_blocking=True)
         
         cql_alpha = self.get_cfg("cql_alpha", 1.0)
         gamma = cfg.env.gamma
 
-        pos_action_weight = self.get_cfg("pos_action_weight", 1.0)
-        if str(pos_action_weight).lower() == "auto":
+        pos_action_weight_cfg = self.get_cfg("pos_action_weight", 1.0)
+        is_adaptive = (str(pos_action_weight_cfg).lower() == "adaptive") or (self.target_admin_rate is not None)
+
+        if is_adaptive:
+            pos_weight = torch.exp(self.log_pos_weight).clamp(min=1.0, max=50.0)
+            sample_weights = torch.where(actions == 1, pos_weight, torch.ones_like(actions, dtype=torch.float32))
+        elif str(pos_action_weight_cfg).lower() == "auto":
             n_pos = (actions == 1).sum().float()
             n_neg = (actions == 0).sum().float()
             pos_weight = torch.clamp(n_neg / torch.clamp(n_pos, min=1.0), min=1.0, max=100.0)
             sample_weights = torch.where(actions == 1, pos_weight, torch.ones_like(actions, dtype=torch.float32))
-        elif float(pos_action_weight) > 1.0:
-            pw = float(pos_action_weight)
-            sample_weights = torch.where(actions == 1, torch.full_like(actions, pw, dtype=torch.float32), torch.ones_like(actions, dtype=torch.float32))
+        elif float(pos_action_weight_cfg) > 1.0:
+            pos_weight = float(pos_action_weight_cfg)
+            sample_weights = torch.where(actions == 1, torch.full_like(actions, pos_weight, dtype=torch.float32), torch.ones_like(actions, dtype=torch.float32))
         else:
+            pos_weight = 1.0
             sample_weights = torch.ones_like(actions, dtype=torch.float32)
 
         weight_norm = sample_weights.mean().clamp(min=1e-8)
+
+        bellman_loss_fn = str(self.get_cfg("bellman_loss", "smooth_l1")).lower()
 
         if self.is_modular:
             logic_obs = self._prepare_logic_obs(obs, real_batch.get("logic_obs"))
@@ -208,8 +231,11 @@ class CQLAgent(OfflineAgentBase):
             all_q_values = self.model.get_q_values(obs, logic_obs)
             q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
             
-            bellman_sq = (q_action - q_target) ** 2
-            bellman_loss = (sample_weights * bellman_sq).mean() / weight_norm
+            if bellman_loss_fn in ["smooth_l1", "huber"]:
+                bellman_element = F.smooth_l1_loss(q_action, q_target, beta=1.0, reduction="none")
+            else:
+                bellman_element = (q_action - q_target) ** 2
+            bellman_loss = (sample_weights * bellman_element).mean() / weight_norm
             cql_diff = torch.logsumexp(all_q_values, dim=1) - q_action
             cql_loss = (sample_weights * cql_diff).mean() / weight_norm
             q_loss = bellman_loss + cql_alpha * cql_loss
@@ -236,6 +262,14 @@ class CQLAgent(OfflineAgentBase):
             
             soft_target_tau = self.get_cfg("soft_target_tau", 0.005)
             self._soft_update(self.model, self.target_model, tau=soft_target_tau)
+
+            if is_adaptive:
+                with torch.no_grad():
+                    pred_admin = (torch.argmax(probs, dim=-1) == 1).float().mean()
+                    tar = self.target_admin_rate if self.target_admin_rate is not None else 0.04
+                    err = (tar - pred_admin).clamp(min=-1.0, max=1.0)
+                    self.log_pos_weight += self.pos_weight_lr * err
+                    self.log_pos_weight.clamp_(min=math.log(1.0), max=math.log(50.0))
         else:
             blend_entropy = None
             opt = getattr(self, "opt", self.optimizers())
@@ -250,8 +284,11 @@ class CQLAgent(OfflineAgentBase):
             all_q_values = self.q_network(obs)
             q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
             
-            bellman_sq = (q_action - q_target) ** 2
-            bellman_loss = (sample_weights * bellman_sq).mean() / weight_norm
+            if bellman_loss_fn in ["smooth_l1", "huber"]:
+                bellman_element = F.smooth_l1_loss(q_action, q_target, beta=1.0, reduction="none")
+            else:
+                bellman_element = (q_action - q_target) ** 2
+            bellman_loss = (sample_weights * bellman_element).mean() / weight_norm
             cql_diff = torch.logsumexp(all_q_values, dim=1) - q_action
             cql_loss = (sample_weights * cql_diff).mean() / weight_norm
             q_loss = bellman_loss + cql_alpha * cql_loss
@@ -263,6 +300,14 @@ class CQLAgent(OfflineAgentBase):
             soft_target_tau = self.get_cfg("soft_target_tau", 0.005)
             self._soft_update(self.q_network, self.target_q_network, tau=soft_target_tau)
 
+            if is_adaptive:
+                with torch.no_grad():
+                    pred_admin = (torch.argmax(all_q_values, dim=-1) == 1).float().mean()
+                    tar = self.target_admin_rate if self.target_admin_rate is not None else 0.04
+                    err = (tar - pred_admin).clamp(min=-1.0, max=1.0)
+                    self.log_pos_weight += self.pos_weight_lr * err
+                    self.log_pos_weight.clamp_(min=math.log(1.0), max=math.log(50.0))
+
             actor_loss = 0.0
 
         self._log_offline_transitions()
@@ -272,6 +317,7 @@ class CQLAgent(OfflineAgentBase):
             "losses/bellman_loss": bellman_loss.item() if isinstance(bellman_loss, torch.Tensor) else bellman_loss,
             "losses/cql_loss": cql_loss.item() if isinstance(cql_loss, torch.Tensor) else cql_loss,
             "losses/actor_loss": actor_loss.item() if isinstance(actor_loss, torch.Tensor) else actor_loss,
+            "losses/pos_action_weight": float(pos_weight.item()) if isinstance(pos_weight, torch.Tensor) else float(pos_weight),
         }
         if self.is_modular and isinstance(blend_entropy, torch.Tensor):
             log_data["losses/blend_entropy"] = blend_entropy.mean().item()
@@ -292,9 +338,14 @@ class CQLAgent(OfflineAgentBase):
         obs = val_batch["obs"].to(self.device, non_blocking=True)
         actions = val_batch["action"].to(self.device, non_blocking=True)
         rewards = val_batch["reward"].to(self.device, non_blocking=True)
+        reward_scale = float(self.get_cfg("reward_scale", 1.0))
+        if reward_scale != 1.0:
+            rewards = rewards * reward_scale
+
         next_obs = val_batch["next_obs"].to(self.device, non_blocking=True)
         dones = val_batch["done"].to(self.device, non_blocking=True)
         cql_alpha = self.get_cfg("cql_alpha", 1.0)
+        bellman_loss_fn = str(self.get_cfg("bellman_loss", "smooth_l1")).lower()
             
         with torch.no_grad():
             if self.is_modular:
@@ -316,7 +367,10 @@ class CQLAgent(OfflineAgentBase):
                 pred_acts = torch.argmax(all_q_values, dim=-1)
                 
             q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
-            bellman_loss = F.mse_loss(q_action, q_target)
+            if bellman_loss_fn in ["smooth_l1", "huber"]:
+                bellman_loss = F.smooth_l1_loss(q_action, q_target, beta=1.0)
+            else:
+                bellman_loss = F.mse_loss(q_action, q_target)
             logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
             cql_loss = (logsumexp_qvalues - q_action).mean()
             val_loss = bellman_loss + cql_alpha * cql_loss
