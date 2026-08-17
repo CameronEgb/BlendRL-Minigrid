@@ -52,7 +52,10 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
             gpus=args.gpus,
             cores=cores,
             nodes=args.nodes,
-            time=args.time
+            time=args.time,
+            gpu_type=getattr(args, "gpu_type", None),
+            gres=getattr(args, "gres", None),
+            no_gres=getattr(args, "no_gres", False),
         )
         script_content += f"\nexport PROJECT_ROOT={os.getcwd()}\n"
         script_content += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n\n"
@@ -173,7 +176,9 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
             
             script_content = generate_sbatch_script(
                 job_name, overrides_slurm, log_dir=str(log_dir),
-                partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes, time=args.time
+                partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes, time=args.time,
+                gpu_type=getattr(args, "gpu_type", None), gres=getattr(args, "gres", None),
+                no_gres=getattr(args, "no_gres", False),
             )
             job_id = submit_sbatch(script_content)
             if job_id:
@@ -192,10 +197,11 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
             
             for agent_config in offline_list:
                 agent_name_internal = normalize_agent_name(agent_config)
-                study_name = get_next_study_name(cfg.group, cfg.experiment_id, agent_name_internal)
-                
-                print(f"\n=== Preparing Slurm Job: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
-                job_name = f"{agent_name_internal}_{dataset_name_internal}_{cfg.experiment_id}"
+                clean_ds = "mimic" if ("mimic" in dataset_name_internal or cfg.group == "mimic") else dataset_name_internal
+                if clean_ds in cfg.experiment_id:
+                    job_name = f"{agent_name_internal}_{cfg.experiment_id}"
+                else:
+                    job_name = f"{agent_name_internal}_{clean_ds}_{cfg.experiment_id}"
                 overrides_slurm = [
                     "src/train.py",
                     f"+experiment={args.experiment}",
@@ -224,6 +230,9 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                         cores=args.cores,
                         nodes=args.nodes,
                         time=args.time,
+                        gpu_type=getattr(args, "gpu_type", None),
+                        gres=getattr(args, "gres", None),
+                        no_gres=getattr(args, "no_gres", False),
                         dependency=dependency_job_id
                     )
                     script_content += f"\n"
@@ -253,6 +262,8 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                     script_content = generate_sbatch_script(
                         job_name, overrides_slurm, log_dir=str(log_dir),
                         partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes,
+                        gpu_type=getattr(args, "gpu_type", None), gres=getattr(args, "gres", None),
+                        no_gres=getattr(args, "no_gres", False),
                         dependency=dependency_job_id, time=args.time
                     )
                 

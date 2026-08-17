@@ -7,23 +7,24 @@ import re
 import subprocess
 
 
-def get_gres_header(partition, gpus):
-    """Generate the appropriate --gres header for the given partition."""
-    if gpus <= 0:
+def get_gres_header(partition, gpus, gpu_type=None, gres=None, no_gres=False):
+    """Generate the appropriate --gres header for the given partition and GPU settings."""
+    if no_gres or gpus <= 0 or gres in ("none", "", "False", "false"):
         return ""
-    if partition in ("gpu", "gpu-hp", "interactive-gpu"):
-        return f"#SBATCH --gres=gpu:h200:{gpus}\n"
-    if any(k in partition.lower() for k in ("gpu", "rtx", "4060", "3090", "a100", "v100", "t4")):
-        return f"#SBATCH --gres=gpu:{gpus}\n"
-    return ""
+    if gres:
+        return f"#SBATCH --gres={gres}\n"
+    if gpu_type:
+        return f"#SBATCH --gres=gpu:{gpu_type}:{gpus}\n"
+    return f"#SBATCH --gres=gpu:{gpus}\n"
 
 
-def generate_sbatch_header(job_name, log_dir, partition="gpu", gpus=1, cores=16, nodes=1, time="01:00:00", dependency=None, dependency_type="afterok", mail_user="cegbert@ncsu.edu", mail_type="ALL"):
+def generate_sbatch_header(job_name, log_dir, partition="gpu", gpus=1, cores=16, nodes=1, time="01:00:00", gpu_type=None, gres=None, no_gres=False, dependency=None, dependency_type="afterok", mail_user="cegbert@ncsu.edu", mail_type="ALL"):
     """Generate standardized SBATCH script header."""
     script = "#!/bin/bash\n"
     script += f"#SBATCH --job-name={job_name}\n"
-    script += f"#SBATCH --partition={partition}\n"
-    script += get_gres_header(partition, gpus)
+    if partition:
+        script += f"#SBATCH --partition={partition}\n"
+    script += get_gres_header(partition, gpus, gpu_type=gpu_type, gres=gres, no_gres=no_gres)
     script += f"#SBATCH --time={time}\n"
     script += f"#SBATCH --ntasks-per-node={cores}\n"
     script += f"#SBATCH --nodes={nodes}\n"
@@ -37,7 +38,7 @@ def generate_sbatch_header(job_name, log_dir, partition="gpu", gpus=1, cores=16,
     return script
 
 
-def generate_sbatch_script(job_name, cmd_args, log_dir, partition="gpu", gpus=1, cores=16, nodes=1, dependency=None, time="01:00:00"):
+def generate_sbatch_script(job_name, cmd_args, log_dir, partition="gpu", gpus=1, cores=16, nodes=1, gpu_type=None, gres=None, no_gres=False, dependency=None, time="01:00:00"):
     """Generate an SBATCH script string for Slurm submission."""
     script = generate_sbatch_header(
         job_name=job_name,
@@ -47,6 +48,9 @@ def generate_sbatch_script(job_name, cmd_args, log_dir, partition="gpu", gpus=1,
         cores=cores,
         nodes=nodes,
         time=time,
+        gpu_type=gpu_type,
+        gres=gres,
+        no_gres=no_gres,
         dependency=dependency
     )
     script += f"\n"
