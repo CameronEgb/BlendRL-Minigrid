@@ -11,9 +11,23 @@ from typing import Tuple, Optional
 METHOD_STYLE = {
     # Clean harness/architecture keys
     "cql":                          {"label": "CQL (Neural)",         "color": "tab:blue",   "marker": "o", "linestyle": "-"},
-    "cql_dnn":                      {"label": "CQL (Neural)",         "color": "tab:blue",   "marker": "o", "linestyle": "-"},
+    "cql_dnn":                      {"label": "CQL (Standard MLP)",   "color": "tab:blue",   "marker": "o", "linestyle": "-"},
+    "cql_dueling_resnet":           {"label": "CQL (Dueling ResNet)",  "color": "#1f77b4",    "marker": "D", "linestyle": "-"},
+    "cql_transformer":              {"label": "CQL (Transformer)",    "color": "#e377c2",    "marker": "p", "linestyle": "-"},
     "cql_blendrl_human_neural":     {"label": "BlendRL Human+Neural", "color": "tab:orange", "marker": "s", "linestyle": "-"},
     "blendrl_cql_human_neural":     {"label": "BlendRL Human+Neural", "color": "tab:orange", "marker": "s", "linestyle": "-"},
+    "cql_blendrl_human_dueling_resnet": {"label": "BlendRL Human+ResNet", "color": "tab:orange", "marker": "s", "linestyle": "-"},
+    "blendrl_cql_human_dueling_resnet": {"label": "BlendRL Human+ResNet", "color": "tab:orange", "marker": "s", "linestyle": "-"},
+    "cql_blendrl_human_dueling_resnet_rigid": {"label": "BlendRL ResNet+Rigid", "color": "tab:orange", "marker": "s", "linestyle": "-"},
+    "blendrl_cql_human_dueling_resnet_rigid": {"label": "BlendRL ResNet+Rigid", "color": "tab:orange", "marker": "s", "linestyle": "-"},
+    "cql_blendrl_human_dueling_resnet_continuous": {"label": "BlendRL ResNet+Soft", "color": "#17becf", "marker": "v", "linestyle": "-"},
+    "blendrl_cql_human_dueling_resnet_continuous": {"label": "BlendRL ResNet+Soft", "color": "#17becf", "marker": "v", "linestyle": "-"},
+    "cql_blendrl_human_rigid":      {"label": "BlendRL Rigid Logic",  "color": "tab:orange", "marker": "s", "linestyle": "-"},
+    "cql_blendrl_human_continuous": {"label": "BlendRL Soft Logic",   "color": "#17becf",    "marker": "v", "linestyle": "-"},
+    "cql_blendrl_human_transformer":{"label": "BlendRL Human+Transformer", "color": "#8c564b", "marker": "h", "linestyle": "-"},
+    "blendrl_cql_human_transformer":{"label": "BlendRL Human+Transformer", "color": "#8c564b", "marker": "h", "linestyle": "-"},
+    "cql_blendrl_cross_attention":  {"label": "BlendRL Cross-Attention", "color": "#9467bd",  "marker": "*", "linestyle": "-"},
+    "blendrl_cql_cross_attention":  {"label": "BlendRL Cross-Attention", "color": "#9467bd",  "marker": "*", "linestyle": "-"},
     "cql_blendrl_human_cew":        {"label": "BlendRL Human+CEW",   "color": "tab:green",  "marker": "^", "linestyle": "--"},
     "blendrl_cql_human_cew":        {"label": "BlendRL Human+CEW",   "color": "tab:green",  "marker": "^", "linestyle": "--"},
     "cql_blendrl_cew_only":         {"label": "BlendRL CEW Only",     "color": "tab:red",    "marker": "D", "linestyle": "-"},
@@ -23,7 +37,7 @@ METHOD_STYLE = {
     "ppo_dnn":                      {"label": "PPO (Neural)",         "color": "black",      "marker": "o", "linestyle": "--"},
     "ppo_blendrl_human_neural":     {"label": "BlendRL Human+Neural", "color": "#2ca02c",    "marker": "^", "linestyle": "-"},
     "cew_base":                     {"label": "CEW",                  "color": "#ff7f0e",    "marker": "h", "linestyle": "-"},
-    "cew_fyd":                      {"label": "CEW+FYD",              "color": "#9467bd",    "marker": "p", "linestyle": "-"},
+    "cew_fyd":                      {"label": "CEW+FYD",              "color": "#bcbd22",    "marker": "p", "linestyle": "-"},
     "clinician":                    {"label": "Clinician (Dataset)",  "color": "tab:purple", "marker": "X", "linestyle": "-"},
 }
 
@@ -64,11 +78,13 @@ def get_canonical_method_name(name: str) -> str:
     name = str(name).replace("/", "_")
     alias_map = {
         "blendrl_cql_human_neural": "cql_blendrl_human_neural",
+        "blendrl_cql_human_transformer": "cql_blendrl_human_transformer",
         "blendrl_cql_human_cew": "cql_blendrl_human_cew",
         "blendrl_cql_cew_only": "cql_blendrl_cew_only",
         "blendrl_iql_human_neural": "iql_blendrl_human_neural",
         "blendrl_ppo_human_neural": "ppo_blendrl_human_neural",
         "cql": "cql_dnn",
+        "cql_transformer": "cql_transformer",
         "iql": "iql_dnn",
         "ppo": "ppo_dnn",
     }

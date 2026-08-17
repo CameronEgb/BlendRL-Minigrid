@@ -110,7 +110,15 @@ class BlenderActor(nn.Module):
             if action_name in module.prednames:
                 pred_idx = module.prednames.index(action_name)
                 mapped_q[:, idx] = q[:, pred_idx]
-        return mapped_q
+                
+        # Normalize into a valid action probability distribution:
+        # If any action predicate is active, normalize proportionally across valid action candidates.
+        # If no action predicate is active (sum == 0, meaning logic is silent/unmatched), default to uniform prior (1/n_actions).
+        sum_q = mapped_q.sum(dim=-1, keepdim=True)
+        active_mask = (sum_q > 1e-6)
+        uniform_probs = torch.full_like(mapped_q, 1.0 / len(action_names))
+        normalized_q = torch.where(active_mask, mapped_q / torch.clamp(sum_q, min=1e-6), uniform_probs)
+        return normalized_q
 
     def get_explanation(self, neural_state, logic_state, action):
         """
@@ -402,7 +410,11 @@ class BlenderActorCritic(nn.Module):
         mlp_module_path = f"in/envs/{env.name}/mlp.py"
         if os.path.exists(mlp_module_path):
             module = load_module(mlp_module_path)
-            self.logic_critic = module.MLP(device=device, out_size=1, logic=True, hidden_sizes=hidden_sizes)
+            mlp_cls = getattr(module, "StandardMLP", getattr(module, "MLP", None))
+            if mlp_cls:
+                self.logic_critic = mlp_cls(device=device, out_size=1, logic=True, hidden_sizes=hidden_sizes)
+            else:
+                self.logic_critic = None
         else:
             self.logic_critic = None 
 
@@ -501,6 +513,17 @@ class BlenderActorCritic(nn.Module):
         return action, logprob, dist.entropy(), blend_dist.entropy(), blended_value
 
     def get_q_values(self, neural_state, logic_state=None):
+        # Extract well-calibrated continuous Q-values from neural module for Bellman updates
+        for i, module in enumerate(self.policy_modules):
+            if self.module_types[i] == "neural":
+                if hasattr(module, "get_q_values"):
+                    return module.get_q_values(neural_state)
+                elif hasattr(module, "actor"):
+                    x = neural_state.float().reshape(neural_state.shape[0], -1)
+                    hidden = module.network(x)
+                    return module.actor(hidden)
+                elif hasattr(module, "forward"):
+                    return module(neural_state)
         return self.actor.get_q_values(neural_state, logic_state)
 
     def get_value(self, neural_state, logic_state, blending_weights=None):

@@ -2,8 +2,19 @@
 defaults:
   - mimic/_base
 
-offline_methods: [cql/dnn, cql/blendrl_human_neural]
+offline_methods:
+  - cql/dnn
+  - cql/transformer
+  - cql/blendrl_human_rigid
+  - cql/blendrl_human_continuous
+  - cql/blendrl_cross_attention
+  - cql/blendrl_human_transformer
 
 agent:
-  epochs_per_interval: 2
+  epochs_per_interval: 4
   eval_interval_epochs: 1
+  lr: 1e-4
+  cql_alpha: 2.0
+  blend_ent_coef: 0.1
+  ent_coef: 0.05
+  weight_decay: 1e-4

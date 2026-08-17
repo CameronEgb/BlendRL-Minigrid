@@ -146,12 +146,30 @@ Agents are implemented as PyTorch Lightning Modules in `src/methods/`:
     - **`src/pipeline/local_runner.py`**: Local sequential execution for online & offline RL phases.
     - **`src/pipeline/slurm_runner.py`**: Remote Slurm cluster batch script generation and job dependency orchestration.
     - **`src/pipeline/early_prediction_task.py`**: Standalone early prediction sweeps, checkpoint evaluations, and Optuna tuning.
+    - **`src/pipeline/reciprocal_task.py`**: Iterative EP ↔ CQL co-training orchestration (`run_reciprocal_refinement`). Manages multi-round loops of CQL training with EP-shaped rewards and EP training with CQL V(s) features.
     - **`src/pipeline/optuna_utils.py`**: SQLite URL constants (`DEFAULT_OPTUNA_DB_URL`), Optuna study management, and background dashboard launching.
     - **`src/pipeline/validation.py`**: Pre-flight validation checks for environment configs, sweep parameters, and offline-only dataset constraints.
 
-## 15. Command & Workflow Reference
+## 15. Reciprocal Refinement (EP ↔ CQL Co-Training)
+- **Concept:** The EP septic shock predictor and CQL offline RL policy iteratively improve each other. EP provides reward shaping for CQL; CQL provides V(s) features for EP.
+- **Reward Shaping Module:** `src/reward_shaping.py` implements potential-based reward shaping (Ng et al. 1999):
+    - Φ(s) = −P_EP(shock | observation window ending at s)
+    - r_shaped = r_TQN + λ * (γ * Φ(s') − Φ(s))
+    - Provably preserves optimal policies — EP can only accelerate convergence, never bias CQL.
+- **Reward Type:** Set `MIMIC_REWARD_TYPE=ep_shaped` to activate. This applies TQN base rewards + EP potential shaping via `in/envs/mimic/hooks.py`.
+- **Environment Variables for EP Shaping:**
+    - `EP_SHAPE_CKPT_DIR`: EP checkpoint directory (default: `results/checkpoints/early_prediction`)
+    - `EP_SHAPE_LAMBDA`: Shaping coefficient λ (default: 1.0)
+    - `EP_SHAPE_GAMMA`: Discount factor γ (default: 0.99)
+    - `EP_SHAPE_ARCH`: EP architecture filter (default: all)
+    - `EP_SHAPE_CQL_CKPT`: CQL checkpoint dir for V(s) pre-computation
+- **Pipeline Task:** `task: reciprocal_refinement` in experiment YAML. Orchestrated by `src/pipeline/reciprocal_task.py`.
+- **Experiment Config:** `in/config/experiment/mimic/reciprocal_refinement.yaml`
+- **Results:** Per-round checkpoints in `results/checkpoints/[GROUP]/[EXP_ID]/roundN/`, convergence log in `results/plots/[GROUP]/[EXP_ID]/convergence_log.json`.
+
+## 16. Command & Workflow Reference
 For detailed instructions, Optuna hyperparameter tuning, plot style specs, custom agent implementation steps, and cluster workflow tutorials, refer to [`docs/WORKFLOW_GUIDE.md`](file:///Users/cameronegbert/Documents/NCSU/Research/NeSyRL/docs/WORKFLOW_GUIDE.md).
 
 ---
-*Last Updated: 2026-08-14*
+*Last Updated: 2026-08-17*
 

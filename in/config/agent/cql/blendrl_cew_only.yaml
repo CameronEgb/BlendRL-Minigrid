@@ -4,7 +4,12 @@ defaults:
 name: cql_blendrl_cew_only
 algorithm: blendrl_cql
 actor_mode: logic
+pos_action_weight: 20.0
+ecm_dthr: 0.03
+fyd_top_k: 150
 
 modules:
   - type: cew
     fyd: true
+    ecm_dthr: 0.03
+    fyd_top_k: 150

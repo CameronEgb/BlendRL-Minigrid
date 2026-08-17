@@ -38,6 +38,11 @@ def get_blender_nsfr_model(env_name: str, rules: str, device: str, train=False, 
 
     val_fn_path = f"in/envs/{env_name}/valuation.py"
     val_module = ValuationModule(val_fn_path, lang, device)
+    if hasattr(val_module, "module") and hasattr(val_module.module, "set_valuation_mode"):
+        if str(rules).lower() in ["continuous", "soft"]:
+            val_module.module.set_valuation_mode("continuous")
+        elif str(rules).lower() in ["rigid", "default"]:
+            val_module.module.set_valuation_mode("rigid")
 
     FC = FactsConverter(lang=lang, valuation_module=val_module, device=device)
     prednames = []

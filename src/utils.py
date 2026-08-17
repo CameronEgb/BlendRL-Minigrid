@@ -54,14 +54,24 @@ class NeuralBlenderMLP(nn.Module):
     a neural network that takes a vector as input and outputs a probability distribution over policies.
     """
 
-    def __init__(self, num_in_features, out_size=2, hidden_sizes=[64, 64]):
+    def __init__(self, num_in_features, out_size=2, hidden_sizes=[256, 256]):
         super().__init__()
         self.num_in_features = num_in_features
+        if hidden_sizes is None or len(hidden_sizes) == 0:
+            hidden_sizes = [256, 256]
+        else:
+            hidden_sizes = list(hidden_sizes)
+
+        max_width = max(hidden_sizes) if hidden_sizes else 64
+        act_fn = nn.GELU if max_width >= 128 else nn.Tanh
+
         layers = []
         last_size = num_in_features
         for size in hidden_sizes:
             layers.append(layer_init(nn.Linear(last_size, size)))
-            layers.append(nn.Tanh())
+            if size >= 128:
+                layers.append(nn.LayerNorm(size))
+            layers.append(act_fn())
             last_size = size
         self.network = nn.Sequential(*layers)
         self.actor = layer_init(nn.Linear(last_size, out_size), std=0.01)
@@ -72,6 +82,8 @@ class NeuralBlenderMLP(nn.Module):
         if x.shape[-1] < self.num_in_features:
             pad = torch.zeros((x.shape[0], self.num_in_features - x.shape[-1]), dtype=x.dtype, device=x.device)
             x = torch.cat([x, pad], dim=-1)
+        elif x.shape[-1] > self.num_in_features:
+            x = x[:, :self.num_in_features]
         hidden = self.network(x)
         logits = self.actor(hidden)
         return logits
@@ -146,38 +158,101 @@ class ValueNetwork(nn.Module):
 
 
 class MLPQNetwork(nn.Module):
-    def __init__(self, n_actions, num_in_features=4, hidden_sizes=[64, 64]):
+    def __init__(self, n_actions, num_in_features=4, hidden_sizes=[64, 64], dueling=None, activation=None, dropout=0.0):
         super().__init__()
+        self.n_actions = n_actions
+        self.num_in_features = num_in_features
+
+        if hidden_sizes is None or len(hidden_sizes) == 0:
+            hidden_sizes = [256, 256]
+        else:
+            hidden_sizes = list(hidden_sizes)
+
+        max_width = max(hidden_sizes) if hidden_sizes else 64
+        self.dueling = (max_width >= 128) if dueling is None else dueling
+
+        if activation is None:
+            act_fn = nn.GELU if max_width >= 128 else nn.Tanh
+        elif activation == "gelu":
+            act_fn = nn.GELU
+        elif activation == "relu":
+            act_fn = nn.ReLU
+        else:
+            act_fn = nn.Tanh
+
         layers = []
         last_size = num_in_features
         for size in hidden_sizes:
             layers.append(layer_init(nn.Linear(last_size, size)))
-            layers.append(nn.Tanh())
+            if size >= 128:
+                layers.append(nn.LayerNorm(size))
+            layers.append(act_fn())
+            if dropout > 0:
+                layers.append(nn.Dropout(dropout))
             last_size = size
-        layers.append(layer_init(nn.Linear(last_size, n_actions), std=1.0))
         self.network = nn.Sequential(*layers)
 
+        if self.dueling:
+            self.value_head = nn.Sequential(
+                layer_init(nn.Linear(last_size, max(32, last_size // 2))),
+                act_fn(),
+                layer_init(nn.Linear(max(32, last_size // 2), 1), std=1.0)
+            )
+            self.advantage_head = nn.Sequential(
+                layer_init(nn.Linear(last_size, max(32, last_size // 2))),
+                act_fn(),
+                layer_init(nn.Linear(max(32, last_size // 2), n_actions), std=0.01)
+            )
+        else:
+            self.head = layer_init(nn.Linear(last_size, n_actions), std=1.0)
+
     def forward(self, x):
-        return self.network(x.float())
+        x = x.float().reshape(x.shape[0], -1)
+        feat = self.network(x)
+        if self.dueling:
+            val = self.value_head(feat)
+            adv = self.advantage_head(feat)
+            return val + (adv - adv.mean(dim=-1, keepdim=True))
+        return self.head(feat)
 
     def get_q_values(self, x):
         return self.forward(x)
 
 
 class MLPValueNetwork(nn.Module):
-    def __init__(self, num_in_features=4, hidden_sizes=[64, 64]):
+    def __init__(self, num_in_features=4, hidden_sizes=[64, 64], activation=None, dropout=0.0):
         super().__init__()
+        if hidden_sizes is None or len(hidden_sizes) == 0:
+            hidden_sizes = [256, 256]
+        else:
+            hidden_sizes = list(hidden_sizes)
+
+        max_width = max(hidden_sizes) if hidden_sizes else 64
+        if activation is None:
+            act_fn = nn.GELU if max_width >= 128 else nn.Tanh
+        elif activation == "gelu":
+            act_fn = nn.GELU
+        elif activation == "relu":
+            act_fn = nn.ReLU
+        else:
+            act_fn = nn.Tanh
+
         layers = []
         last_size = num_in_features
         for size in hidden_sizes:
             layers.append(layer_init(nn.Linear(last_size, size)))
-            layers.append(nn.Tanh())
+            if size >= 128:
+                layers.append(nn.LayerNorm(size))
+            layers.append(act_fn())
+            if dropout > 0:
+                layers.append(nn.Dropout(dropout))
             last_size = size
         layers.append(layer_init(nn.Linear(last_size, 1), std=1.0))
         self.network = nn.Sequential(*layers)
 
     def forward(self, x):
-        return self.network(x.float())
+        x = x.float().reshape(x.shape[0], -1)
+        return self.network(x)
 
 
 
@@ -207,15 +282,34 @@ def get_neural_agent(env_name, n_actions, device, arch_name=None, hidden_sizes=[
     If arch_name is provided, it tries to load that specific architecture.
     Otherwise, it defaults to environment-specific mlp.py or CNNActor.
     """
-    if arch_name == "mlp":
+    if arch_name in ["cross_attention", "cross_attention_transformer", "sepsis_cross_attention"]:
+        transformer_module_path = f"in/envs/{env_name}/transformer.py"
+        if os.path.exists(transformer_module_path):
+            module = load_module(transformer_module_path)
+            return module.CrossAttentionSepsisPolicy(device=device, out_size=n_actions).to(device)
+
+    if arch_name in ["transformer", "sepsis_transformer"]:
+        transformer_module_path = f"in/envs/{env_name}/transformer.py"
+        if os.path.exists(transformer_module_path):
+            module = load_module(transformer_module_path)
+            return module.SepsisTransformerPolicy(device=device, out_size=n_actions).to(device)
+
+    if arch_name in ["dueling_resnet", "resnet"]:
         mlp_module_path = f"in/envs/{env_name}/mlp.py"
         if os.path.exists(mlp_module_path):
             module = load_module(mlp_module_path)
+            if hasattr(module, "DuelingResNetMLP"):
+                return module.DuelingResNetMLP(device=device, out_size=n_actions, hidden_sizes=hidden_sizes).to(device)
+            return module.MLP(device=device, out_size=n_actions, hidden_sizes=hidden_sizes).to(device)
+
+    if arch_name in ["mlp", "dnn", "standard_mlp"]:
+        mlp_module_path = f"in/envs/{env_name}/mlp.py"
+        if os.path.exists(mlp_module_path):
+            module = load_module(mlp_module_path)
+            if hasattr(module, "StandardMLP"):
+                return module.StandardMLP(device=device, out_size=n_actions, hidden_sizes=hidden_sizes).to(device)
             return module.MLP(device=device, out_size=n_actions, hidden_sizes=hidden_sizes).to(device)
         else:
-            # Generic MLP if env-specific one doesn't exist? 
-            # For now, let's just use a default 64x64 if we can't find it.
-            # But the user might prefer an error or fallback.
             pass
     
     if arch_name == "cnn":

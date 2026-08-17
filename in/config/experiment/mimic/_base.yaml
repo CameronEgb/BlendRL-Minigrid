@@ -16,6 +16,8 @@ agent:
   eval_interval_epochs: 1
   weight_decay: 1e-4
   ent_coef: 0.05
+  pos_action_weight: 20.0
+  hidden_sizes: [512, 512, 256, 128]
 
   # CQL algorithm settings
   cql:

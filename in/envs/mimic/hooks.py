@@ -74,6 +74,42 @@ class Hooks:
                     
                     start_idx = idx + 1
             reader.rewards = new_rewards
+        elif reward_type == "ep_shaped" and reader.obs.shape[-1] == 46:
+            # Reciprocal Refinement: TQN base + EP potential-based reward shaping.
+            # First apply TQN rewards as the base signal, then overlay EP-based
+            # potential shaping: r = r_TQN + λ*(γ*Φ(s') - Φ(s)), Φ = -P_EP(shock).
+            # See Ng, Harada, Russell (1999) — provably preserves optimal policies.
+            print("MIMIC_REWARD_TYPE=ep_shaped detected! Applying TQN base + EP potential shaping...")
+            
+            # Step 1: Apply TQN base rewards
+            import importlib
+            if "src" not in sys.path:
+                sys.path.append("src")
+            mimic_env_mod = importlib.import_module("in.envs.mimic.env_vectorized")
+            compute_sev = mimic_env_mod.compute_tqn_stage_severity
+            compute_cost = mimic_env_mod.compute_tqn_action_cost
+
+            n_transitions = len(reader.obs)
+            new_rewards = reader.rewards.clone().float()
+            start_idx = 0
+            for idx in range(n_transitions):
+                obs_curr = reader.obs[idx].numpy()
+                curr_sev = compute_sev(obs_curr)
+                if idx > start_idx:
+                    obs_prev = reader.obs[idx - 1].numpy()
+                    prev_sev = compute_sev(obs_prev)
+                else:
+                    prev_sev = 0.0
+                act = int(reader.actions[idx].item())
+                act_cost = compute_cost(act, obs_curr)
+                new_rewards[idx] = (curr_sev - prev_sev) - act_cost
+                if reader.dones[idx] == 1.0:
+                    start_idx = idx + 1
+            reader.rewards = new_rewards
+            
+            # Step 2: Overlay EP potential-based shaping
+            from src.reward_shaping import shape_rewards_ep
+            shape_rewards_ep(reader, cfg)
     
     @staticmethod
     def preprocess_dataset(cfg):

@@ -164,8 +164,11 @@ class PolicyEvalPlotter(BasePlotter):
                 acts = torch.argmax(probs, dim=-1)
                 return probs, acts
             elif hasattr(ag, "q_network"):
-                q = ag.q_network(obs_b)
-                probs = torch.softmax(q, dim=-1)
+                if hasattr(ag.q_network, "get_action_probs"):
+                    probs = ag.q_network.get_action_probs(obs_b)
+                else:
+                    q = ag.q_network(obs_b)
+                    probs = torch.softmax(q, dim=-1)
                 acts = torch.argmax(probs, dim=-1)
                 return probs, acts
             elif hasattr(ag, "model") and hasattr(ag.model, "get_q_values"):

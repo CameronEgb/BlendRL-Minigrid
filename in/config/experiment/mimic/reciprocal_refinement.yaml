@@ -1,0 +1,53 @@
+# @package _global_
+# Reciprocal Refinement: Iterative EP ↔ CQL Co-Training
+#
+# This experiment alternates between training:
+#   1. CQL offline RL with EP-shaped rewards
+#   2. EP septic shock predictors with CQL V(s) features
+#
+# Each round improves both models via potential-based reward shaping.
+# Theory: Ng, Harada, Russell (1999) — preserves optimal policies.
+
+defaults:
+  - mimic/_base
+  - override /agent: cql/dnn
+  - override /mode: offline
+
+task: reciprocal_refinement
+
+# Reciprocal refinement configuration
+reciprocal:
+  max_rounds: 3            # Number of co-training iterations (0 = bootstrap only)
+  lambda_coef: 1.0         # Initial reward shaping coefficient λ
+  lambda_decay: 1.0        # Multiply λ by this each round (1.0 = no decay)
+  convergence_threshold: 0.005  # Stop if Δ(mortality) < this between rounds
+  ep_architecture: null    # null = use all EP architectures, or e.g. "transformer_with_v"
+
+  # CQL-specific overrides per round (Hydra syntax)
+  cql_overrides: []
+
+  # EP training settings per round
+  early_prediction:
+    n_splits: 10           # Fewer splits for faster iteration (20 for final)
+    epochs: 15
+    tau_train: 12
+
+# CQL training hyperparameters (applied each round)
+agent:
+  batch_size: 1024
+  lr: 3e-4
+  epochs_per_interval: 2
+  eval_interval_epochs: 1
+  weight_decay: 1e-4
+
+  cql:
+    cql_alpha: 2.0
+    soft_target_tau: 0.005
+
+env:
+  reward_type: tqn  # Base reward (overridden to ep_shaped in round > 0)
+
+plots:
+  losses:
+    metrics: ["losses/total_loss", "losses/bellman_loss", "losses/cql_loss"]
+  policy_eval: {}

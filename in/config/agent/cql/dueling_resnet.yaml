@@ -1,0 +1,8 @@
+defaults:
+  - /agent/cql/dnn
+
+name: cql_dueling_resnet
+algorithm: cql
+architecture: dueling_resnet
+hidden_sizes: [512, 512, 256, 128]
+pos_action_weight: 20.0

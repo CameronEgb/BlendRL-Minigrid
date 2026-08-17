@@ -1,0 +1,11 @@
+name: cql_transformer
+algorithm: cql
+architecture: transformer
+lr: 3e-4
+batch_size: 1024
+cql_alpha: 2.0
+pos_action_weight: 20.0
+soft_target_tau: 0.005
+gamma: 0.99
+epochs_per_interval: 50
+eval_interval_epochs: 10

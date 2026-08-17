@@ -14,19 +14,36 @@ from blendrl.agents.blender_agent import BlenderActorCritic
 @register_agent(
     "cql",
     "cql_dnn",
+    "cql_dueling_resnet",
+    "cql_transformer",
+    "cql_sepsis_transformer",
     "blendrl_cql",
     "cql_blendrl_human_neural",
+    "cql_blendrl_human_rigid",
+    "cql_blendrl_human_continuous",
+    "cql_blendrl_human_dueling_resnet",
+    "cql_blendrl_human_dueling_resnet_rigid",
+    "cql_blendrl_human_dueling_resnet_continuous",
+    "cql_blendrl_human_transformer",
+    "cql_blendrl_cross_attention",
     "cql_blendrl_human_cew",
     "cql_blendrl_cew_only",
     "blendrl_cql_human_neural",
+    "blendrl_cql_human_rigid",
+    "blendrl_cql_human_continuous",
+    "blendrl_cql_human_dueling_resnet",
+    "blendrl_cql_human_dueling_resnet_rigid",
+    "blendrl_cql_human_dueling_resnet_continuous",
+    "blendrl_cql_human_transformer",
+    "blendrl_cql_cross_attention",
     "blendrl_cql_human_cew",
     "blendrl_cql_cew_only",
 )
 class CQLAgent(OfflineAgentBase):
     """Unified Conservative Q-Learning (CQL) Offline RL Agent.
     
-    Supports pure neural architectures, logic-guided policies, neuro-fuzzy CEW modules,
-    and hybrid BlendRL mixtures.
+    Supports pure neural architectures (MLP, Dueling ResNet, Sepsis Transformer),
+    logic-guided policies, neuro-fuzzy CEW modules, and hybrid BlendRL mixtures.
     """
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__(cfg)
@@ -72,7 +89,12 @@ class CQLAgent(OfflineAgentBase):
                 hidden_sizes = list(hidden_sizes)
             num_in_features = np.prod(self.observation_space)
             
-            if cfg.env.architecture == "mlp":
+            architecture = self.get_cfg("architecture", cfg.env.architecture)
+            if architecture in ["transformer", "sepsis_transformer", "cross_attention", "dueling_resnet", "resnet"]:
+                from src.utils import get_neural_agent
+                self.q_network = get_neural_agent(cfg.env.name, self.n_actions, self.device, arch_name=architecture, hidden_sizes=hidden_sizes)
+                self.target_q_network = get_neural_agent(cfg.env.name, self.n_actions, self.device, arch_name=architecture, hidden_sizes=hidden_sizes)
+            elif architecture in ["mlp", "dnn", "standard_mlp"]:
                 from src.utils import MLPQNetwork
                 self.q_network = MLPQNetwork(n_actions=self.n_actions, num_in_features=num_in_features, hidden_sizes=hidden_sizes)
                 self.target_q_network = MLPQNetwork(n_actions=self.n_actions, num_in_features=num_in_features, hidden_sizes=hidden_sizes)
@@ -159,6 +181,20 @@ class CQLAgent(OfflineAgentBase):
         cql_alpha = self.get_cfg("cql_alpha", 1.0)
         gamma = cfg.env.gamma
 
+        pos_action_weight = self.get_cfg("pos_action_weight", 1.0)
+        if str(pos_action_weight).lower() == "auto":
+            n_pos = (actions == 1).sum().float()
+            n_neg = (actions == 0).sum().float()
+            pos_weight = torch.clamp(n_neg / torch.clamp(n_pos, min=1.0), min=1.0, max=100.0)
+            sample_weights = torch.where(actions == 1, pos_weight, torch.ones_like(actions, dtype=torch.float32))
+        elif float(pos_action_weight) > 1.0:
+            pw = float(pos_action_weight)
+            sample_weights = torch.where(actions == 1, torch.full_like(actions, pw, dtype=torch.float32), torch.ones_like(actions, dtype=torch.float32))
+        else:
+            sample_weights = torch.ones_like(actions, dtype=torch.float32)
+
+        weight_norm = sample_weights.mean().clamp(min=1e-8)
+
         if self.is_modular:
             logic_obs = self._prepare_logic_obs(obs, real_batch.get("logic_obs"))
             next_logic_obs = self._prepare_logic_obs(next_obs, real_batch.get("next_logic_obs"))
@@ -171,16 +207,22 @@ class CQLAgent(OfflineAgentBase):
             all_q_values = self.model.get_q_values(obs, logic_obs)
             q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
             
-            bellman_loss = F.mse_loss(q_action, q_target)
-            logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
-            cql_loss = (logsumexp_qvalues - q_action).mean()
+            bellman_sq = (q_action - q_target) ** 2
+            bellman_loss = (sample_weights * bellman_sq).mean() / weight_norm
+            cql_diff = torch.logsumexp(all_q_values, dim=1) - q_action
+            cql_loss = (sample_weights * cql_diff).mean() / weight_norm
             q_loss = bellman_loss + cql_alpha * cql_loss
+
             probs, weights = self.model.actor(obs, logic_obs)
             log_probs = torch.log(probs + 1e-12)
             entropy = -(probs * log_probs).sum(dim=1)
             blend_entropy = -(weights * torch.log(weights + 1e-12)).sum(dim=1) if weights is not None else None
             ent_coef = self.get_cfg("ent_coef", 0.01)
-            actor_loss = -(probs * all_q_values.detach()).sum(dim=1).mean() - ent_coef * entropy.mean()
+            blend_ent_coef = self.get_cfg("blend_ent_coef", 0.01)
+            blend_entropy_loss = blend_entropy.mean() if isinstance(blend_entropy, torch.Tensor) else 0.0
+            
+            weighted_actor_obj = (sample_weights * (probs * all_q_values.detach()).sum(dim=1)).mean() / weight_norm
+            actor_loss = -weighted_actor_obj - ent_coef * entropy.mean() - blend_ent_coef * blend_entropy_loss
 
             total_loss = q_loss + actor_loss
             
@@ -205,9 +247,11 @@ class CQLAgent(OfflineAgentBase):
                 
             all_q_values = self.q_network(obs)
             q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
-            bellman_loss = F.mse_loss(q_action, q_target)
-            logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
-            cql_loss = (logsumexp_qvalues - q_action).mean()
+            
+            bellman_sq = (q_action - q_target) ** 2
+            bellman_loss = (sample_weights * bellman_sq).mean() / weight_norm
+            cql_diff = torch.logsumexp(all_q_values, dim=1) - q_action
+            cql_loss = (sample_weights * cql_diff).mean() / weight_norm
             q_loss = bellman_loss + cql_alpha * cql_loss
             
             opt.zero_grad()
@@ -258,22 +302,27 @@ class CQLAgent(OfflineAgentBase):
                 next_v = torch.max(next_q, dim=1)[0]
                 q_target = rewards + self.cfg.env.gamma * next_v * (1 - dones)
                 all_q_values = self.model.get_q_values(obs, logic_obs)
+                probs, _ = self.model.actor(obs, logic_obs)
+                pred_acts = torch.argmax(probs, dim=-1)
             else:
                 next_q = self.target_q_network(next_obs)
                 next_v = torch.max(next_q, dim=1)[0]
                 q_target = rewards + self.cfg.env.gamma * next_v * (1 - dones)
                 all_q_values = self.q_network(obs)
+                pred_acts = torch.argmax(all_q_values, dim=-1)
                 
             q_action = all_q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
             bellman_loss = F.mse_loss(q_action, q_target)
             logsumexp_qvalues = torch.logsumexp(all_q_values, dim=1)
             cql_loss = (logsumexp_qvalues - q_action).mean()
             val_loss = bellman_loss + cql_alpha * cql_loss
+            admin_rate = (pred_acts == 1).float().mean()
             
         self.log("val/loss", val_loss, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
         self.log("val/bellman_loss", bellman_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
         self.log("val/cql_loss", cql_loss, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
         self.log("val/q_mean", all_q_values.mean(), prog_bar=False, on_epoch=True, on_step=False, sync_dist=True)
+        self.log("val/admin_rate", admin_rate, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True)
         if hasattr(self, "_val_step_losses"):
             self._val_step_losses.append(val_loss.detach())
         return val_loss

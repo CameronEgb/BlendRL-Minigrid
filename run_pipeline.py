@@ -18,6 +18,7 @@ from src.pipeline.config import (
 )
 from src.pipeline.datasets import run_early_prediction_eval, run_plotting
 from src.pipeline.early_prediction_task import run_early_prediction_task
+from src.pipeline.reciprocal_task import run_reciprocal_refinement
 from src.pipeline.local_runner import run_local_training
 from src.pipeline.optuna_utils import (
     DEFAULT_OPTUNA_DB_URL, get_best_trial_id, launch_optuna_dashboard
@@ -141,6 +142,11 @@ def main():
             subprocess.run([sys.executable, "scripts/convert_npz_to_pkl.py", target_npz], check=True)
 
     print(f"Using Datasets for Offline Training: {dataset_list}")
+
+    # Standalone Reciprocal Refinement Task (iterative EP ↔ CQL co-training)
+    if cfg.get("task", "") == "reciprocal_refinement":
+        run_reciprocal_refinement(cfg, args, local_val)
+        sys.exit(0)
 
     # Standalone Early Prediction Tasks
     if cfg.get("task", "").startswith("early_prediction"):

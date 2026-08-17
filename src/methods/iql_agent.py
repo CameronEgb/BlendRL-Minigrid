@@ -171,6 +171,9 @@ class IQLAgent(OfflineAgentBase):
             blend_entropy = None
             
         actor_loss = -(weights * log_probs).mean()
+        if self.is_modular and isinstance(blend_entropy, torch.Tensor):
+            blend_ent_coef = self.get_cfg("blend_ent_coef", 0.01)
+            actor_loss = actor_loss - blend_ent_coef * blend_entropy.mean()
         opt_a.zero_grad()
         self.manual_backward(actor_loss)
         opt_a.step()

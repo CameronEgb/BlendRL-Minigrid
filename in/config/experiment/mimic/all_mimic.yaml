@@ -1,0 +1,29 @@
+# @package _global_
+defaults:
+  - mimic/_base
+
+name: all_mimic
+experiment_id: all_mimic
+
+offline_methods:
+  - cql/dnn
+  - cql/dueling_resnet
+  - cql/transformer
+  - cql/blendrl_human_rigid
+  - cql/blendrl_human_continuous
+  - cql/blendrl_human_dueling_resnet
+  - cql/blendrl_human_transformer
+  - cql/blendrl_cross_attention
+  - cql/blendrl_human_cew
+  - cql/blendrl_cew_only
+  - cew/fyd
+
+agent:
+  epochs_per_interval: 25
+  eval_interval_epochs: 5
+  lr: 2e-4
+  cql_alpha: 2.0
+  pos_action_weight: 20.0
+  blend_ent_coef: 0.1
+  ent_coef: 0.05
+  weight_decay: 1e-4
