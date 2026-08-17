@@ -282,17 +282,19 @@ def main(cfg: DictConfig):
         print(f"  VRAM Footprint %:  {gpu_stats['gpu_mem_efficiency_pct']:.2f}%")
         print("="*50 + "\n")
 
-    try:
-        if trainer.logger is not None:
-            metrics_to_log = {"training_time_seconds": training_time}
-            if gpu_stats:
-                metrics_to_log.update({
-                    "gpu/peak_alloc_gb": gpu_stats["gpu_peak_alloc_gb"],
-                    "gpu/peak_reserved_gb": gpu_stats["gpu_peak_reserved_gb"],
-                })
-            trainer.logger.log_metrics(metrics_to_log, step=trainer.global_step)
-    except Exception:
-        pass
+    active_loggers = trainer.loggers if (hasattr(trainer, "loggers") and trainer.loggers) else ([trainer.logger] if trainer.logger else [])
+    for lg in active_loggers:
+        try:
+            if hasattr(lg, "log_metrics"):
+                metrics_to_log = {"training_time_seconds": training_time}
+                if gpu_stats:
+                    metrics_to_log.update({
+                        "gpu/peak_alloc_gb": gpu_stats["gpu_peak_alloc_gb"],
+                        "gpu/peak_reserved_gb": gpu_stats["gpu_peak_reserved_gb"],
+                    })
+                lg.log_metrics(metrics_to_log, step=trainer.global_step)
+        except Exception:
+            pass
 
     os.makedirs(ckpt_dir, exist_ok=True)
     runtime_info = {
@@ -315,17 +317,27 @@ def main(cfg: DictConfig):
     except Exception as e:
         print(f"Notice: Could not save checkpoint config.yaml: {e}")
 
-    if hasattr(trainer, "logger") and hasattr(trainer.logger, "log_dir") and trainer.logger.log_dir:
-        os.makedirs(trainer.logger.log_dir, exist_ok=True)
-        with open(os.path.join(trainer.logger.log_dir, "runtime.json"), "w") as f:
-            json.dump(runtime_info, f, indent=2)
-        try:
-            OmegaConf.save(config=cfg, f=os.path.join(trainer.logger.log_dir, "config.yaml"))
-            exp_log_root = os.path.join("results/logs", cfg.group, cfg.experiment_id)
-            os.makedirs(exp_log_root, exist_ok=True)
-            OmegaConf.save(config=cfg, f=os.path.join(exp_log_root, "config.yaml"))
-        except Exception as e:
-            print(f"Notice: Could not save logger config.yaml: {e}")
+    for lg in active_loggers:
+        if hasattr(lg, "log_dir") and lg.log_dir:
+            os.makedirs(lg.log_dir, exist_ok=True)
+            with open(os.path.join(lg.log_dir, "runtime.json"), "w") as f:
+                json.dump(runtime_info, f, indent=2)
+            try:
+                OmegaConf.save(config=cfg, f=os.path.join(lg.log_dir, "config.yaml"))
+            except Exception:
+                pass
+        if hasattr(lg, "save"):
+            try:
+                lg.save()
+            except Exception:
+                pass
+
+    exp_log_root = os.path.join("results/logs", cfg.group, cfg.experiment_id)
+    os.makedirs(exp_log_root, exist_ok=True)
+    try:
+        OmegaConf.save(config=cfg, f=os.path.join(exp_log_root, "config.yaml"))
+    except Exception as e:
+        print(f"Notice: Could not save logger config.yaml: {e}")
 
     # Guarantee final model checkpoint is saved to disk
     final_ckpt_target = os.path.join(ckpt_dir, "best_model.ckpt")

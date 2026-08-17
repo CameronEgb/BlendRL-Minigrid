@@ -137,9 +137,9 @@ def evaluate_mimic_policies(exp_id="mimic_test", group="mimic", dataset_path=Non
     out_dir = Path("results/plots") / group / exp_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    csv_path = out_dir / "methods_comparison.csv"
+    csv_path = out_dir / "method_comparison.csv"
     df.to_csv(csv_path, index=False)
-    print(f"\nSaved methods comparison CSV to: {csv_path}", flush=True)
+    print(f"\nSaved method comparison CSV to: {csv_path}", flush=True)
 
 
 

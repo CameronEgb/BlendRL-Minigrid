@@ -302,6 +302,33 @@ class ReportsPlotter(BasePlotter):
                                     except Exception:
                                         pass
 
+                # If still no times found, check Slurm output logs for execution time
+                if not times:
+                    for slurm_dir in [
+                        Path("results/logs/slurm") / group / clean_exp,
+                        Path("results/logs/slurm") / clean_exp
+                    ]:
+                        if slurm_dir.exists():
+                            for alias in aliases:
+                                for out_file in sorted(slurm_dir.glob(f"*{alias}*.out")):
+                                    try:
+                                        with open(out_file, "r") as sf:
+                                            text = sf.read()
+                                        import re
+                                        time_match = re.search(r"Total execution time:\s*([0-9.]+)\s*seconds", text)
+                                        if time_match:
+                                            t_sec = float(time_match.group(1))
+                                            if t_sec > 0:
+                                                times.append((out_file.stem, t_sec))
+                                        gpu_match = re.search(r"Device:\s*([^\n]+)", text)
+                                        if gpu_match and not gpu_device:
+                                            gpu_device = gpu_match.group(1).strip()
+                                        vram_match = re.search(r"Peak Allocated:\s*([0-9.]+)\s*GB", text)
+                                        if vram_match and peak_vram is None:
+                                            peak_vram = float(vram_match.group(1))
+                                    except Exception:
+                                        pass
+
                 if times:
                     avg_time = sum(t for _, t in times) / len(times)
                     formatted_avg = format_duration(avg_time)

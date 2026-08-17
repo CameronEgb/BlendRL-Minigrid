@@ -101,23 +101,36 @@ class BlenderActor(nn.Module):
         return blender_id_to_pred_indices
 
     def _map_logic_output(self, q, module):
-        if not hasattr(module, "prednames") or q.size(1) == self.env.n_actions:
-            return q
-            
         action_names = self.env.get_action_meanings()
-        mapped_q = torch.zeros(q.size(0), len(action_names), device=q.device)
-        for idx, action_name in enumerate(action_names):
-            if action_name in module.prednames:
-                pred_idx = module.prednames.index(action_name)
-                mapped_q[:, idx] = q[:, pred_idx]
+        
+        if hasattr(module, "prednames"):
+            mapped_q = torch.zeros(q.size(0), len(action_names), device=q.device)
+            for idx, action_name in enumerate(action_names):
+                if action_name in module.prednames:
+                    pred_idx = module.prednames.index(action_name)
+                    mapped_q[:, idx] = q[:, pred_idx]
+        elif q.size(1) == len(action_names):
+            mapped_q = q
+        else:
+            return q
                 
         # Normalize into a valid action probability distribution:
         # If any action predicate is active, normalize proportionally across valid action candidates.
-        # If no action predicate is active (sum == 0, meaning logic is silent/unmatched), default to uniform prior (1/n_actions).
+        # If no action predicate is active (sum == 0, meaning logic is silent/unmatched):
+        # Default to safe action (e.g. "withhold" / "noop") rather than uniform 50/50 random.
         sum_q = mapped_q.sum(dim=-1, keepdim=True)
         active_mask = (sum_q > 1e-6)
-        uniform_probs = torch.full_like(mapped_q, 1.0 / len(action_names))
-        normalized_q = torch.where(active_mask, mapped_q / torch.clamp(sum_q, min=1e-6), uniform_probs)
+        
+        if "withhold" in action_names:
+            default_probs = torch.zeros_like(mapped_q)
+            default_probs[:, action_names.index("withhold")] = 1.0
+        elif "noop" in action_names:
+            default_probs = torch.zeros_like(mapped_q)
+            default_probs[:, action_names.index("noop")] = 1.0
+        else:
+            default_probs = torch.full_like(mapped_q, 1.0 / len(action_names))
+            
+        normalized_q = torch.where(active_mask, mapped_q / torch.clamp(sum_q, min=1e-6), default_probs)
         return normalized_q
 
     def get_explanation(self, neural_state, logic_state, action):

@@ -265,7 +265,7 @@ class PolicyEvalPlotter(BasePlotter):
             patient_agreements[method_name] = np.array(patient_agr)
 
         df = pd.DataFrame(results)
-        csv_path = output_dir / "methods_comparison.csv"
+        csv_path = output_dir / "method_comparison.csv"
         df.to_csv(csv_path, index=False)
         print(f"  Saved: {csv_path}")
 
