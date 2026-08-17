@@ -200,8 +200,9 @@ class CQLAgent(OfflineAgentBase):
             next_logic_obs = self._prepare_logic_obs(next_obs, real_batch.get("next_logic_obs"))
 
             with torch.no_grad():
-                next_q = self.target_model.get_q_values(next_obs, next_logic_obs)
-                next_v = torch.max(next_q, dim=1)[0]
+                online_next_q = self.model.get_q_values(next_obs, next_logic_obs)
+                best_next_action = torch.argmax(online_next_q, dim=1, keepdim=True)
+                next_v = self.target_model.get_q_values(next_obs, next_logic_obs).gather(1, best_next_action).squeeze(1)
                 q_target = rewards + gamma * next_v * (1 - dones)
                 
             all_q_values = self.model.get_q_values(obs, logic_obs)
@@ -241,8 +242,9 @@ class CQLAgent(OfflineAgentBase):
             if isinstance(opt, list):
                 opt = opt[0]
             with torch.no_grad():
-                next_q = self.target_q_network(next_obs)
-                next_v = torch.max(next_q, dim=1)[0]
+                online_next_q = self.q_network(next_obs)
+                best_next_action = torch.argmax(online_next_q, dim=1, keepdim=True)
+                next_v = self.target_q_network(next_obs).gather(1, best_next_action).squeeze(1)
                 q_target = rewards + gamma * next_v * (1 - dones)
                 
             all_q_values = self.q_network(obs)
@@ -298,15 +300,17 @@ class CQLAgent(OfflineAgentBase):
             if self.is_modular:
                 logic_obs = self._prepare_logic_obs(obs, val_batch.get("logic_obs"))
                 next_logic_obs = self._prepare_logic_obs(next_obs, val_batch.get("next_logic_obs"))
-                next_q = self.target_model.get_q_values(next_obs, next_logic_obs)
-                next_v = torch.max(next_q, dim=1)[0]
+                online_next_q = self.model.get_q_values(next_obs, next_logic_obs)
+                best_next_action = torch.argmax(online_next_q, dim=1, keepdim=True)
+                next_v = self.target_model.get_q_values(next_obs, next_logic_obs).gather(1, best_next_action).squeeze(1)
                 q_target = rewards + self.cfg.env.gamma * next_v * (1 - dones)
                 all_q_values = self.model.get_q_values(obs, logic_obs)
                 probs, _ = self.model.actor(obs, logic_obs)
                 pred_acts = torch.argmax(probs, dim=-1)
             else:
-                next_q = self.target_q_network(next_obs)
-                next_v = torch.max(next_q, dim=1)[0]
+                online_next_q = self.q_network(next_obs)
+                best_next_action = torch.argmax(online_next_q, dim=1, keepdim=True)
+                next_v = self.target_q_network(next_obs).gather(1, best_next_action).squeeze(1)
                 q_target = rewards + self.cfg.env.gamma * next_v * (1 - dones)
                 all_q_values = self.q_network(obs)
                 pred_acts = torch.argmax(all_q_values, dim=-1)
