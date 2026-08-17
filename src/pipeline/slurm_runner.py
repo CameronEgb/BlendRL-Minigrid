@@ -95,7 +95,7 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                         yaml_ds_path=yaml_ds_path
                     )
                 except FileNotFoundError:
-                    dataset_path = Path("in/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
+                    dataset_path = Path("in/datasets") / cfg.group / dataset_name_internal
 
                 for agent_config in offline_list:
                     agent_name_internal = normalize_agent_name(agent_config)
@@ -256,7 +256,7 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                             yaml_ds_path=yaml_ds_path
                         )
                     except FileNotFoundError:
-                        dataset_path = Path("in/datasets") / cfg.group / cfg.experiment_id / dataset_name_internal
+                        dataset_path = Path("in/datasets") / cfg.group / dataset_name_internal
                     overrides_slurm.append(f"++mode.dataset_path={dataset_path}")
                     overrides_slurm += sanitized_extra_args
                     script_content = generate_sbatch_script(

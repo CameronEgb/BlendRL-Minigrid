@@ -98,6 +98,8 @@ def resolve_dataset_path(dataset_id: str, group: str = "", experiment_id: str = 
     for cand in candidates:
         if cand.exists() and any(cand.glob("*.pkl")):
             return cand
+        if cand.with_suffix(".npz").exists() or (cand.parent / f"{cand.name}.npz").exists():
+            return cand
             
     # Try global lookup
     global_match = find_dataset_globally(dataset_name_internal)
@@ -107,9 +109,10 @@ def resolve_dataset_path(dataset_id: str, group: str = "", experiment_id: str = 
     if yaml_ds_path and Path(yaml_ds_path).exists():
         return Path(yaml_ds_path)
         
-    raise FileNotFoundError(
-        f"Could not locate offline dataset '{dataset_id}' in standard dataset directories."
-    )
+    if group:
+        return Path("in/datasets") / group / dataset_name_internal
+        
+    return Path("in/datasets") / dataset_name_internal
 
 
 def resolve_mimic_npz_path(filename_or_path: str = None) -> Path:

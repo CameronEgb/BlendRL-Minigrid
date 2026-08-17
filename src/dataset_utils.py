@@ -134,19 +134,40 @@ class DatasetReader:
             import subprocess
             for d in dataset_dirs:
                 p = Path(d)
-                npz_candidate = p.with_suffix(".npz")
-                if not npz_candidate.exists():
-                    npz_candidate = p.parent / f"{p.name}.npz"
-                if npz_candidate.exists():
+                candidates = [
+                    p.with_suffix(".npz"),
+                    p.parent / f"{p.name}.npz",
+                    Path("in/datasets") / "mimic" / f"{p.name}.npz",
+                    Path("in/datasets") / f"{p.name}.npz",
+                ]
+                npz_candidate = None
+                for c in candidates:
+                    if c.exists():
+                        npz_candidate = c
+                        break
+                if not npz_candidate and Path("in/datasets").exists():
+                    for root, dirs, files in os.walk(Path("in/datasets")):
+                        for f in files:
+                            if f.endswith(".npz") and (p.name in f or f.startswith("mimic_lazy")):
+                                npz_candidate = Path(root) / f
+                                break
+                        if npz_candidate:
+                            break
+
+                if npz_candidate and npz_candidate.exists():
                     print(f"\n[DatasetReader] Detected NPZ dataset '{npz_candidate}' with no PKL chunks.")
-                    print(f"[DatasetReader] Auto-converting NPZ to PKL format at '{p}'...")
+                    out_target = p if not p.suffix else p.parent / p.stem
+                    print(f"[DatasetReader] Auto-converting NPZ to PKL format at '{out_target}'...")
                     script_path = Path(__file__).resolve().parent.parent / "scripts" / "convert_npz_to_pkl.py"
                     from src.pipeline.config import get_python_executable
                     python_exe = get_python_executable()
                     subprocess.run([python_exe, str(script_path), str(npz_candidate)], check=True)
-                    if p.exists():
-                        self.files.extend(sorted(list(p.glob("*.pkl"))))
-                    break
+                    if out_target.exists():
+                        self.files.extend(sorted(list(out_target.glob("*.pkl"))))
+                    if not self.files and (npz_candidate.parent / npz_candidate.stem).exists():
+                        self.files.extend(sorted(list((npz_candidate.parent / npz_candidate.stem).glob("*.pkl"))))
+                    if self.files:
+                        break
 
         if not self.files:
             print(f"Warning: No dataset files found in {dataset_dirs}")
