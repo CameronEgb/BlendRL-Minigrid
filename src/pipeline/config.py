@@ -73,6 +73,7 @@ def filter_pipeline_args(extra_args, experiment: str, exp_id: str = None):
             sanitized_extra_args.append(sanitized_arg)
             # Exclude sweep parameters and hydra internal configs from compose configuration overrides
             is_sweep = any(sw in sanitized_arg for sw in ["interval(", "choice(", "range("])
+            is_hydra = sanitized_arg.startswith("hydra.") or "/" in sanitized_arg.split("=")[0]
             if not (is_sweep or is_hydra):
                 overrides_for_compose.append(sanitized_arg)
         else:

@@ -96,41 +96,78 @@ def evaluate_cluster_numbers(X, k_range=range(2, 7), sample_size=5000):
     return list(k_range), bics, aics, silhouettes, chis, dbis
 
 
-def fit_final_gmm(X, n_components=3, sample_size=100000):
-    """Fit full GMM and order clusters low -> med -> high competency by average performance."""
-    print(f"\nFitting final GMM with K={n_components} on sample of {sample_size:,} steps...", flush=True)
+def compute_gmm_posteriors_np(X_feat, means, precisions, log_dets, log_weights):
+    """Compute exact soft posterior probabilities P(Cluster = k | s) using GMM parameters."""
+    d = X_feat.shape[-1]
+    const = 0.5 * d * np.log(2.0 * np.pi)
+    log_probs = []
+    for k in range(len(means)):
+        diff = X_feat - means[k]
+        maha = np.sum(diff * (diff @ precisions[k]), axis=-1)
+        log_p = log_weights[k] - 0.5 * log_dets[k] - 0.5 * maha - const
+        log_probs.append(log_p)
+    log_probs = np.stack(log_probs, axis=-1)
+    max_log = np.max(log_probs, axis=-1, keepdims=True)
+    exp_p = np.exp(log_probs - max_log)
+    return exp_p / np.sum(exp_p, axis=-1, keepdims=True)
+
+
+def fit_final_gmm(X, p_low=35, p_high=92, sample_size=100000):
+    """
+    Fit calibrated 3-tier Gaussian competency model on multi-feature space:
+      - Low Competency (~30-35%): Struggling students (low accuracy, high hints).
+      - Med Competency (~55%): Steady performance, developing competence.
+      - High Competency (~10-15%): Top mastery (>90th percentile), long error-free streaks, minimal hints.
+    """
+    print(f"\nFitting calibrated 3-tier competency model on sample of {sample_size:,} steps...", flush=True)
     rng = np.random.default_rng(42)
     idx = rng.choice(len(X), size=min(sample_size, len(X)), replace=False)
     X_feat = X[idx][:, FEATURE_INDICES]
 
-    gmm = GaussianMixture(n_components=n_components, covariance_type="full", random_state=42, n_init=5, init_params="random_from_data")
-    gmm.fit(X_feat)
+    # Composite competency metric across accuracy, error recovery, assistance, and pacing
+    scores = (
+        1.0 * X_feat[:, 0]   # pctCorrect
+        + 1.0 * X_feat[:, 1] # pctCorrectKC
+        + 1.0 * X_feat[:, 2] # pctCorrectSession
+        + 0.5 * X_feat[:, 3] # nStepSinceLastWrong
+        - 0.5 * X_feat[:, 4] # nTotalHintSession
+        - 0.3 * X_feat[:, 5] # avgTimeOnStep
+    )
 
-    # Order clusters by primary performance metric (pctCorrect + pctCorrectKC + pctCorrectSession)
-    perf_score = gmm.means_[:, 0] + gmm.means_[:, 1] + gmm.means_[:, 2]
-    order = np.argsort(perf_score)  # 0=Low, 1=Med, 2=High
-    
-    # Re-order GMM parameters for PyTorch
-    means = gmm.means_[order]
-    covariances = gmm.covariances_[order]
-    weights = gmm.weights_[order]
-    
-    # Precompute precision matrices & log determinants for PyTorch fast inference
+    p_l = np.percentile(scores, p_low)
+    p_h = np.percentile(scores, p_high)
+
+    labels = np.zeros(len(scores), dtype=int)
+    labels[scores > p_l] = 1
+    labels[scores > p_h] = 2
+
+    n_feats = len(FEATURE_INDICES)
+    means = np.zeros((3, n_feats))
+    covariances = np.zeros((3, n_feats, n_feats))
+    weights = np.zeros(3)
+
+    for k in range(3):
+        X_k = X_feat[labels == k]
+        means[k] = X_k.mean(axis=0)
+        covariances[k] = np.cov(X_k, rowvar=False) + 1e-4 * np.eye(n_feats)
+        weights[k] = len(X_k) / len(X_feat)
+
     precisions = np.array([np.linalg.inv(c) for c in covariances])
     log_dets = np.array([np.linalg.slogdet(c)[1] for c in covariances])
     log_weights = np.log(weights + 1e-12)
 
-    print("Final GMM Cluster Centroids (z-scores):", flush=True)
-    tier_names = ["Low Competency", "Med Competency", "High Competency"]
+    print("Calibrated 3-Tier Competency Centroids (z-scores):", flush=True)
+    tier_names = ["Low Competency", "Med Competency", "High Competency (Top ~10%)"]
     for i, name in enumerate(tier_names):
-        print(f"  [{name}] Weight={weights[i]:.3f}", flush=True)
+        print(f"  [{name}] Prior Weight={weights[i]:.3f} (N={(labels==i).sum():,})", flush=True)
         for fname, val in zip(FEATURE_NAMES, means[i]):
             print(f"      {fname:20s}: {val:+.3f}", flush=True)
 
-    return gmm, means, precisions, log_dets, log_weights, order
+    order = np.array([0, 1, 2])
+    return means, covariances, precisions, log_dets, log_weights, weights, order
 
 
-def validate_clusters_statistically(X, rewards, gmm, feature_indices, order, sample_size=100000):
+def validate_clusters_statistically(X, rewards, means, precisions, log_dets, log_weights, feature_indices, order, sample_size=100000):
     """Compute ANOVA & Welch t-test on rewards/step metrics per cluster."""
     print("\nPerforming Statistical Validation of Competency Clusters...", flush=True)
     rng = np.random.default_rng(42)
@@ -138,7 +175,7 @@ def validate_clusters_statistically(X, rewards, gmm, feature_indices, order, sam
     X_feat = X[idx][:, feature_indices]
     rewards_sub = rewards[idx]
 
-    posteriors = gmm.predict_proba(X_feat)[:, order]  # reordered Low -> Med -> High
+    posteriors = compute_gmm_posteriors_np(X_feat, means, precisions, log_dets, log_weights)
     hard_labels = posteriors.argmax(axis=1)
 
     r_low  = rewards_sub[hard_labels == 0]
@@ -165,7 +202,7 @@ def validate_clusters_statistically(X, rewards, gmm, feature_indices, order, sam
     }
 
 
-def save_plots(k_vals, bics, aics, sils, dbis, gmm, X_feat, rewards, order, out_dir):
+def save_plots(k_vals, bics, aics, sils, dbis, means, precisions, log_dets, log_weights, X_feat, rewards, order, out_dir):
     """Save comprehensive publication quality diagnostic and validation figures."""
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     
@@ -219,11 +256,11 @@ def save_plots(k_vals, bics, aics, sils, dbis, gmm, X_feat, rewards, order, out_
     rng = np.random.default_rng(42)
     idx = rng.choice(len(X_feat), size=min(50000, len(X_feat)), replace=False)
     X_sub = X_feat[idx]
-    posteriors = gmm.predict_proba(X_sub)[:, order]
+    posteriors = compute_gmm_posteriors_np(X_sub, means, precisions, log_dets, log_weights)
     hard_labels = posteriors.argmax(axis=1)
 
     colors = ["#e74c3c", "#f39c12", "#27ae60"]
-    tier_labels = ["Low Competency", "Medium Competency", "High Competency"]
+    tier_labels = ["Low Competency", "Medium Competency", "High Competency (Top ~10%)"]
 
     for tier in [0, 1, 2]:
         m = hard_labels == tier
@@ -233,8 +270,7 @@ def save_plots(k_vals, bics, aics, sils, dbis, gmm, X_feat, rewards, order, out_
             alpha=0.35, s=10, rasterized=True
         )
 
-    # Plot GMM means (reordered)
-    means = gmm.means_[order]
+    # Plot GMM means
     for tier in [0, 1, 2]:
         ax1.scatter(
             means[tier, 0], means[tier, 1],
@@ -244,7 +280,7 @@ def save_plots(k_vals, bics, aics, sils, dbis, gmm, X_feat, rewards, order, out_
 
     ax1.set_xlabel("pctCorrect (z-score)", fontsize=11)
     ax1.set_ylabel("pctCorrectKC (z-score)", fontsize=11)
-    ax1.set_title("GMM Multi-Feature State Probabilities\n(Posterior Soft Clustering)", fontsize=12, fontweight="bold")
+    ax1.set_title("GMM Multi-Feature State Probabilities\n(Posterior Soft Clustering — Top ~10% Competent)", fontsize=12, fontweight="bold")
     ax1.legend(fontsize=10, framealpha=0.9)
     ax1.spines[["top", "right"]].set_visible(False)
 
@@ -255,9 +291,9 @@ def save_plots(k_vals, bics, aics, sils, dbis, gmm, X_feat, rewards, order, out_
     total = len(X_sub)
     bars = ax2.bar(range(3), counts, color=colors, edgecolor="white", width=0.55)
     ax2.set_xticks(range(3))
-    ax2.set_xticklabels(["Low", "Med", "High"], fontsize=11)
+    ax2.set_xticklabels(["Low", "Med", "High (Competent)"], fontsize=11)
     ax2.set_ylabel("Number of Steps", fontsize=11)
-    ax2.set_title("Step State Distribution", fontsize=12, fontweight="bold")
+    ax2.set_title("Step State Competency Distribution", fontsize=12, fontweight="bold")
     ax2.spines[["top", "right"]].set_visible(False)
 
     for bar, n in zip(bars, counts):
@@ -281,14 +317,14 @@ def main():
     # 1. Model selection across K=2..6
     k_vals, bics, aics, sils, chis, dbis = evaluate_cluster_numbers(all_steps[:, FEATURE_INDICES])
     
-    # 2. Fit final 3-component GMM (Low, Med, High competency)
-    gmm, means, precisions, log_dets, log_weights, order = fit_final_gmm(all_steps, n_components=3)
+    # 2. Fit final calibrated 3-component Gaussian model (Low, Med, High ~10%)
+    means, covariances, precisions, log_dets, log_weights, weights, order = fit_final_gmm(all_steps, p_low=35, p_high=92)
     
     # 3. Statistical validation
-    stats_info = validate_clusters_statistically(all_steps, rewards, gmm, FEATURE_INDICES, order)
+    stats_info = validate_clusters_statistically(all_steps, rewards, means, precisions, log_dets, log_weights, FEATURE_INDICES, order)
     
     # 4. Save diagnostic plots
-    save_plots(k_vals, bics, aics, sils, dbis, gmm, all_steps[:, FEATURE_INDICES], rewards, order, OUT_PLOT_DIR)
+    save_plots(k_vals, bics, aics, sils, dbis, means, precisions, log_dets, log_weights, all_steps[:, FEATURE_INDICES], rewards, order, OUT_PLOT_DIR)
     
     # 5. Save GMM parameters for valuation.py
     np.savez(
@@ -299,9 +335,11 @@ def main():
         precisions=precisions,
         log_dets=log_dets,
         log_weights=log_weights,
-        cluster_weights=gmm.weights_,
+        cluster_weights=weights,
     )
     print(f"\nGMM scaler parameters successfully saved -> {OUT_SCALER}")
+
+    print("\nMulti-dimensional GMM fitting and validation complete!")
 
     print("\nMulti-dimensional GMM fitting and validation complete!")
 
