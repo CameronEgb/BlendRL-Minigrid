@@ -37,28 +37,52 @@ _SCALER_PATHS = [
     "in/datasets/pyrenees/pyrenees_scaler.npz",
 ]
 
-for p in _SCALER_PATHS:
-    if os.path.exists(p):
+def _load_or_fit_gmm_params():
+    global _GMM_PARAMS
+    if _GMM_PARAMS is not None:
+        return _GMM_PARAMS
+
+    for p in _SCALER_PATHS:
+        if os.path.exists(p):
+            try:
+                data = np.load(p, allow_pickle=True)
+                if "precisions" in data or "gmm_precisions" in data:
+                    prefix = "" if "precisions" in data else "gmm_"
+                    feat_indices = data.get(f"{prefix}feature_indices", np.array([72, 76, 80, 84, 43, 23]))
+                    means = data[f"{prefix}means"]
+                    precisions = data[f"{prefix}precisions"]
+                    log_dets = data[f"{prefix}log_dets"]
+                    log_weights = data[f"{prefix}log_weights"]
+                    _GMM_PARAMS = {
+                        "feature_indices": feat_indices,
+                        "means": means,
+                        "precisions": precisions,
+                        "log_dets": log_dets,
+                        "log_weights": log_weights,
+                    }
+                    print(f"[valuation.py] Successfully loaded GMM competency parameters from {p}")
+                    return _GMM_PARAMS
+            except Exception as e:
+                print(f"[valuation.py] Warning: Failed to load GMM parameters from {p}: {e}")
+
+    ds_path = "in/datasets/pyrenees/pyrenees_clean.npz"
+    if os.path.exists(ds_path):
         try:
-            data = np.load(p, allow_pickle=True)
-            if "precisions" in data or "gmm_precisions" in data:
-                prefix = "" if "precisions" in data else "gmm_"
-                feat_indices = data.get(f"{prefix}feature_indices", np.array([72, 76, 80, 84, 43, 23]))
-                means = data[f"{prefix}means"]
-                precisions = data[f"{prefix}precisions"]
-                log_dets = data[f"{prefix}log_dets"]
-                log_weights = data[f"{prefix}log_weights"]
-                _GMM_PARAMS = {
-                    "feature_indices": feat_indices,
-                    "means": means,
-                    "precisions": precisions,
-                    "log_dets": log_dets,
-                    "log_weights": log_weights,
-                }
-                print(f"[valuation.py] Successfully loaded GMM competency parameters from {p}")
-                break
+            print("[valuation.py] Auto-generating GMM competency parameters from dataset...")
+            import importlib.util
+            script_path = "scripts/fit_gmm_competency.py"
+            if os.path.exists(script_path):
+                spec = importlib.util.spec_from_file_location("fit_gmm", script_path)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                mod.main()
+                return _load_or_fit_gmm_params()
         except Exception as e:
-            print(f"[valuation.py] Warning: Failed to load GMM parameters from {p}: {e}")
+            print(f"[valuation.py] Warning: Could not auto-generate GMM parameters: {e}")
+
+    return None
+
+_load_or_fit_gmm_params()
 
 
 def _ensure_126(agent: th.Tensor) -> th.Tensor:
@@ -79,18 +103,19 @@ def _compute_gmm_posteriors(agent: th.Tensor) -> th.Tensor:
     device = agent.device
     dtype  = agent.dtype
 
-    if _GMM_PARAMS is None:
+    gmm_p = _load_or_fit_gmm_params()
+    if gmm_p is None:
         raise FileNotFoundError(
             "Pyrenees GMM competency parameters not found. "
             "Please run 'python scripts/fit_gmm_competency.py' to generate 'in/datasets/pyrenees/pyrenees_gmm_scaler.npz' "
             "before evaluating logic rules on Pyrenees."
         )
 
-    feat_idx    = th.tensor(_GMM_PARAMS["feature_indices"], dtype=th.long, device=device)
-    means       = th.tensor(_GMM_PARAMS["means"], dtype=dtype, device=device)             # (3, d)
-    precisions  = th.tensor(_GMM_PARAMS["precisions"], dtype=dtype, device=device)        # (3, d, d)
-    log_dets    = th.tensor(_GMM_PARAMS["log_dets"], dtype=dtype, device=device)          # (3,)
-    log_weights = th.tensor(_GMM_PARAMS["log_weights"], dtype=dtype, device=device)       # (3,)
+    feat_idx    = th.tensor(gmm_p["feature_indices"], dtype=th.long, device=device)
+    means       = th.tensor(gmm_p["means"], dtype=dtype, device=device)             # (3, d)
+    precisions  = th.tensor(gmm_p["precisions"], dtype=dtype, device=device)        # (3, d, d)
+    log_dets    = th.tensor(gmm_p["log_dets"], dtype=dtype, device=device)          # (3,)
+    log_weights = th.tensor(gmm_p["log_weights"], dtype=dtype, device=device)       # (3,)
 
     x = agent[..., feat_idx]  # (*batch, d)
     d = x.shape[-1]

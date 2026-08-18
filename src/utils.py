@@ -180,6 +180,7 @@ class MLPQNetwork(nn.Module):
         else:
             act_fn = nn.Tanh
 
+        self.num_in_features = num_in_features
         layers = []
         last_size = num_in_features
         for size in hidden_sizes:
@@ -208,6 +209,11 @@ class MLPQNetwork(nn.Module):
 
     def forward(self, x):
         x = x.float().reshape(x.shape[0], -1)
+        if hasattr(self, "num_in_features") and x.shape[-1] < self.num_in_features:
+            pad = torch.zeros((x.shape[0], self.num_in_features - x.shape[-1]), dtype=x.dtype, device=x.device)
+            x = torch.cat([x, pad], dim=-1)
+        elif hasattr(self, "num_in_features") and x.shape[-1] > self.num_in_features:
+            x = x[:, :self.num_in_features]
         feat = self.network(x)
         if self.dueling:
             val = self.value_head(feat)

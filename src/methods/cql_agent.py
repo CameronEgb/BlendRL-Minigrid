@@ -88,22 +88,10 @@ class CQLAgent(OfflineAgentBase):
             hidden_sizes = cfg.agent.get("hidden_sizes", [256, 256])
             if hidden_sizes is not None:
                 hidden_sizes = list(hidden_sizes)
-            num_in_features = np.prod(self.observation_space)
-            
             architecture = self.get_cfg("architecture", cfg.env.architecture)
-            if architecture in ["transformer", "sepsis_transformer", "cross_attention", "dueling_resnet", "resnet"]:
-                from src.utils import get_neural_agent
-                self.q_network = get_neural_agent(cfg.env.name, self.n_actions, self.device, arch_name=architecture, hidden_sizes=hidden_sizes)
-                self.target_q_network = get_neural_agent(cfg.env.name, self.n_actions, self.device, arch_name=architecture, hidden_sizes=hidden_sizes)
-            elif architecture in ["mlp", "dnn", "standard_mlp"]:
-                from src.utils import MLPQNetwork
-                self.q_network = MLPQNetwork(n_actions=self.n_actions, num_in_features=num_in_features, hidden_sizes=hidden_sizes)
-                self.target_q_network = MLPQNetwork(n_actions=self.n_actions, num_in_features=num_in_features, hidden_sizes=hidden_sizes)
-            else:
-                from src.utils import QNetwork
-                self.q_network = QNetwork(n_actions=self.n_actions)
-                self.target_q_network = QNetwork(n_actions=self.n_actions)
-                
+            from src.utils import get_neural_agent
+            self.q_network = get_neural_agent(cfg.env.name, self.n_actions, self.device, arch_name=architecture, hidden_sizes=hidden_sizes)
+            self.target_q_network = get_neural_agent(cfg.env.name, self.n_actions, self.device, arch_name=architecture, hidden_sizes=hidden_sizes)
             self.target_q_network.load_state_dict(self.q_network.state_dict())
 
         target_admin_rate = self.get_cfg("target_admin_rate", None)
