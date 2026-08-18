@@ -116,6 +116,8 @@ class PolicyEvalPlotter(BasePlotter):
             "Recall": 1.0000,
             "F1 Score": 1.0000,
             "Best F1": 1.0000,
+            "Windowed F1 (±3h)": 1.0000,
+            "Windowed Recall %": 100.0,
             "Opt Threshold": 0.5000
         })
 
@@ -236,6 +238,50 @@ class PolicyEvalPlotter(BasePlotter):
             else:
                 best_f1, best_thresh = float(f1), 0.5
 
+            # Compute per-patient agreement for Agreement vs Shock plot & Windowed F1 (±3 hours)
+            patient_agr = []
+            curr_step = 0
+            win_tp = 0
+            win_fp = 0
+            win_fn = 0
+            window_size = 3
+
+            for i in range(num_patients):
+                v_steps = int((mask[i, :, 0] != -1).sum())
+                if v_steps == 0:
+                    patient_agr.append(np.nan)
+                    continue
+                p_policy = all_policy_acts[curr_step:curr_step + v_steps]
+                p_clin = all_clin_acts[curr_step:curr_step + v_steps]
+                curr_step += v_steps
+                agr = (p_policy == p_clin).mean() * 100.0
+                patient_agr.append(agr)
+
+                # Windowed evaluation for patient i
+                for t in range(v_steps):
+                    if p_policy[t] == 1:
+                        w_start = max(0, t - window_size)
+                        w_end = min(v_steps, t + window_size + 1)
+                        if (p_clin[w_start:w_end] == 1).any():
+                            win_tp += 1
+                        else:
+                            win_fp += 1
+                
+                for t in range(v_steps):
+                    if p_clin[t] == 1:
+                        w_start = max(0, t - window_size)
+                        w_end = min(v_steps, t + window_size + 1)
+                        if not (p_policy[w_start:w_end] == 1).any():
+                            win_fn += 1
+
+            patient_agreements[method_name] = np.array(patient_agr)
+
+            total_pos_clin = all_clin_acts.sum()
+            win_prec = win_tp / (win_tp + win_fp + 1e-8)
+            win_rec = (total_pos_clin - win_fn) / (total_pos_clin + 1e-8) if total_pos_clin > 0 else 0.0
+            win_rec = max(0.0, float(win_rec))
+            windowed_f1 = float(2 * win_prec * win_rec / (win_prec + win_rec + 1e-8))
+
             results.append({
                 "Method": clean_label(method_name),
                 "Accuracy %": float(accuracy),
@@ -246,23 +292,10 @@ class PolicyEvalPlotter(BasePlotter):
                 "Recall": float(recall),
                 "F1 Score": float(f1),
                 "Best F1": float(best_f1),
+                "Windowed F1 (±3h)": float(windowed_f1),
+                "Windowed Recall %": float(win_rec * 100.0),
                 "Opt Threshold": float(best_thresh)
             })
-
-            # Compute per-patient agreement for Agreement vs Shock plot
-            patient_agr = []
-            curr_step = 0
-            for i in range(num_patients):
-                v_steps = (mask[i, :, 0] != -1).sum()
-                if v_steps == 0:
-                    patient_agr.append(np.nan)
-                    continue
-                p_policy = all_policy_acts[curr_step:curr_step + v_steps]
-                p_clin = all_clin_acts[curr_step:curr_step + v_steps]
-                curr_step += v_steps
-                agr = (p_policy == p_clin).mean() * 100.0
-                patient_agr.append(agr)
-            patient_agreements[method_name] = np.array(patient_agr)
 
         df = pd.DataFrame(results)
         csv_path = output_dir / "method_comparison.csv"
