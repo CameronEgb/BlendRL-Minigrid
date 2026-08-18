@@ -1,0 +1,19 @@
+# @package _global_
+defaults:
+  - pyrenees/_base
+  - override /agent: cql/dnn
+
+experiment_id: pyrenees_scaled
+local: false
+
+offline_methods:
+  - cql/dnn
+  - cql/dueling_resnet
+  - cql/blendrl_human_neural
+
+agent:
+  epochs_per_interval: 50
+  eval_interval_epochs: 10
+  batch_size: 512
+  lr: 3e-4
+  cql_alpha: 1.0
