@@ -3,8 +3,11 @@ defaults:
   - pyrenees/_base
   - override /agent: cql/dnn
 
+name: pyrenees_scaled
 experiment_id: pyrenees_scaled
-local: false
+
+offline_datasets:
+  - pyrenees
 
 offline_methods:
   - cql/dnn
@@ -17,3 +20,9 @@ agent:
   batch_size: 512
   lr: 3e-4
   cql_alpha: 1.0
+
+plots:
+  losses:
+    metrics: ["losses/total_loss", "losses/bellman_loss", "losses/cql_loss", "losses/q_loss", "losses/actor_loss"]
+  policy_eval: {}
+  reports: {}
