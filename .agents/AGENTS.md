@@ -142,7 +142,7 @@ Agents are implemented as PyTorch Lightning Modules in `src/methods/`:
 - **Thin Orchestrator:** `run_pipeline.py` is a lightweight entry point (~180 lines) that validates configs and dispatches to specialized modules:
     - **`src/pipeline/config.py`**: Name normalization (`normalize_agent_name`), method list parsing (`parse_method_list`), and CLI extra-argument sanitization (`filter_pipeline_args`).
     - **`src/pipeline/datasets.py`**: Dataset path resolution (`resolve_dataset_path`), online dataset symlinking (`ensure_online_dataset_path`), experiment runners, and plotting dispatch.
-    - **`src/pipeline/slurm.py`**: Centralized Slurm header builder (`generate_sbatch_header`) with unified `--mail-type=ALL` and `--mail-user=cegbert@ncsu.edu` configuration, and job submission (`submit_sbatch`).
+    - **`src/pipeline/slurm.py`**: Centralized Slurm header builder (`generate_sbatch_header`) with unified `--mail-type=END,FAIL` and `--mail-user=cegbert@ncsu.edu` configuration, and job submission (`submit_sbatch`).
     - **`src/pipeline/local_runner.py`**: Local sequential execution for online & offline RL phases.
     - **`src/pipeline/slurm_runner.py`**: Remote Slurm cluster batch script generation and job dependency orchestration.
     - **`src/pipeline/early_prediction_task.py`**: Standalone early prediction sweeps, checkpoint evaluations, and Optuna tuning.

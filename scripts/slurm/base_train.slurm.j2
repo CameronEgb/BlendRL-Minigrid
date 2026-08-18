@@ -7,7 +7,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task={{ cores }}
 #SBATCH --time={{ time }}
-#SBATCH --mail-type=ALL
+#SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=cegbert@ncsu.edu
 {{ gres_header }}
 {% if dependency %}#SBATCH --dependency={{ dependency }}

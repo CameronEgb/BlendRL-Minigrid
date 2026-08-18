@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --output=results/logs/%x_%j.out
 #SBATCH --error=results/logs/%x_%j.err
-#SBATCH --mail-type=ALL
+#SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=cegbert@ncsu.edu
 
 echo "=== Weighted Sepsis Early Prediction Sweep Execution Start ==="
