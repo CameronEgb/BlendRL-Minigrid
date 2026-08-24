@@ -28,8 +28,17 @@ def get_best_trial_id(storage_url, study_name):
     
     try:
         import optuna
-        study = optuna.load_study(study_name=study_name, storage=storage_url)
-        return str(study.best_trial.number)
+        try:
+            study = optuna.load_study(study_name=study_name, storage=storage_url)
+            return str(study.best_trial.number)
+        except Exception:
+            all_studies = optuna.get_all_study_summaries(storage=storage_url)
+            matches = [s for s in all_studies if s.study_name == study_name or s.study_name.startswith(f"{study_name}_v")]
+            if matches:
+                matches.sort(key=lambda s: s.study_name, reverse=True)
+                target_study = optuna.load_study(study_name=matches[0].study_name, storage=storage_url)
+                return str(target_study.best_trial.number)
+            raise
     except Exception as e:
         print(f"Warning: Could not query best trial from Optuna: {e}")
         return "0"
