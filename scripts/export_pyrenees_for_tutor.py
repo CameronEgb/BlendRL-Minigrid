@@ -15,36 +15,63 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from src.methods.cql_agent import CQLAgent
 
 
-class StandaloneBlendRL(torch.nn.Module):
+class StandalonePyreneesPolicy(torch.nn.Module):
     """
-    Inference wrapper for BlendRL actor.
+    Universal inference wrapper for Pyrenees policies (Neural, BlendRL, CEW).
     Accepts raw observations (123 or 130 features), slices the first 123,
     pads the 3 one-hot alternation slots (to 126 dims), and computes
-    blended action probabilities.
+    action probabilities.
     """
     def __init__(self, agent):
         super().__init__()
-        self.actor = agent.model.actor
+        self.is_modular = getattr(agent, "is_modular", False)
+        if self.is_modular:
+            self.actor = agent.model.actor
+        elif hasattr(agent, "q_network"):
+            self.q_network = agent.q_network
+        else:
+            self.model = agent.model
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        # Handle batch or single sample
         if obs.ndim == 1:
             obs = obs.unsqueeze(0)
-        # Slices first 123 features (e.g. if 130 problem features are provided)
         obs_123 = obs[:, :123]
         B = obs_123.shape[0]
         pad = torch.zeros((B, 3), dtype=obs_123.dtype, device=obs_123.device)
         obs_126 = torch.cat([obs_123, pad], dim=-1)
-        logic_obs = obs_126.unsqueeze(1).repeat(1, 2, 1)
-        probs, _ = self.actor(obs_126, logic_obs)
-        return probs
+
+        if self.is_modular:
+            logic_obs = obs_126.unsqueeze(1).repeat(1, 2, 1)
+            probs, _ = self.actor(obs_126, logic_obs)
+            return probs
+        elif hasattr(self, "q_network"):
+            q = self.q_network(obs_126)
+            return torch.softmax(q, dim=-1)
+        else:
+            q = self.model.get_q_values(obs_126)
+            return torch.softmax(q, dim=-1)
 
 
-def export_models_and_scalers():
-    ckpt_path = PROJECT_ROOT / "results/checkpoints/pyrenees/test_pyrenees_blendrl/cql_blendrl_human_neural/0/best_model.ckpt"
+def export_models_and_scalers(ckpt_path=None, output_dir=None):
+    if ckpt_path is None:
+        if len(sys.argv) > 1:
+            ckpt_path = Path(sys.argv[1])
+        else:
+            # Fall back to best discovered checkpoint
+            candidates = [
+                PROJECT_ROOT / "results/checkpoints/pyrenees/pyrenees_best/blendrl_human_dueling_resnet/best_model.ckpt",
+                PROJECT_ROOT / "results/checkpoints/pyrenees/pyrenees_best/cql_dueling_resnet/best_model.ckpt",
+                PROJECT_ROOT / "results/checkpoints/pyrenees/tune_pyrenees_scaled/cql_blendrl_human_dueling_resnet/0/best_model.ckpt",
+                PROJECT_ROOT / "results/checkpoints/pyrenees/test_pyrenees_blendrl/cql_blendrl_human_neural/0/best_model.ckpt",
+            ]
+            for c in candidates:
+                if c.exists():
+                    ckpt_path = c
+                    break
+    ckpt_path = Path(ckpt_path) if ckpt_path else None
     scaler_npz_path = PROJECT_ROOT / "in/datasets/pyrenees/pyrenees_scaler.npz"
 
-    if not ckpt_path.exists():
+    if not ckpt_path or not ckpt_path.exists():
         raise FileNotFoundError(f"Checkpoint not found at: {ckpt_path}")
     if not scaler_npz_path.exists():
         raise FileNotFoundError(f"Scaler npz not found at: {scaler_npz_path}")
@@ -53,7 +80,7 @@ def export_models_and_scalers():
     agent = CQLAgent.load_from_checkpoint(str(ckpt_path), map_location="cpu", weights_only=False)
     agent.eval()
 
-    model = StandaloneBlendRL(agent)
+    model = StandalonePyreneesPolicy(agent)
     model.eval()
 
     # Load scaler parameters
