@@ -1,0 +1,26 @@
+# @package _global_
+defaults:
+  - pyrenees/_base
+  - override /agent: cql/blendrl_human_dueling_resnet
+  - override /hydra/sweeper: optuna_offline
+
+experiment_id: tune_pyrenees_blendrl_resnet
+group: pyrenees
+
+agent:
+  epochs_per_interval: 15
+  eval_interval_epochs: 3
+  batch_size: 512
+
+hydra:
+  sweeper:
+    storage: "sqlite:///results/optuna/optuna_pyrenees_scaled.db?timeout=120"
+    study_name: "pyrenees_blendrl_human_dueling_resnet"
+    direction: minimize
+    n_trials: 35
+    n_jobs: 1
+    params:
+      agent.lr: interval(1e-4, 1e-3)
+      agent.cql_alpha: interval(0.1, 5.0)
+      agent.soft_target_tau: interval(0.002, 0.02)
+      agent.blender_lr: interval(1e-4, 1e-3)

@@ -416,6 +416,92 @@ def plot_agreement_vs_shock(agreements, outcomes, report_dir):
     print(f"  Saved agreement plot: {out_path}")
 
 
+def plot_agreement_vs_shock_deciles(agreements, outcomes, report_dir):
+    """Generate agreement vs shock rate plot bucketed by Deciles (equal sample sizes per bucket),
+    overlaying trajectory counts per decile in a background bar plot.
+
+    agreements: dict { method_key: np.array of per-patient agreement % }
+    outcomes: np.array of true labels (1=shock, 0=non-shock)
+    """
+    decile_indices = np.arange(1, 11)
+
+    fig, ax1 = plt.subplots(figsize=(12, 7))
+    ax2 = ax1.twinx()
+
+    first_method_counts = None
+
+    for idx, (method_key, patient_agreements) in enumerate(agreements.items()):
+        valid_mask = ~np.isnan(patient_agreements)
+        valid_agr = patient_agreements[valid_mask]
+        valid_out = outcomes[valid_mask]
+        n_pts = len(valid_agr)
+        if n_pts == 0:
+            continue
+
+        sort_idx = np.argsort(valid_agr)
+        sorted_agr = valid_agr[sort_idx]
+        sorted_out = valid_out[sort_idx]
+
+        means = []
+        sems = []
+        counts = []
+        for d in range(10):
+            start_idx = int(d * n_pts / 10)
+            end_idx = int((d + 1) * n_pts / 10)
+            d_out = sorted_out[start_idx:end_idx]
+            count = len(d_out)
+            counts.append(count)
+            if count > 0:
+                means.append(float(np.mean(d_out)) * 100.0)
+                sems.append(float(np.std(d_out) / np.sqrt(count)) * 100.0 if count > 1 else 0.0)
+            else:
+                means.append(np.nan)
+                sems.append(0.0)
+
+        if first_method_counts is None:
+            first_method_counts = counts
+
+        means_arr = np.array(means)
+        sems_arr = np.array(sems)
+        valid = ~np.isnan(means_arr)
+
+        label = pretty(method_key)
+        color = get_method_style(method_key)["color"]
+        marker = get_method_style(method_key)["marker"]
+        ax1.plot(decile_indices[valid], means_arr[valid], marker=marker, color=color,
+                 label=label, linewidth=2.5, markersize=7)
+        ax1.fill_between(decile_indices[valid],
+                         means_arr[valid] - sems_arr[valid],
+                         means_arr[valid] + sems_arr[valid],
+                         color=color, alpha=0.12)
+
+    # Background bar chart for trajectory count
+    if first_method_counts is not None:
+        ax2.bar(decile_indices, first_method_counts, width=0.6, color='tab:blue', alpha=0.15,
+                label='Trajectory Count in Decile', zorder=1)
+        ax2.set_ylabel("Trajectory Count in Decile", fontsize=13, fontweight="bold", color="tab:blue")
+        ax2.tick_params(axis='y', labelcolor="tab:blue")
+
+    ax1.set_xlabel("Clinician – RL Policy Agreement Decile", fontsize=13, fontweight="bold")
+    ax1.set_ylabel("True Septic Shock Rate (%)", fontsize=13, fontweight="bold")
+    ax1.set_xticks(decile_indices)
+    ax1.set_xticklabels([f"D{i}" for i in range(1, 11)])
+    ax1.set_xlim(0.5, 10.5)
+    ax1.grid(True, linestyle="--", alpha=0.5)
+
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, fontsize=10, loc="best")
+
+    ax1.set_title("True Septic Shock Rate vs. Policy Agreement (Deciles) — All Patients", fontsize=14, fontweight="bold")
+
+    fig.tight_layout()
+    out_path = report_dir / "agreement_vs_shock_deciles.png"
+    plt.savefig(out_path, dpi=200)
+    plt.close()
+    print(f"  Saved agreement deciles plot: {out_path}")
+
+
 # ---------------------------------------------------------------------------
 #  Graph 2: EP Predicted Shock % over tau timesteps (3 cohort graphs)
 # ---------------------------------------------------------------------------
@@ -953,6 +1039,7 @@ def main():
     rl_agreements = {k: v for k, v in patient_agreements.items() if k != "clinician"}
     if rl_agreements:
         plot_agreement_vs_shock(rl_agreements, y, report_dir)
+        plot_agreement_vs_shock_deciles(rl_agreements, y, report_dir)
     else:
         print("  No RL policies found — skipping agreement plots.")
 

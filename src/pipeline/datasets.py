@@ -126,7 +126,12 @@ def resolve_mimic_npz_path(filename_or_path: str = None) -> Path:
             return p.resolve()
         filename = p.name
     else:
-        filename = os.environ.get("MIMIC_DATASET_NAME", "") or "mimic_lazy_12_clean_with_interventions_corrected.npz"
+        filename = os.environ.get("MIMIC_DATASET_NAME", "")
+        if not filename:
+            raise ValueError(
+                "No MIMIC dataset specified to resolve_mimic_npz_path. "
+                "Please pass a dataset path or set env.dataset_name in the experiment configuration."
+            )
 
     candidate_dirs = [
         os.environ.get("MIMIC_DATASET_DIR", ""),

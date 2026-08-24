@@ -11,6 +11,7 @@ style:
   line_width: 2.0
 
 metrics:
+  - losses/total_loss
   - losses/actor_loss
   - losses/q_loss
   - losses/value_loss

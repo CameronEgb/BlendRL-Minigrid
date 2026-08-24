@@ -37,5 +37,6 @@ agent:
 plots:
   losses:
     metrics: ["losses/total_loss", "losses/bellman_loss", "losses/cql_loss", "losses/entropy", "losses/blend_entropy"]
-  policy_eval: {}
+  policy_eval:
+    plots: ["agreement_vs_shock", "agreement_vs_shock_deciles"]
   reports: {}

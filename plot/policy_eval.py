@@ -79,14 +79,25 @@ class PolicyEvalPlotter(BasePlotter):
         from src.methods.cql_agent import CQLAgent
         from src.methods.cew_agent import CEWAgent
         from src.methods.iql_agent import IQLAgent
+        last_error = None
         for cls in [CQLAgent, CEWAgent, IQLAgent]:
             try:
                 ag = cls.load_from_checkpoint(str(path), map_location=dev, weights_only=False)
                 ag.to(dev)
                 ag.eval()
                 return ag
-            except Exception:
-                continue
+            except Exception as e:
+                last_error = e
+                try:
+                    ag = cls.load_from_checkpoint(str(path), map_location=dev, weights_only=False, strict=False)
+                    ag.to(dev)
+                    ag.eval()
+                    return ag
+                except Exception as e2:
+                    last_error = e2
+                    continue
+        if last_error is not None:
+            print(f"  [policy_eval] Checkpoint load error for {path}: {last_error}")
         return None
 
     def _get_probs_and_actions(self, ag, obs_b):
@@ -256,6 +267,108 @@ class PolicyEvalPlotter(BasePlotter):
         df.to_csv(csv_path, index=False)
         print(f"  Saved Pyrenees method comparison: {csv_path}")
 
+        # Visual Plots for Pyrenees Policy Evaluation
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from src.method_registry import get_style as get_method_style
+
+        # 1. Tutor Agreement % Bar Chart
+        fig, ax = plt.subplots(figsize=(max(8, len(results) * 1.8), 5.5))
+        methods = [r["Method"] for r in results]
+        agreements = [r["Tutor Agreement %"] for r in results]
+        
+        bar_colors = []
+        for r in results:
+            m_name = r["Method"]
+            if "Historical" in m_name or "Baseline" in m_name:
+                bar_colors.append("#7f7f7f")
+            else:
+                style = get_method_style(m_name)
+                bar_colors.append(style.get("color") or "tab:blue")
+
+        bars = ax.bar(methods, agreements, color=bar_colors, width=0.55, edgecolor="#333333", linewidth=1.0, alpha=0.85)
+        ax.set_ylabel("Tutor Agreement (%)", fontsize=12, fontweight="bold")
+        ax.set_title(f"Pyrenees ITS Tutor Agreement ({clean_exp})", fontsize=13, fontweight="bold")
+        ax.set_ylim(0, 110)
+        ax.grid(True, axis="y", linestyle="--", alpha=0.4)
+        plt.xticks(rotation=15, ha="right", fontsize=10, fontweight="bold")
+
+        for bar in bars:
+            height = bar.get_height()
+            ax.annotate(f"{height:.1f}%",
+                        xy=(bar.get_x() + bar.get_width() / 2, height),
+                        xytext=(0, 4),
+                        textcoords="offset points",
+                        ha="center", va="bottom", fontsize=10, fontweight="bold")
+
+        fig.tight_layout()
+        plot_path = output_dir / "tutor_agreement.png"
+        plt.savefig(plot_path, dpi=200)
+        plt.close()
+        print(f"  Saved: {plot_path}")
+
+        # 2. Action Distribution by Competency Tier Subplots
+        fig, axes = plt.subplots(1, 3, figsize=(16, 5.5), sharey=True)
+        tiers = [("Low Tier", "Low Competency Tier"), 
+                 ("Med Tier", "Medium Competency Tier"), 
+                 ("High Tier", "High Competency Tier")]
+        actions = ["PS", "WE", "FWE"]
+        action_colors = ["#2b5c8f", "#d95f02", "#7570b3"]
+
+        num_methods = len(results)
+        x_indices = np.arange(num_methods)
+        bar_w = 0.25
+
+        for ax_idx, (tier_prefix, tier_title) in enumerate(tiers):
+            ax_curr = axes[ax_idx]
+            for act_idx, act in enumerate(actions):
+                col_name = f"{tier_prefix} {act} %"
+                vals = [r.get(col_name, 0.0) for r in results]
+                offset = (act_idx - 1) * bar_w
+                ax_curr.bar(x_indices + offset, vals, width=bar_w * 0.9, label=act if ax_idx == 0 else "",
+                            color=action_colors[act_idx], alpha=0.85, edgecolor="#333333", linewidth=0.8)
+
+            ax_curr.set_title(tier_title, fontsize=11, fontweight="bold")
+            ax_curr.set_xticks(x_indices)
+            ax_curr.set_xticklabels(methods, rotation=25, ha="right", fontsize=9)
+            ax_curr.set_ylim(0, 105)
+            ax_curr.grid(True, axis="y", linestyle="--", alpha=0.4)
+            if ax_idx == 0:
+                ax_curr.set_ylabel("Action Proportion (%)", fontsize=11, fontweight="bold")
+
+        fig.legend(["Problem Solving (PS)", "Worked Example (WE)", "Faded Worked Example (FWE)"],
+                   loc="upper center", ncol=3, bbox_to_anchor=(0.5, 1.02), fontsize=10, framealpha=0.9)
+        fig.suptitle(f"Action Distribution Across Competency Tiers ({clean_exp})", fontsize=13, fontweight="bold", y=1.07)
+        fig.tight_layout()
+        plot_path_tier = output_dir / "action_distribution_by_tier.png"
+        plt.savefig(plot_path_tier, dpi=200, bbox_inches="tight")
+        plt.close()
+        print(f"  Saved: {plot_path_tier}")
+
+        # 3. Overall Action Distribution Plot
+        fig, ax = plt.subplots(figsize=(max(8, len(results) * 2.0), 5.5))
+        for act_idx, act in enumerate(actions):
+            col_name = f"Overall {act} %"
+            vals = [r.get(col_name, 0.0) for r in results]
+            offset = (act_idx - 1) * bar_w
+            bars = ax.bar(x_indices + offset, vals, width=bar_w * 0.9, label=f"{act} ({'Problem Solving' if act=='PS' else 'Worked Example' if act=='WE' else 'Faded Worked Example'})",
+                          color=action_colors[act_idx], alpha=0.85, edgecolor="#333333", linewidth=0.8)
+
+        ax.set_title(f"Overall Action Distribution Comparison ({clean_exp})", fontsize=13, fontweight="bold")
+        ax.set_xticks(x_indices)
+        ax.set_xticklabels(methods, rotation=15, ha="right", fontsize=10, fontweight="bold")
+        ax.set_ylabel("Action Proportion (%)", fontsize=11, fontweight="bold")
+        ax.set_ylim(0, 110)
+        ax.grid(True, axis="y", linestyle="--", alpha=0.4)
+        ax.legend(loc="upper right", fontsize=9, framealpha=0.9)
+
+        fig.tight_layout()
+        plot_path_overall = output_dir / "action_distribution_overall.png"
+        plt.savefig(plot_path_overall, dpi=200)
+        plt.close()
+        print(f"  Saved: {plot_path_overall}")
+
     def _run_mimic_eval(self, exp_id: str, cfg: dict, group: str, clean_exp: str, output_dir: Path):
         """Clinical policy alignment and septic shock evaluation for MIMIC datasets."""
         env_ds = cfg.get("env", {}).get("dataset_name", "mimic_lazy_0_interventions_balanced.npz") if isinstance(cfg.get("env"), dict) else "mimic_lazy_0_interventions_balanced.npz"
@@ -268,8 +381,7 @@ class PolicyEvalPlotter(BasePlotter):
                     npz_candidate = cand
 
         if not npz_candidate.exists():
-            print(f"Notice [policy_eval]: MIMIC NPZ dataset '{npz_candidate}' not found, skipping policy eval metrics.")
-            return
+            raise FileNotFoundError(f"[policy_eval]: MIMIC dataset file '{npz_candidate}' not found.")
 
         print(f"=== Running MIMIC Policy Evaluation Module for '{exp_id}' ===")
         data = np.load(npz_candidate, allow_pickle=True)
@@ -500,6 +612,83 @@ class PolicyEvalPlotter(BasePlotter):
             plt.savefig(plot_path, dpi=200)
             plt.close()
             print(f"  Saved: {plot_path}")
+
+            # 3. Generate Decile-based Agreement vs Shock Rate Plot for all methods
+            fig, ax1 = plt.subplots(figsize=(10, 6))
+            ax2 = ax1.twinx()
+
+            decile_indices = np.arange(1, 11)
+            total_bar_width = 0.75
+            bar_width = total_bar_width / max(K, 1)
+
+            for k_idx, (method_name, agr) in enumerate(method_names):
+                valid_mask = ~np.isnan(agr)
+                valid_agr = agr[valid_mask]
+                valid_out = outcomes[valid_mask]
+                n_pts = len(valid_agr)
+
+                if n_pts == 0:
+                    continue
+
+                sort_idx = np.argsort(valid_agr)
+                sorted_agr = valid_agr[sort_idx]
+                sorted_out = valid_out[sort_idx]
+
+                means, sems, counts = [], [], []
+                for d in range(10):
+                    start_idx = int(d * n_pts / 10)
+                    end_idx = int((d + 1) * n_pts / 10)
+                    d_out = sorted_out[start_idx:end_idx]
+                    count = len(d_out)
+                    counts.append(count)
+                    if count > 0:
+                        means.append(float(np.mean(d_out)) * 100.0)
+                        sems.append(float(np.std(d_out) / np.sqrt(count)) * 100.0 if count > 1 else 0.0)
+                    else:
+                        means.append(np.nan)
+                        sems.append(0.0)
+
+                means_arr = np.array(means)
+                sems_arr = np.array(sems)
+                valid = ~np.isnan(means_arr)
+
+                style = get_method_style(method_name)
+                label = style["label"]
+                color = style["color"]
+                marker = style["marker"]
+                linestyle = style.get("linestyle", "-")
+
+                offset = (k_idx - (K - 1) / 2.0) * bar_width
+                bar_x = decile_indices + offset
+                ax2.bar(bar_x, counts, width=bar_width * 0.9, color=color, alpha=0.18,
+                        edgecolor=color, linewidth=0.8, zorder=1)
+
+                ax1.plot(decile_indices[valid], means_arr[valid], marker=marker, color=color,
+                         linestyle=linestyle, label=label, linewidth=2.5, markersize=7, zorder=3)
+                ax1.fill_between(decile_indices[valid],
+                                 means_arr[valid] - sems_arr[valid],
+                                 means_arr[valid] + sems_arr[valid],
+                                 color=color, alpha=0.12, zorder=2)
+
+            ax1.set_xlabel("Clinician – RL Policy Agreement Decile", fontsize=12, fontweight="bold")
+            ax1.set_ylabel("True Septic Shock Rate (%)", fontsize=12, fontweight="bold")
+            ax1.set_xticks(decile_indices)
+            ax1.set_xticklabels([f"D{i}" for i in range(1, 11)])
+            ax1.set_xlim(0.5, 10.5)
+            ax1.grid(True, linestyle="--", alpha=0.4, zorder=0)
+
+            ax2.set_ylabel("Patient Trajectory Count (Histogram)", fontsize=12, fontweight="bold", color="#555555")
+            ax2.tick_params(axis='y', labelcolor="#555555")
+
+            lines1, labels1 = ax1.get_legend_handles_labels()
+            ax1.legend(lines1, labels1, fontsize=10, loc="best", framealpha=0.9)
+            ax1.set_title(f"Septic Shock Rate vs. Clinician Agreement Deciles ({clean_exp})", fontsize=13, fontweight="bold")
+
+            fig.tight_layout()
+            decile_plot_path = output_dir / "agreement_vs_shock_deciles.png"
+            plt.savefig(decile_plot_path, dpi=200)
+            plt.close()
+            print(f"  Saved: {decile_plot_path}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Policy Evaluation Plotter")

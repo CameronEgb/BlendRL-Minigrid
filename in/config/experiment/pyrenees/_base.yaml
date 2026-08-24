@@ -14,3 +14,9 @@ agent:
   batch_size: 256
   lr: 3e-4
   cql_alpha: 1.0
+
+plots:
+  losses:
+    metrics: ["losses/total_loss", "losses/bellman_loss", "losses/cql_loss", "losses/q_loss", "losses/actor_loss"]
+  policy_eval: {}
+  reports: {}
