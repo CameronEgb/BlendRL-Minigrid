@@ -11,6 +11,8 @@ def get_gres_header(partition, gpus, gpu_type=None, gres=None, no_gres=False):
     """Generate the appropriate --gres header for the given partition and GPU settings."""
     if no_gres or gpus <= 0 or gres in ("none", "", "False", "false"):
         return ""
+    if partition in ("rtx4060ti16g", "rtx4060ti8g"):
+        return ""
     if gres:
         return f"#SBATCH --gres={gres}\n"
     if gpu_type:
