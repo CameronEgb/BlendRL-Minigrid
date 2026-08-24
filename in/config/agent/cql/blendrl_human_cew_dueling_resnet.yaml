@@ -7,14 +7,16 @@ actor_mode: hybrid
 blender_mode: neural
 blend_function: softmax
 architecture: dueling_resnet
+pos_action_weight: 20.0
 ecm_dthr: 0.03
 fyd_top_k: 150
 
 modules:
   - type: nsfr
-    rules: continuous
+    rules: default
   - type: cew
     fyd: true
     ecm_dthr: 0.03
     fyd_top_k: 150
   - type: neural
+
