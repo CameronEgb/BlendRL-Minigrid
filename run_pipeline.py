@@ -105,10 +105,11 @@ def main():
     storage_url = None
     if "hydra" in cfg and "sweeper" in cfg.hydra and "storage" in cfg.hydra.sweeper:
         storage_url = cfg.hydra.sweeper.storage
+        if storage_url:
+            storage_url = str(storage_url).replace("${experiment_id}", cfg.experiment_id)
         os.makedirs("results/optuna", exist_ok=True)
         
     if local_val and storage_url and (args.dash or args.dash_only):
-        storage_url = storage_url.replace("${experiment_id}", cfg.experiment_id)
         launch_optuna_dashboard(storage_url)
         if args.dash_only:
             print("Dashboard running in persistent mode. Press Ctrl+C to exit.")

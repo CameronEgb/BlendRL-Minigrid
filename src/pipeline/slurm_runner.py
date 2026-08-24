@@ -76,6 +76,8 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                 ]
                 if is_sweep:
                     study_name = get_next_study_name(cfg.group, cfg.experiment_id, agent_name_internal)
+                    direction = cfg.hydra.sweeper.get("direction", "minimize") if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "sweeper") else "minimize"
+                    create_optuna_study(storage_url, study_name, direction=direction)
                     cmd_args.append(f"++hydra.sweeper.study_name={study_name}")
                 cmd_args += sanitized_extra_args
                 train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
@@ -110,6 +112,8 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                     ]
                     if is_sweep:
                         study_name = get_next_study_name(cfg.group, cfg.experiment_id, agent_name_internal)
+                        direction = cfg.hydra.sweeper.get("direction", "minimize") if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "sweeper") else "minimize"
+                        create_optuna_study(storage_url, study_name, direction=direction)
                         cmd_args.append(f"++hydra.sweeper.study_name={study_name}")
                     cmd_args += sanitized_extra_args
                     train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
@@ -168,6 +172,8 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
             ]
             if is_sweep:
                 study_name = get_next_study_name(cfg.group, cfg.experiment_id, agent_name_internal)
+                direction = cfg.hydra.sweeper.get("direction", "minimize") if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "sweeper") else "minimize"
+                create_optuna_study(storage_url, study_name, direction=direction)
                 overrides_slurm.append(f"++hydra.sweeper.study_name={study_name}")
             else:
                 overrides_slurm.append(f"++dataset_path={dataset_path}")
@@ -211,6 +217,8 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                 ]
                 if is_sweep:
                     study_name = get_next_study_name(cfg.group, cfg.experiment_id, agent_name_internal)
+                    direction = cfg.hydra.sweeper.get("direction", "minimize") if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "sweeper") else "minimize"
+                    create_optuna_study(storage_url, study_name, direction=direction)
                     overrides_slurm.append(f"++hydra.sweeper.study_name={study_name}")
                 
                 if is_online and is_sweep:
