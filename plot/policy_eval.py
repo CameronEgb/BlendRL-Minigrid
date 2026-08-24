@@ -68,11 +68,27 @@ class PolicyEvalPlotter(BasePlotter):
                 m_name = method_dir.name
                 if has_active_filter and m_name not in active_aliases:
                     continue
-                ckpts = list(method_dir.rglob("best_model*.ckpt"))
-                if ckpts:
+
+                # Query Optuna for best trial if this is a sweep directory with multiple trial folders
+                best_ckpt = None
+                storage_url = exp_cfg.get("hydra", {}).get("sweeper", {}).get("storage", None)
+                if storage_url:
+                    from src.pipeline.optuna_utils import get_best_trial_id
+                    study_name = f"{clean_exp}_{m_name}"
+                    best_id = get_best_trial_id(storage_url, study_name)
+                    candidate = method_dir / best_id / "best_model.ckpt"
+                    if candidate.exists():
+                        best_ckpt = candidate
+
+                if not best_ckpt:
+                    ckpts = list(method_dir.rglob("best_model*.ckpt"))
+                    if ckpts:
+                        best_ckpt = ckpts[0]
+
+                if best_ckpt:
                     canon = get_canonical_method_name(m_name)
                     if canon not in method_ckpts or m_name == canon:
-                        method_ckpts[canon] = ckpts[0]
+                        method_ckpts[canon] = best_ckpt
         return method_ckpts
 
     def _load_agent(self, path, dev):
