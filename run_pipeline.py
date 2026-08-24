@@ -61,9 +61,6 @@ def main():
         extra_args, experiment=args.experiment, exp_id=args.exp_id
     )
 
-    if args.sweep and "--multirun" not in sanitized_extra_args and "-m" not in sanitized_extra_args:
-        sanitized_extra_args.append("--multirun")
-
     # Load configuration to get method lists and Optuna info
     try:
         hydra.core.global_hydra.GlobalHydra.instance().clear()
@@ -81,6 +78,8 @@ def main():
         sys.exit(1)
 
     is_sweep = args.sweep or "--multirun" in sanitized_extra_args or "-m" in sanitized_extra_args
+    if args.sweep and "--multirun" not in sanitized_extra_args and "-m" not in sanitized_extra_args:
+        sanitized_extra_args.append("--multirun")
 
     # Pre-flight validation
     try:
