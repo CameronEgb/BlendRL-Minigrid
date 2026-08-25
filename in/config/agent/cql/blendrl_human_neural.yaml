@@ -9,5 +9,5 @@ blend_function: softmax
 
 modules:
   - type: nsfr
-    rules: default
+    rules: ${env.rules}
   - type: neural

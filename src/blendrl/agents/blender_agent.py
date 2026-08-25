@@ -348,6 +348,9 @@ class BlenderActorCritic(nn.Module):
         self.policy_modules = nn.ModuleList()
         self.module_types = []
         
+        dummy_logic, dummy_neural = env.reset()
+        neural_in_features = dummy_neural.shape[-1]
+
         # 1. Parse modules from argument or config
         modules_list = modules if modules is not None else (cfg.get("modules") if cfg and "modules" in cfg else None)
         
@@ -366,7 +369,6 @@ class BlenderActorCritic(nn.Module):
                 elif m_type == "cew":
                     # Placeholder CEW module, will be self-organized later
                     # Determine input size from env
-                    dummy_logic, dummy_neural = env.reset()
                     n_inputs = np.prod(dummy_logic.shape[1:])
                     m = MultiFLC(
                         n_inputs=n_inputs, 
@@ -377,7 +379,7 @@ class BlenderActorCritic(nn.Module):
                     self.policy_modules.append(m)
                     self.module_types.append("cew")
                 elif m_type == "neural":
-                    m = get_neural_agent(env.name, env.n_actions, device, arch_name=self.architecture, hidden_sizes=hidden_sizes)
+                    m = get_neural_agent(env.name, env.n_actions, device, arch_name=self.architecture, hidden_sizes=hidden_sizes, num_in_features=neural_in_features)
                     self.policy_modules.append(m)
                     self.module_types.append("neural")
         else:
@@ -390,7 +392,7 @@ class BlenderActorCritic(nn.Module):
                 rulesets = [rules]
             
             # Add Neural module first
-            self.policy_modules.append(get_neural_agent(env.name, env.n_actions, device, arch_name=self.architecture, hidden_sizes=hidden_sizes))
+            self.policy_modules.append(get_neural_agent(env.name, env.n_actions, device, arch_name=self.architecture, hidden_sizes=hidden_sizes, num_in_features=neural_in_features))
             self.module_types.append("neural")
             
             # Add Logic modules

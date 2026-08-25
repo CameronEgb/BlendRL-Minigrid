@@ -1,22 +1,31 @@
 # @package _global_
 defaults:
   - pyrenees/_base
-  - override /agent: cql/dnn
+  - override /agent: cql/dueling_resnet
 
 name: pyrenees_scaled
 experiment_id: pyrenees_scaled
 
 offline_datasets:
-  - pyrenees
+  - problem
+  - ex132(w)
+  - ex132a(w)
+  - ex152a(w)
+  - ex212(w)
+  - ex242(w)
+  - ex252(w)
+  - ex252a(w)
+  - exc137(w)
+  - exp426d(w)
+  - exp426e(w)
 
 offline_methods:
-  - cql/dnn
   - cql/dueling_resnet
-  - cql/blendrl_human_neural
+  - cql/blendrl_human_dueling_resnet
 
 agent:
-  epochs_per_interval: 50
-  eval_interval_epochs: 10
+  epochs_per_interval: 30
+  eval_interval_epochs: 5
   batch_size: 512
   lr: 3e-4
   cql_alpha: 1.0
@@ -24,5 +33,4 @@ agent:
 plots:
   losses:
     metrics: ["losses/total_loss", "losses/bellman_loss", "losses/cql_loss", "losses/q_loss", "losses/actor_loss"]
-  policy_eval: {}
   reports: {}

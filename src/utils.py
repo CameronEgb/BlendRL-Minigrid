@@ -282,7 +282,7 @@ class QNetwork(nn.Module):
         return self.network(x / 255.0)
 
 
-def get_neural_agent(env_name, n_actions, device, arch_name=None, hidden_sizes=[64, 64]):
+def get_neural_agent(env_name, n_actions, device, arch_name=None, hidden_sizes=[64, 64], num_in_features=None, **kwargs):
     """
     Get a neural agent based on the environment and architecture name.
     If arch_name is provided, it tries to load that specific architecture.
@@ -305,16 +305,16 @@ def get_neural_agent(env_name, n_actions, device, arch_name=None, hidden_sizes=[
         if os.path.exists(mlp_module_path):
             module = load_module(mlp_module_path)
             if hasattr(module, "DuelingResNetMLP"):
-                return module.DuelingResNetMLP(device=device, out_size=n_actions, hidden_sizes=hidden_sizes).to(device)
-            return module.MLP(device=device, out_size=n_actions, hidden_sizes=hidden_sizes).to(device)
+                return module.DuelingResNetMLP(device=device, out_size=n_actions, hidden_sizes=hidden_sizes, num_in_features=num_in_features).to(device)
+            return module.MLP(device=device, out_size=n_actions, hidden_sizes=hidden_sizes, num_in_features=num_in_features).to(device)
 
     if arch_name in ["mlp", "dnn", "standard_mlp"]:
         mlp_module_path = f"in/envs/{env_name}/mlp.py"
         if os.path.exists(mlp_module_path):
             module = load_module(mlp_module_path)
             if hasattr(module, "StandardMLP"):
-                return module.StandardMLP(device=device, out_size=n_actions, hidden_sizes=hidden_sizes).to(device)
-            return module.MLP(device=device, out_size=n_actions, hidden_sizes=hidden_sizes).to(device)
+                return module.StandardMLP(device=device, out_size=n_actions, hidden_sizes=hidden_sizes, num_in_features=num_in_features).to(device)
+            return module.MLP(device=device, out_size=n_actions, hidden_sizes=hidden_sizes, num_in_features=num_in_features).to(device)
         else:
             pass
     
@@ -325,7 +325,7 @@ def get_neural_agent(env_name, n_actions, device, arch_name=None, hidden_sizes=[
     mlp_module_path = f"in/envs/{env_name}/mlp.py"
     if os.path.exists(mlp_module_path):
         module = load_module(mlp_module_path)
-        return module.MLP(device=device, out_size=n_actions, hidden_sizes=hidden_sizes).to(device)
+        return module.MLP(device=device, out_size=n_actions, hidden_sizes=hidden_sizes, num_in_features=num_in_features).to(device)
     else:
         return CNNActor(n_actions=n_actions).to(device)
 

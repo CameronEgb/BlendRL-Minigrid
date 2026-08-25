@@ -82,22 +82,38 @@ def resolve_dataset_path(dataset_id: str, group: str = "", experiment_id: str = 
     6. Shallowest global match under in/datasets/
     """
     dataset_name_internal = dataset_id.replace("/", "_")
+    alt_ids = [dataset_id, dataset_name_internal]
+    if not dataset_id.endswith("(w)"):
+        alt_ids.extend([f"{dataset_id}(w)", dataset_id.replace("_w", "(w)")])
     
     candidates = []
-    if group and experiment_id:
-        candidates.append(Path("in/datasets") / group / experiment_id / dataset_name_internal)
-    if group:
-        candidates.append(Path("in/datasets") / group / dataset_name_internal)
-    candidates.extend([
-        Path("in/datasets") / dataset_name_internal,
-        Path("in/datasets") / dataset_id,
-    ])
+    for aid in alt_ids:
+        aid_clean = aid.replace("/", "_")
+        if group and experiment_id:
+            candidates.append(Path("in/datasets") / group / experiment_id / aid_clean)
+            candidates.append(Path("in/datasets") / group / experiment_id / aid)
+        if group:
+            candidates.append(Path("in/datasets") / group / "per_problem" / aid / "cql")
+            candidates.append(Path("in/datasets") / group / "per_problem" / aid_clean / "cql")
+            candidates.append(Path("in/datasets") / group / "per_problem" / aid)
+            candidates.append(Path("in/datasets") / group / "per_problem" / aid_clean)
+            candidates.append(Path("in/datasets") / group / aid / "cql")
+            candidates.append(Path("in/datasets") / group / aid_clean / "cql")
+            candidates.append(Path("in/datasets") / group / aid_clean)
+            candidates.append(Path("in/datasets") / group / aid)
+        candidates.extend([
+            Path("in/datasets") / "per_problem" / aid / "cql",
+            Path("in/datasets") / aid_clean,
+            Path("in/datasets") / aid,
+        ])
     if yaml_ds_path:
         candidates.append(Path(yaml_ds_path))
         
     for cand in candidates:
         if cand.exists() and any(cand.glob("*.pkl")):
             return cand
+        if cand.exists() and (cand / "cql").exists() and any((cand / "cql").glob("*.pkl")):
+            return cand / "cql"
         if cand.with_suffix(".npz").exists() or (cand.parent / f"{cand.name}.npz").exists():
             return cand
             
@@ -170,8 +186,16 @@ def run_experiment(overrides):
     env["PYTHONPATH"] = ":".join(new_paths) + ":" + env.get("PYTHONPATH", "")
     env["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
     
+    sanitized_overrides = []
+    for arg in overrides:
+        if "=" in arg:
+            k, v = arg.split("=", 1)
+            if ("(" in v or ")" in v) and not (v.startswith("'") or v.startswith('"') or v.startswith("[") or v.startswith("{")):
+                arg = f"{k}='{v}'"
+        sanitized_overrides.append(arg)
+
     venv_python = get_python_executable()
-    cmd = [venv_python, "src/train.py"] + overrides
+    cmd = [venv_python, "src/train.py"] + sanitized_overrides
     print(f"Running: {' '.join(cmd)}")
     subprocess.run(cmd, check=True, env=env)
 

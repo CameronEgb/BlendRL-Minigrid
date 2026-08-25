@@ -11,5 +11,5 @@ pos_action_weight: 20.0
 
 modules:
   - type: nsfr
-    rules: default
+    rules: ${env.rules}
   - type: neural

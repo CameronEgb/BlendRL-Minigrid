@@ -91,14 +91,19 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
                 
                 print(f"\n=== Phase: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
                 dataset_path_override = any("mode.dataset_path=" in arg for arg in sanitized_extra_args)
+                target_agent_name = f"{agent_name_internal}_{dataset_name_internal}" if len(dataset_list) > 1 else agent_name_internal
                 overrides = [
                     f"+experiment={args.experiment}",
                     f"++local=true",
                     f"mode=offline",
                     f"agent={agent_config}",
-                    f"++agent.name={agent_name_internal}",
+                    f"++agent.name={target_agent_name}",
                     f"++hydra.sweeper.study_name={study_name}"
                 ]
+                if cfg.env.name == "pyrenees":
+                    ruleset = "default" if dataset_id == "problem" else "step"
+                    overrides.append(f"++env.rules={ruleset}")
+                    overrides.append(f"++env.problem_type={dataset_id}")
                 if not dataset_path_override:
                     overrides.append(f"++mode.dataset_path={dataset_path}")
                 overrides += sanitized_extra_args

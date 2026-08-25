@@ -1,7 +1,2 @@
 action_we(X):-low_competency(X).
-action_ps(X):-med_competency(X),last_was_fwe(X).
-action_fwe(X):-med_competency(X),last_was_ps(X).
-action_fwe(X):-med_competency(X),last_was_we(X).
-action_ps(X):-high_competency(X),last_was_we(X).
-action_fwe(X):-high_competency(X),last_was_ps(X).
-action_ps(X):-high_competency(X),last_was_fwe(X).
+action_fwe(X):-med_competency(X).

@@ -88,10 +88,10 @@ class CQLAgent(OfflineAgentBase):
             hidden_sizes = cfg.agent.get("hidden_sizes", [256, 256])
             if hidden_sizes is not None:
                 hidden_sizes = list(hidden_sizes)
-            architecture = self.get_cfg("architecture", cfg.env.architecture)
             from src.utils import get_neural_agent
-            self.q_network = get_neural_agent(cfg.env.name, self.n_actions, self.device, arch_name=architecture, hidden_sizes=hidden_sizes)
-            self.target_q_network = get_neural_agent(cfg.env.name, self.n_actions, self.device, arch_name=architecture, hidden_sizes=hidden_sizes)
+            obs_dim = self.observation_space[-1] if hasattr(self, "observation_space") and self.observation_space else None
+            self.q_network = get_neural_agent(cfg.env.name, self.n_actions, self.device, arch_name=architecture, hidden_sizes=hidden_sizes, num_in_features=obs_dim)
+            self.target_q_network = get_neural_agent(cfg.env.name, self.n_actions, self.device, arch_name=architecture, hidden_sizes=hidden_sizes, num_in_features=obs_dim)
             self.target_q_network.load_state_dict(self.q_network.state_dict())
 
         target_admin_rate = self.get_cfg("target_admin_rate", None)

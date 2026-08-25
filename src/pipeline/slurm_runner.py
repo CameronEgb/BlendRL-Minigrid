@@ -101,15 +101,20 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
 
                 for agent_config in offline_list:
                     agent_name_internal = normalize_agent_name(agent_config)
+                    target_agent_name = f"{agent_name_internal}_{dataset_name_internal}" if len(dataset_list) > 1 else agent_name_internal
                     cmd_args = [
                         "src/train.py",
                         f"+experiment={args.experiment}",
                         f"++local=false",
                         f"mode=offline",
                         f"agent={agent_config}",
-                        f"++agent.name={agent_name_internal}",
+                        f"++agent.name={target_agent_name}",
                         f"++mode.dataset_path={dataset_path}"
                     ]
+                    if cfg.env.name == "pyrenees":
+                        ruleset = "default" if dataset_id == "problem" else "step"
+                        cmd_args.append(f"++env.rules={ruleset}")
+                        cmd_args.append(f"++env.problem_type={dataset_id}")
                     if is_sweep:
                         study_name = get_next_study_name(cfg.group, cfg.experiment_id, agent_name_internal)
                         direction = cfg.hydra.sweeper.get("direction", "minimize") if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "sweeper") else "minimize"
@@ -207,16 +212,21 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                     job_name = f"{agent_name_internal}_{cfg.experiment_id}"
                 else:
                     job_name = f"{agent_name_internal}_{clean_ds}_{cfg.experiment_id}"
+                target_agent_name = f"{agent_name_internal}_{dataset_name_internal}" if len(dataset_list) > 1 else agent_name_internal
                 overrides_slurm = [
                     "src/train.py",
                     f"+experiment={args.experiment}",
                     f"++local=false",
                     f"mode=offline",
                     f"agent={agent_config}",
-                    f"++agent.name={agent_name_internal}"
+                    f"++agent.name={target_agent_name}"
                 ]
+                if cfg.env.name == "pyrenees":
+                    ruleset = "default" if dataset_id == "problem" else "step"
+                    overrides_slurm.append(f"++env.rules={ruleset}")
+                    overrides_slurm.append(f"++env.problem_type={dataset_id}")
                 if is_sweep:
-                    study_name = get_next_study_name(cfg.group, cfg.experiment_id, agent_name_internal)
+                    study_name = get_next_study_name(cfg.group, cfg.experiment_id, target_agent_name)
                     direction = cfg.hydra.sweeper.get("direction", "minimize") if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "sweeper") else "minimize"
                     create_optuna_study(storage_url, study_name, direction=direction)
                     overrides_slurm.append(f"++hydra.sweeper.study_name={study_name}")

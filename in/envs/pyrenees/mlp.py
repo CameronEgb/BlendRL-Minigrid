@@ -1,13 +1,11 @@
 """
 Pyrenees Neural Policy MLP — for BlendRL hybrid and pure-neural baselines.
 
-Input:  126-dim augmented state vector (auto-padded if 123-dim from dataset)
-        [0:123]  z-scored Pyrenees features
-        [123]    last_was_ps  (one-hot alternation bit)
-        [124]    last_was_we  (one-hot alternation bit)
-        [125]    last_was_fwe (one-hot alternation bit)
+Input:  Augmented state vector
+        - Exercise step-level: 126 dimensions (123 features + 3 alternation bits)
+        - Problem-level:       133 dimensions (130 features + 3 alternation bits)
 
-Output: logits over 3 actions (PS=0, WE=1, FWE=2)
+Output: Logits / Q-values over discrete actions (2 actions for step-level, 3 actions for problem-level)
 """
 
 import torch
@@ -25,20 +23,21 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 class MLP(nn.Module):
     def __init__(
         self,
-        device,
+        device=None,
         hidden_sizes=(256, 256),
         has_softmax=False,
         has_sigmoid=False,
-        out_size=3,          # PS / WE / FWE
+        out_size=3,
+        num_in_features=126,
         as_dict=False,
         logic=False,
+        **kwargs,
     ):
         super().__init__()
-        self.device = device
-        self.logic  = logic
-
-        # 126-dim augmented input (123 features + 3 alternation bits)
-        self.num_in_features = 126
+        self.device = device if device is not None else torch.device("cpu")
+        self.logic = logic
+        self.num_in_features = num_in_features if num_in_features is not None else 126
+        self.out_size = out_size
 
         # ── Backbone ─────────────────────────────────────────────────────
         layers = []
@@ -50,14 +49,14 @@ class MLP(nn.Module):
         self.network = nn.Sequential(*layers)
 
         # ── Heads ────────────────────────────────────────────────────────
-        self.actor  = layer_init(nn.Linear(last_size, out_size), std=0.01)
-        self.critic = layer_init(nn.Linear(last_size, 1),        std=1.0)
+        self.actor = layer_init(nn.Linear(last_size, out_size), std=0.01)
+        self.critic = layer_init(nn.Linear(last_size, 1), std=1.0)
 
         # Optional activations
         self.softmax = nn.Softmax(dim=-1) if has_softmax else nn.Identity()
-        self.sigmoid = nn.Sigmoid()       if has_sigmoid else nn.Identity()
+        self.sigmoid = nn.Sigmoid() if has_sigmoid else nn.Identity()
 
-        self.to(device)
+        self.to(self.device)
 
     # ── Forward helpers ───────────────────────────────────────────────────────
 
@@ -69,6 +68,8 @@ class MLP(nn.Module):
                 dtype=flat.dtype, device=flat.device
             )
             flat = torch.cat([flat, pad], dim=-1)
+        elif flat.shape[-1] > self.num_in_features:
+            flat = flat[:, :self.num_in_features]
         return flat
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -83,10 +84,10 @@ class MLP(nn.Module):
         return self.critic(self.network(self._flat(x)))
 
     def get_action_and_value(self, x: torch.Tensor, action=None):
-        flat   = self._flat(x)
+        flat = self._flat(x)
         hidden = self.network(flat)
         logits = self.actor(hidden)
-        probs  = Categorical(logits=logits)
+        probs = Categorical(logits=logits)
         if action is None:
             action = probs.sample()
         return action, probs.log_prob(action), probs.entropy(), self.critic(hidden)
@@ -98,6 +99,7 @@ class MLP(nn.Module):
 
     def get_q_values(self, x: torch.Tensor) -> torch.Tensor:
         return self.actor(self.network(self._flat(x)))
+
 
 class ResBlock(nn.Module):
     """Residual block with LayerNorm, GELU, and Dropout for Pyrenees representations."""
@@ -134,13 +136,14 @@ class StandardMLP(nn.Module):
         has_softmax=False,
         has_sigmoid=False,
         out_size=3,
+        num_in_features=126,
         logic=False,
         **kwargs,
     ):
         super().__init__()
         self.device = device if device is not None else torch.device("cpu")
         self.logic = logic
-        self.num_in_features = 126
+        self.num_in_features = num_in_features if num_in_features is not None else 126
         self.out_size = out_size
 
         if hidden_sizes is None or len(hidden_sizes) == 0:
@@ -208,17 +211,12 @@ class StandardMLP(nn.Module):
 
     def _print(self) -> str:
         param_count = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        return f"Pyrenees Standard MLP Agent — In: {self.num_in_features}, Trainable Params: {param_count:,}"
+        return f"Pyrenees Standard MLP Agent — In: {self.num_in_features}, Out: {self.out_size}, Trainable Params: {param_count:,}"
 
 
 class DuelingResNetMLP(nn.Module):
     """
     Scaled Dueling ResNet Neural Policy / Q-Network for Pyrenees ITS.
-    
-    Features:
-      - Scaled deep representations with LayerNorm, GELU activations, and Residual skip connections.
-      - Dueling Q-Value decomposition: Q(s, a) = V(s) + (A(s, a) - mean_a'(A(s, a'))).
-      - Decouples overall student mastery state V(s) from pedagogical action advantage A(s, a).
     """
     def __init__(
         self,
@@ -227,16 +225,19 @@ class DuelingResNetMLP(nn.Module):
         has_softmax=False,
         has_sigmoid=False,
         out_size=3,
+        num_in_features=126,
         as_dict=False,
         logic=False,
         use_dueling=True,
         dropout=0.05,
+        **kwargs,
     ):
         super().__init__()
         self.device = device if device is not None else torch.device("cpu")
         self.logic = logic
         self.use_dueling = use_dueling
-        self.num_in_features = 126
+        self.num_in_features = num_in_features if num_in_features is not None else 126
+        self.out_size = out_size
 
         if hidden_sizes is None or len(hidden_sizes) == 0:
             hidden_sizes = [512, 512, 256, 128]
@@ -356,4 +357,4 @@ class DuelingResNetMLP(nn.Module):
 
     def _print(self) -> str:
         param_count = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        return f"Pyrenees Dueling ResNet Agent — In: {self.num_in_features}, Trainable Params: {param_count:,}"
+        return f"Pyrenees Dueling ResNet Agent — In: {self.num_in_features}, Out: {self.out_size}, Trainable Params: {param_count:,}"
