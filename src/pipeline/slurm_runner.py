@@ -223,7 +223,8 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
             )
             script_content += f"\nexport PROJECT_ROOT={os.getcwd()}\n"
             script_content += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n"
-            script_content += f"export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python\n\n"
+            script_content += f"export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python\n"
+            script_content += f"export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True\n\n"
 
             for dataset_id in dataset_list:
                 dataset_name_internal = normalize_agent_name(dataset_id)

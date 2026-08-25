@@ -8,6 +8,8 @@ blender_mode: neural
 blend_function: softmax
 architecture: cross_attention
 
+batch_size: 256
+
 modules:
   - type: nsfr
     rules: ${env.rules}
