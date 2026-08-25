@@ -8,16 +8,17 @@ import subprocess
 
 
 def get_gres_header(partition, gpus, gpu_type=None, gres=None, no_gres=False):
-    """Generate the appropriate --gres header for the given partition and GPU settings."""
-    if no_gres or gpus <= 0 or gres in ("none", "", "False", "false"):
-        return ""
-    if partition in ("rtx4060ti16g", "rtx4060ti8g"):
+    """Generate the appropriate --gres header.
+    
+    Default: NEVER emit --gres unless explicitly requested with gres parameter or gpu_type.
+    """
+    if no_gres or (gres in ("none", "", "False", "false", None) and gpu_type is None):
         return ""
     if gres:
         return f"#SBATCH --gres={gres}\n"
     if gpu_type:
         return f"#SBATCH --gres=gpu:{gpu_type}:{gpus}\n"
-    return f"#SBATCH --gres=gpu:{gpus}\n"
+    return ""
 
 
 def generate_sbatch_header(job_name, log_dir, partition="gpu", gpus=1, cores=16, nodes=1, time="01:00:00", gpu_type=None, gres=None, no_gres=False, dependency=None, dependency_type="afterok", mail_user="cegbert@ncsu.edu", mail_type="END,FAIL"):

@@ -197,97 +197,88 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
     else:
         print("\n=== Skipping Online Training Phase ===")
 
-    # 2. Offline Training Phases (Many-to-Many)
+    # 2. Offline Training Phases (1 Slurm Job per Method, running datasets in parallel on GPU)
     eval_job_ids = []
     if not args.no_offline:
-        for dataset_id in dataset_list:
-            dataset_name_internal = normalize_agent_name(dataset_id)
-            is_online = dataset_id in online_list
-            dependency_job_id = online_job_ids.get(dataset_id)
+        for agent_config in offline_list:
+            agent_name_internal = normalize_agent_name(agent_config)
+            job_name = f"{agent_name_internal}_{cfg.experiment_id}"
             
-            for agent_config in offline_list:
-                agent_name_internal = normalize_agent_name(agent_config)
-                clean_ds = "mimic" if ("mimic" in dataset_name_internal or cfg.group == "mimic") else dataset_name_internal
-                if clean_ds in cfg.experiment_id:
-                    job_name = f"{agent_name_internal}_{cfg.experiment_id}"
-                else:
-                    job_name = f"{agent_name_internal}_{clean_ds}_{cfg.experiment_id}"
+            # Aggregate dependencies if datasets were generated from online jobs
+            deps = [online_job_ids.get(ds) for ds in dataset_list if online_job_ids.get(ds)]
+            dependency_str = ":".join(deps) if deps else None
+
+            script_content = generate_sbatch_header(
+                job_name=job_name,
+                log_dir=log_dir,
+                partition=args.partition,
+                gpus=args.gpus,
+                cores=args.cores,
+                nodes=args.nodes,
+                time=args.time,
+                gpu_type=getattr(args, "gpu_type", None),
+                gres=getattr(args, "gres", None),
+                no_gres=getattr(args, "no_gres", False),
+                dependency=dependency_str,
+            )
+            script_content += f"\nexport PROJECT_ROOT={os.getcwd()}\n"
+            script_content += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n"
+            script_content += f"export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python\n\n"
+
+            for dataset_id in dataset_list:
+                dataset_name_internal = normalize_agent_name(dataset_id)
+                yaml_ds_path = cfg.mode.get("dataset_path", None) if hasattr(cfg, "mode") else None
+                try:
+                    dataset_path = resolve_dataset_path(
+                        dataset_id=dataset_name_internal,
+                        group=cfg.group,
+                        experiment_id=cfg.experiment_id,
+                        yaml_ds_path=yaml_ds_path
+                    )
+                except FileNotFoundError:
+                    dataset_path = Path("in/datasets") / cfg.group / dataset_name_internal
+
                 target_agent_name = f"{agent_name_internal}_{dataset_name_internal}" if len(dataset_list) > 1 else agent_name_internal
-                overrides_slurm = [
+                cmd_args = [
                     "src/train.py",
                     f"+experiment={args.experiment}",
                     f"++local=false",
                     f"mode=offline",
                     f"agent={agent_config}",
-                    f"++agent.name={target_agent_name}"
+                    f"++agent.name={target_agent_name}",
+                    f"++mode.dataset_path={dataset_path}"
                 ]
                 if cfg.env.name == "pyrenees":
                     ruleset = "default" if dataset_id == "problem" else "step"
-                    overrides_slurm.append(f"++env.rules={ruleset}")
-                    overrides_slurm.append(f"++env.problem_type={dataset_id}")
+                    cmd_args.append(f"++env.rules={ruleset}")
+                    cmd_args.append(f"++env.problem_type={dataset_id}")
                 if is_sweep:
                     study_name = get_next_study_name(cfg.group, cfg.experiment_id, target_agent_name)
                     direction = cfg.hydra.sweeper.get("direction", "minimize") if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "sweeper") else "minimize"
                     create_optuna_study(storage_url, study_name, direction=direction)
-                    overrides_slurm.append(f"++hydra.sweeper.study_name={study_name}")
+                    cmd_args.append(f"++hydra.sweeper.study_name={study_name}")
+                cmd_args += sanitized_extra_args
                 
-                if is_online and is_sweep:
-                    storage_url_slurm = storage_url if storage_url else DEFAULT_OPTUNA_DB_URL
-                    study_name_slurm = f"{cfg.experiment_id}_{dataset_name_internal}"
-                    best_id_cmd = f"BEST_ID=$($PROJECT_ROOT/venv/bin/python3 -c \"import sys; sys.path.append('$PROJECT_ROOT'); from run_pipeline import get_best_trial_id; print(get_best_trial_id('{storage_url_slurm}', '{study_name_slurm}'))\")"
-                    dataset_path_cmd = f"D_PATH=in/datasets/{cfg.experiment_id}/{dataset_name_internal}/$BEST_ID"
-                    
-                    cmd_args = overrides_slurm + sanitized_extra_args
-                    train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
-                    
-                    script_content = generate_sbatch_header(
-                        job_name=job_name,
-                        log_dir=log_dir,
-                        partition=args.partition,
-                        gpus=args.gpus,
-                        cores=args.cores,
-                        nodes=args.nodes,
-                        time=args.time,
-                        gpu_type=getattr(args, "gpu_type", None),
-                        gres=getattr(args, "gres", None),
-                        no_gres=getattr(args, "no_gres", False),
-                        dependency=dependency_job_id
-                    )
-                    script_content += f"\n"
-                    script_content += f"export PROJECT_ROOT={os.getcwd()}\n"
-                    script_content += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n"
-                    script_content += f"{best_id_cmd}\n"
-                    script_content += f"{dataset_path_cmd}\n"
-                    script_content += f"if [ ! -d \"$D_PATH\" ] || [ -z \"$(ls $D_PATH/*.pkl 2>/dev/null)\" ]; then\n"
-                    script_content += f"    echo \"ERROR: Best trial dataset not found at $D_PATH for experiment {cfg.experiment_id}.\" >&2\n"
-                    script_content += f"    exit 1\n"
-                    script_content += f"fi\n"
-                    script_content += f"echo \"Using dataset: $D_PATH\"\n"
-                    script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} ++mode.dataset_path=$D_PATH\n"
+                train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
+                
+                if len(dataset_list) > 1:
+                    script_content += f'echo "=== [Phase: Offline Training (Parallel GPU)] {agent_config} on {dataset_id} ==="\n'
+                    script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} &\n\n"
                 else:
-                    yaml_ds_path = cfg.mode.get("dataset_path", None) if hasattr(cfg, "mode") else None
-                    try:
-                        dataset_path = resolve_dataset_path(
-                            dataset_id=dataset_name_internal,
-                            group=cfg.group,
-                            experiment_id=cfg.experiment_id,
-                            yaml_ds_path=yaml_ds_path
-                        )
-                    except FileNotFoundError:
-                        dataset_path = Path("in/datasets") / cfg.group / dataset_name_internal
-                    overrides_slurm.append(f"++mode.dataset_path={dataset_path}")
-                    overrides_slurm += sanitized_extra_args
-                    script_content = generate_sbatch_script(
-                        job_name, overrides_slurm, log_dir=str(log_dir),
-                        partition=args.partition, gpus=args.gpus, cores=args.cores, nodes=args.nodes,
-                        gpu_type=getattr(args, "gpu_type", None), gres=getattr(args, "gres", None),
-                        no_gres=getattr(args, "no_gres", False),
-                        dependency=dependency_job_id, time=args.time
-                    )
-                
-                job_id = submit_sbatch(script_content)
-                if job_id:
-                    job_ids.append(job_id)
+                    script_content += f'echo "=== [Phase: Offline Training] {agent_config} on {dataset_id} ==="\n'
+                    script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd}\n\n"
+
+            if len(dataset_list) > 1:
+                script_content += 'echo "Waiting for all concurrent dataset trainings to complete on GPU..."\nwait\n\n'
+
+            slurm_file = log_dir / f"{job_name}.slurm"
+            with open(slurm_file, "w") as f:
+                f.write(script_content)
+
+            print(f"\nSubmitting Method Slurm Job ({agent_config} -> {len(dataset_list)} datasets in parallel on GPU): {slurm_file}")
+            job_id = submit_sbatch(script_content)
+            if job_id:
+                job_ids.append(job_id)
     else:
         print("\n=== Skipping Offline Training Phase ===")
 
