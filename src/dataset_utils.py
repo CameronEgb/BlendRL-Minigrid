@@ -148,7 +148,7 @@ class DatasetReader:
                 if not npz_candidate and Path("in/datasets").exists():
                     for root, dirs, files in os.walk(Path("in/datasets")):
                         for f in files:
-                            if f.endswith(".npz") and (p.name in f or f.startswith("mimic_lazy")):
+                            if f.endswith(".npz") and p.name in f:
                                 npz_candidate = Path(root) / f
                                 break
                         if npz_candidate:
