@@ -230,9 +230,6 @@ def process_single_csv(csv_path: Path, output_base_dir: Path, plot_base_dir: Pat
     out_prob_dir = output_base_dir / "per_problem" / problem_id
     out_cql_dir = out_prob_dir / "cql"
     out_cql_dir.mkdir(parents=True, exist_ok=True)
-    # Clean any existing chunks to ensure a clean overwrite
-    for old_f in out_cql_dir.glob("*.pkl"):
-        old_f.unlink(missing_ok=True)
 
     df = pd.read_csv(csv_path)
     print(f"  Rows loaded: {len(df):,}")

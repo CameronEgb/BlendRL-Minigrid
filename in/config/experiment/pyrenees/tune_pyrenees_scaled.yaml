@@ -8,25 +8,37 @@ experiment_id: tune_pyrenees_scaled
 group: pyrenees
 
 offline_datasets:
-  - pyrenees
+  - problem
+  - ex132(w)
+  - ex132a(w)
+  - ex152a(w)
+  - ex212(w)
+  - ex242(w)
+  - ex252(w)
+  - ex252a(w)
+  - exc137(w)
+  - exp426d(w)
+  - exp426e(w)
 
 offline_methods:
   - cql/dueling_resnet
   - cql/blendrl_human_dueling_resnet
-  - cql/blendrl_human_cew_dueling_resnet
+  - cql/blendrl_cross_attention
 
 agent:
   epochs_per_interval: 15
   eval_interval_epochs: 3
   batch_size: 512
+  soft_target_tau: 0.005
 
 hydra:
   sweeper:
     storage: "sqlite:///results/optuna/optuna_pyrenees_scaled.db?timeout=120"
     direction: minimize
-    n_trials: 35
+    n_trials: 32
     n_jobs: 1
     params:
-      agent.lr: interval(1e-4, 1e-3)
-      agent.cql_alpha: interval(0.1, 5.0)
-      agent.soft_target_tau: interval(0.002, 0.02)
+      agent.lr: tag(log, interval(1e-4, 1e-3))
+      agent.cql_alpha: tag(log, interval(0.02, 1.5))
+      agent.blender_lr: tag(log, interval(1e-4, 2e-3))
+      agent.weight_decay: tag(log, interval(1e-5, 1e-2))

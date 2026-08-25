@@ -385,9 +385,19 @@ class CQLAgent(OfflineAgentBase):
             self.log("val/loss_std", std_loss, prog_bar=False, sync_dist=True)
 
     def configure_optimizers(self):
-        weight_decay = self.get_cfg("weight_decay", 0.0)
-        lr = self.get_cfg("lr", 3e-4)
+        weight_decay = float(self.get_cfg("weight_decay", 0.0))
+        lr = float(self.get_cfg("lr", 3e-4))
+        blender_lr = float(self.get_cfg("blender_lr", lr))
         if self.is_modular:
+            if hasattr(self.model, "blender") and blender_lr != lr:
+                blender_params = list(self.model.blender.parameters())
+                blender_param_ids = set(id(p) for p in blender_params)
+                other_params = [p for p in self.model.parameters() if id(p) not in blender_param_ids]
+                param_groups = [
+                    {"params": other_params, "lr": lr, "weight_decay": weight_decay},
+                    {"params": blender_params, "lr": blender_lr, "weight_decay": weight_decay},
+                ]
+                return optim.Adam(param_groups)
             return optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
         return optim.Adam(self.q_network.parameters(), lr=lr, weight_decay=weight_decay)
 
