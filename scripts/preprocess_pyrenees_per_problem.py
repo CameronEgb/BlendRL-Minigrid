@@ -313,7 +313,9 @@ def process_single_csv(csv_path: Path, output_base_dir: Path, plot_base_dir: Pat
     # 3. Fit dedicated GMM competency model
     print(f"  Fitting dedicated 3-tier GMM competency model for {problem_id}...")
     all_norm_steps = np.vstack(npz_states)
-    gmm_res = fit_gmm_for_problem(all_norm_steps, feat_cols)
+    p_low = 35 if is_problem_level else 37
+    p_high = 74 if is_problem_level else 78
+    gmm_res = fit_gmm_for_problem(all_norm_steps, feat_cols, p_low=p_low, p_high=p_high)
 
     # 4. Save GMM parameters
     gmm_out_path = out_prob_dir / "gmm_scaler.npz"
