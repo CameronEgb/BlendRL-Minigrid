@@ -5,10 +5,17 @@ Provides functions for parsing method lists and normalizing agent names.
 
 
 def normalize_agent_name(agent_config: str) -> str:
-    """Convert hierarchical agent config paths to filesystem-safe names.
+    """Convert hierarchical agent config paths and dataset IDs to filesystem-safe and Hydra-safe names.
     e.g. 'blendrl_cql/human_cew' -> 'blendrl_cql_human_cew'
+         'ex132(w)' -> 'ex132_w'
     This must match agent.name as set in the Hydra overrides."""
-    return agent_config.replace("/", "_")
+    return (
+        agent_config.replace("/", "_")
+        .replace("(", "_")
+        .replace(")", "")
+        .replace("__", "_")
+        .rstrip("_")
+    )
 
 
 def parse_method_list(val):

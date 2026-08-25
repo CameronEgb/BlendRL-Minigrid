@@ -99,6 +99,29 @@ def _ensure_augmented(agent: th.Tensor) -> th.Tensor:
     return agent
 
 
+_GMM_TENSOR_CACHE = {}
+
+
+def _get_gmm_tensors(problem_type: str, device: th.device):
+    key = (problem_type, str(device))
+    if key in _GMM_TENSOR_CACHE:
+        return _GMM_TENSOR_CACHE[key]
+
+    gmm_p = _load_gmm_params_for_problem()
+    if gmm_p is None:
+        return None
+
+    tensors = {
+        "feat_idx": th.tensor(gmm_p["feature_indices"], dtype=th.long, device=device),
+        "means": th.tensor(gmm_p["means"], dtype=th.float32, device=device),
+        "precisions": th.tensor(gmm_p["precisions"], dtype=th.float32, device=device),
+        "log_dets": th.tensor(gmm_p["log_dets"], dtype=th.float32, device=device),
+        "log_weights": th.tensor(gmm_p["log_weights"], dtype=th.float32, device=device),
+    }
+    _GMM_TENSOR_CACHE[key] = tensors
+    return tensors
+
+
 def _compute_gmm_posteriors(agent: th.Tensor) -> th.Tensor:
     """
     Computes exact PyTorch log-posterior probabilities for Low, Med, High competency.
@@ -107,20 +130,20 @@ def _compute_gmm_posteriors(agent: th.Tensor) -> th.Tensor:
     agent = _ensure_augmented(agent)
     device = agent.device
     dtype = agent.dtype
+    problem_type = _ACTIVE_PROBLEM_TYPE or "problem"
 
-    gmm_p = _load_gmm_params_for_problem()
-    if gmm_p is None:
-        # Graceful fallback: equal 1/3 prior
+    tensors = _get_gmm_tensors(problem_type, device)
+    if tensors is None:
         shape = (*agent.shape[:-1], 3)
         return th.full(shape, 1.0 / 3.0, dtype=dtype, device=device)
 
-    feat_idx = th.tensor(gmm_p["feature_indices"], dtype=th.long, device=device)
-    means = th.tensor(gmm_p["means"], dtype=dtype, device=device)             # (3, d)
-    precisions = th.tensor(gmm_p["precisions"], dtype=dtype, device=device)   # (3, d, d)
-    log_dets = th.tensor(gmm_p["log_dets"], dtype=dtype, device=device)       # (3,)
-    log_weights = th.tensor(gmm_p["log_weights"], dtype=dtype, device=device) # (3,)
+    feat_idx = tensors["feat_idx"]
+    means = tensors["means"]             # (3, d)
+    precisions = tensors["precisions"]   # (3, d, d)
+    log_dets = tensors["log_dets"]       # (3,)
+    log_weights = tensors["log_weights"] # (3,)
 
-    x = agent[..., feat_idx]  # (*batch, d)
+    x = agent[..., feat_idx].float()  # (*batch, d) in float32 for AMP stability
     d = x.shape[-1]
     const = 0.5 * d * np.log(2.0 * np.pi)
 
@@ -134,7 +157,7 @@ def _compute_gmm_posteriors(agent: th.Tensor) -> th.Tensor:
     log_probs_tensor = th.stack(log_probs, dim=-1)    # (*batch, 3)
     posteriors = th.softmax(log_probs_tensor, dim=-1) # (*batch, 3)
 
-    return th.clamp(posteriors, min=0.01, max=0.99)
+    return th.clamp(posteriors, min=0.01, max=0.99).to(dtype=dtype)
 
 
 # ─── Competency Tier Valuations ───────────────────────────────────────────────

@@ -88,6 +88,7 @@ class CQLAgent(OfflineAgentBase):
             hidden_sizes = cfg.agent.get("hidden_sizes", [256, 256])
             if hidden_sizes is not None:
                 hidden_sizes = list(hidden_sizes)
+            architecture = self.get_cfg("architecture", getattr(cfg.env, "architecture", "mlp"))
             from src.utils import get_neural_agent
             obs_dim = self.observation_space[-1] if hasattr(self, "observation_space") and self.observation_space else None
             self.q_network = get_neural_agent(cfg.env.name, self.n_actions, self.device, arch_name=architecture, hidden_sizes=hidden_sizes, num_in_features=obs_dim)
