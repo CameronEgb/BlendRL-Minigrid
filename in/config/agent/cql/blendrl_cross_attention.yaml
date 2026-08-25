@@ -10,5 +10,5 @@ architecture: cross_attention
 
 modules:
   - type: nsfr
-    rules: continuous
+    rules: ${env.rules}
   - type: neural

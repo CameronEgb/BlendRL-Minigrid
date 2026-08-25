@@ -292,13 +292,17 @@ def get_neural_agent(env_name, n_actions, device, arch_name=None, hidden_sizes=[
         transformer_module_path = f"in/envs/{env_name}/transformer.py"
         if os.path.exists(transformer_module_path):
             module = load_module(transformer_module_path)
-            return module.CrossAttentionSepsisPolicy(device=device, out_size=n_actions).to(device)
+            if hasattr(module, "CrossAttentionPolicy"):
+                return module.CrossAttentionPolicy(device=device, out_size=n_actions, num_in_features=num_in_features).to(device)
+            return module.CrossAttentionSepsisPolicy(device=device, out_size=n_actions, num_in_features=num_in_features).to(device)
 
     if arch_name in ["transformer", "sepsis_transformer"]:
         transformer_module_path = f"in/envs/{env_name}/transformer.py"
         if os.path.exists(transformer_module_path):
             module = load_module(transformer_module_path)
-            return module.SepsisTransformerPolicy(device=device, out_size=n_actions).to(device)
+            if hasattr(module, "TransformerPolicy"):
+                return module.TransformerPolicy(device=device, out_size=n_actions, num_in_features=num_in_features).to(device)
+            return module.SepsisTransformerPolicy(device=device, out_size=n_actions, num_in_features=num_in_features).to(device)
 
     if arch_name in ["dueling_resnet", "resnet"]:
         mlp_module_path = f"in/envs/{env_name}/mlp.py"

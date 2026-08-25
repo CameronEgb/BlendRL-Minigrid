@@ -130,7 +130,7 @@ def _compute_gmm_posteriors(agent: th.Tensor) -> th.Tensor:
     agent = _ensure_augmented(agent)
     device = agent.device
     dtype = agent.dtype
-    problem_type = _ACTIVE_PROBLEM_TYPE or "problem"
+    problem_type = _CURRENT_PROBLEM_TYPE or "problem"
 
     tensors = _get_gmm_tensors(problem_type, device)
     if tensors is None:

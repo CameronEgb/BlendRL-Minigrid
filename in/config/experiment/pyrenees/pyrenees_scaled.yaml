@@ -22,6 +22,7 @@ offline_datasets:
 offline_methods:
   - cql/dueling_resnet
   - cql/blendrl_human_dueling_resnet
+  - cql/blendrl_cross_attention
 
 agent:
   epochs_per_interval: 30
