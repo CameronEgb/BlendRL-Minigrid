@@ -370,13 +370,28 @@ def main():
     parser.add_argument("--problem", type=str, default=None, help="Specific problem ID to preprocess (e.g. 'problem', 'ex132(w)'). Default: all 11.")
     args = parser.parse_args()
 
-    data_dir = PROJECT_ROOT / "in" / "datasets" / "pyrenees" / "Pyrenees data clean"
+    candidate_dirs = [
+        PROJECT_ROOT / "in" / "datasets" / "pyrenees" / "pyrenees data clean",
+        PROJECT_ROOT / "in" / "datasets" / "pyrenees" / "Pyrenees data clean",
+        PROJECT_ROOT / "in" / "datasets" / "pyrenees" / "pyrenees_data_clean",
+        PROJECT_ROOT / "in" / "datasets" / "pyrenees" / "Pyrenees_data_clean",
+        PROJECT_ROOT / "in" / "datasets" / "pyrenees",
+    ]
+    data_dir = None
+    csv_files = []
+    for c_dir in candidate_dirs:
+        if c_dir.exists():
+            files = sorted(glob.glob(str(c_dir / "*.csv")))
+            if files:
+                data_dir = c_dir
+                csv_files = files
+                break
+
     out_base_dir = PROJECT_ROOT / "in" / "datasets" / "pyrenees"
     plot_base_dir = PROJECT_ROOT / "results" / "plots" / "pyrenees"
 
-    csv_files = sorted(glob.glob(str(data_dir / "*.csv")))
     if not csv_files:
-        raise FileNotFoundError(f"No CSV files found in {data_dir}")
+        raise FileNotFoundError(f"No CSV files found in candidate directories: {[str(d) for d in candidate_dirs]}")
 
     if args.problem:
         matched = [f for f in csv_files if Path(f).stem == args.problem or Path(f).name == args.problem]
