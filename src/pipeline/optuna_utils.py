@@ -17,13 +17,21 @@ DEFAULT_OPTUNA_DB_URL = "sqlite:///results/optuna/optuna.db"
 from src.pipeline.config import get_python_executable
 
 
+def is_valid_storage_url(storage_url) -> bool:
+    """Checks whether the given storage URL is non-empty and not in-memory (None/null)."""
+    if not storage_url:
+        return False
+    s = str(storage_url).strip().lower()
+    return s not in ("none", "null", "", "false")
+
+
 def get_best_trial_id(storage_url, study_name):
     """Queries the Optuna database to find the best trial ID for a given study.
     
     Uses the Optuna Python API instead of raw SQL for robustness across
     schema versions.
     """
-    if not storage_url:
+    if not is_valid_storage_url(storage_url):
         return "0"
     
     try:
@@ -170,7 +178,7 @@ def get_next_study_name(group: str, experiment_id: str, agent_name: str, storage
 
 def delete_optuna_study(storage_url, study_name):
     """Deletes an existing study from the Optuna database to start fresh."""
-    if not storage_url:
+    if not is_valid_storage_url(storage_url):
         return
     try:
         import optuna
@@ -183,7 +191,7 @@ def delete_optuna_study(storage_url, study_name):
 
 def create_optuna_study(storage_url, study_name, direction="minimize"):
     """Pre-creates/initializes an Optuna study to avoid schema initialization race conditions on cluster nodes."""
-    if not storage_url:
+    if not is_valid_storage_url(storage_url):
         return
     try:
         import optuna

@@ -17,7 +17,7 @@ agent:
 
 hydra:
   sweeper:
-    storage: "sqlite:///results/optuna/optuna_pyrenees_scaled.db?timeout=30"
+    storage: null
     study_name: "pyrenees_blendrl_human_dueling_resnet"
     direction: minimize
     n_trials: 100
@@ -27,5 +27,3 @@ hydra:
       agent.cql_alpha: tag(log, interval(0.05, 5.0))
       agent.soft_target_tau: interval(0.001, 0.03)
       agent.blender_lr: tag(log, interval(5e-5, 2e-3))
-      agent.weight_decay: tag(log, interval(1e-6, 1e-2))
-      agent.pos_action_weight: interval(5.0, 30.0)
