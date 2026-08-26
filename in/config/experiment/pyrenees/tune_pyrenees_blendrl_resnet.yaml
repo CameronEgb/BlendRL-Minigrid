@@ -17,7 +17,7 @@ agent:
 
 hydra:
   sweeper:
-    storage: "sqlite:///results/optuna/optuna_pyrenees_scaled.db?timeout=120"
+    storage: "sqlite:///results/optuna/optuna_pyrenees_scaled.db?timeout=30"
     study_name: "pyrenees_blendrl_human_dueling_resnet"
     direction: minimize
     n_trials: 100
