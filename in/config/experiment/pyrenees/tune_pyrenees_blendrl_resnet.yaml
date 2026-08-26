@@ -7,6 +7,9 @@ defaults:
 experiment_id: tune_pyrenees_blendrl_resnet
 group: pyrenees
 
+offline_datasets: [problem]
+offline_methods: [cql/blendrl_human_dueling_resnet]
+
 agent:
   epochs_per_interval: 15
   eval_interval_epochs: 3
