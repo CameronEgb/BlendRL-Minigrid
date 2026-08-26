@@ -9,7 +9,9 @@ from pathlib import Path
 
 from src.pipeline.config import normalize_agent_name
 from src.pipeline.datasets import ensure_online_dataset_path, resolve_dataset_path, run_experiment
-from src.pipeline.optuna_utils import delete_optuna_study, get_next_study_name, promote_best_trial_checkpoint
+from src.pipeline.optuna_utils import (
+    create_optuna_study, delete_optuna_study, get_next_study_name, promote_best_trial_checkpoint
+)
 
 
 def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanitized_extra_args, storage_url, is_sweep):
@@ -55,6 +57,8 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
             
             if is_sweep:
                 delete_optuna_study(storage_url, study_name)
+                direction = cfg.hydra.sweeper.get("direction", "maximize") if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "sweeper") else "maximize"
+                create_optuna_study(storage_url, study_name, direction=direction)
                 
             run_experiment(overrides)
             
@@ -110,6 +114,8 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
                 
                 if is_sweep:
                     delete_optuna_study(storage_url, study_name)
+                    direction = cfg.hydra.sweeper.get("direction", "minimize") if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "sweeper") else "minimize"
+                    create_optuna_study(storage_url, study_name, direction=direction)
                     
                 run_experiment(overrides)
 

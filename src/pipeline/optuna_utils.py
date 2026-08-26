@@ -118,6 +118,7 @@ def get_optuna_storage(storage_url: str):
         return None
     import optuna
     if storage_url.startswith("sqlite:///"):
+        import sqlite3
         db_raw = storage_url.replace("sqlite:///", "").split("?")[0]
         if db_raw and os.path.dirname(db_raw):
             os.makedirs(os.path.dirname(os.path.abspath(db_raw)), exist_ok=True)
@@ -128,9 +129,17 @@ def get_optuna_storage(storage_url: str):
                 os.remove(db_raw)
             except OSError:
                 pass
+        # Pre-configure SQLite database with WAL journal mode and busy timeout via Python
+        try:
+            conn = sqlite3.connect(db_raw, timeout=120.0)
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA busy_timeout=120000;")
+            conn.close()
+        except Exception:
+            pass
         return optuna.storages.RDBStorage(
             url=f"sqlite:///{db_raw}",
-            engine_kwargs={"connect_args": {"timeout": 60}}
+            engine_kwargs={"connect_args": {"timeout": 120}}
         )
     return storage_url
 
