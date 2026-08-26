@@ -231,10 +231,12 @@ class BasePlotter:
             if not method_dir.is_dir():
                 continue
             raw_method_name = method_dir.name
-            if has_active_filter and raw_method_name not in active_aliases:
-                continue
+            if has_active_filter:
+                is_active = (raw_method_name in active_aliases) or any(raw_method_name.startswith(a + "_") for a in active_aliases)
+                if not is_active:
+                    continue
 
-            canon_name = get_canonical_method_name(raw_method_name)
+            canon_name = raw_method_name
             if canon_name not in results:
                 results[canon_name] = {}
 
