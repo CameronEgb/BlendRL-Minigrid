@@ -7,8 +7,21 @@ defaults:
 experiment_id: tune_pyrenees_blendrl_resnet
 group: pyrenees
 
-offline_datasets: [problem]
-offline_methods: [cql/blendrl_human_dueling_resnet]
+offline_datasets:
+  - problem
+  - ex132(w)
+  - ex132a(w)
+  - ex152a(w)
+  - ex212(w)
+  - ex242(w)
+  - ex252(w)
+  - ex252a(w)
+  - exc137(w)
+  - exp426d(w)
+  - exp426e(w)
+
+offline_methods:
+  - cql/blendrl_human_dueling_resnet
 
 agent:
   epochs_per_interval: 35
@@ -20,7 +33,7 @@ hydra:
     storage: null
     study_name: "pyrenees_blendrl_human_dueling_resnet"
     direction: minimize
-    n_trials: 100
+    n_trials: 35
     n_jobs: 12
     params:
       agent.lr: tag(log, interval(5e-5, 2e-3))
