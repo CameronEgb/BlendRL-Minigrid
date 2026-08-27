@@ -162,7 +162,27 @@ def main(cfg: DictConfig):
     
     is_offline_only = cfg.env.get("offline_only", False) or cfg.env.name in ["mimic", "pyrenees"]
     
-    callbacks = []
+    from lightning.pytorch.callbacks import Callback
+
+    class SaveInitialCheckpointCallback(Callback):
+        def __init__(self, ckpt_dir, cfg):
+            super().__init__()
+            self.ckpt_dir = ckpt_dir
+            self.cfg = cfg
+
+        def on_fit_start(self, trainer, pl_module):
+            os.makedirs(self.ckpt_dir, exist_ok=True)
+            init_ckpt = os.path.join(self.ckpt_dir, "best_model.ckpt")
+            trainer.save_checkpoint(init_ckpt)
+            # Also save explicitly named checkpoint in parent experiment root
+            parent_ckpt_root = os.path.join("results/checkpoints", self.cfg.group, self.cfg.experiment_id)
+            os.makedirs(parent_ckpt_root, exist_ok=True)
+            named_ckpt = os.path.join(parent_ckpt_root, f"{self.cfg.agent.name}.ckpt")
+            import shutil
+            shutil.copy2(init_ckpt, named_ckpt)
+            print(f"[Init Checkpoint] Saved initial model checkpoint to: {init_ckpt}")
+
+    callbacks = [SaveInitialCheckpointCallback(ckpt_dir, cfg)]
     if is_offline_only:
         print(f"\n[Environment Setup] Detected offline-only environment '{cfg.env.name}'.")
         print("[Environment Setup] Bypassing simulated gym rollouts; monitoring validation loss for checkpointing.\n")
