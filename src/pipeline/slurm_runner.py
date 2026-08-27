@@ -58,7 +58,9 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
             no_gres=getattr(args, "no_gres", False),
         )
         script_content += f"\nexport PROJECT_ROOT={os.getcwd()}\n"
-        script_content += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n\n"
+        script_content += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n"
+        script_content += f"export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python\n"
+        script_content += f"export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True\n\n"
 
         # 1. Online Training Commands
         if not args.no_online:
@@ -84,11 +86,12 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                 script_content += f'echo "=== [Phase: Online Training] {agent_config} ==="\n'
                 script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd}\n\n"
 
-        # 2. Offline Training Commands
+        # 2. Offline Training Commands (All methods & datasets in parallel)
         if not args.no_offline:
+            total_runs = len(offline_list) * len(dataset_list)
+            script_content += f'echo "=== [Phase: Offline Training] Launching all {total_runs} models concurrently on GPU ==="\n\n'
             for agent_config in offline_list:
                 agent_name_internal = normalize_agent_name(agent_config)
-                script_content += f'echo "=== [Phase: Offline Training] Method: {agent_config} across {len(dataset_list)} Problems ==="\n'
                 for dataset_id in dataset_list:
                     dataset_name_internal = normalize_agent_name(dataset_id)
                     yaml_ds_path = cfg.mode.get("dataset_path", None) if hasattr(cfg, "mode") else None
@@ -125,14 +128,14 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                             cmd_args.append("--multirun")
                     cmd_args += sanitized_extra_args
                     train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
-                    if len(dataset_list) > 1:
-                        script_content += f'echo "  -> Starting problem {dataset_id} in background..."\n'
+                    if total_runs > 1:
+                        script_content += f'echo "  -> Starting [{agent_config}] on [{dataset_id}] in background..."\n'
                         script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} &\n\n"
                     else:
                         script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd}\n\n"
 
-                if len(dataset_list) > 1:
-                    script_content += f'echo "Waiting for all {agent_config} problem runs to complete..."\nwait\n\n'
+            if total_runs > 1:
+                script_content += 'echo "Waiting for all concurrent training runs to complete on GPU..."\nwait\n\n'
 
         if is_sweep:
             script_content += 'echo "=== Promoting Winning Checkpoints for All Methods & Datasets ==="\n'
