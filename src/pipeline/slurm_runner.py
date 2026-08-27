@@ -116,16 +116,30 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                         cmd_args.append(f"++env.rules={ruleset}")
                         cmd_args.append(f"++env.problem_type={dataset_id}")
                     if is_sweep:
-                        study_name = get_next_study_name(cfg.group, cfg.experiment_id, agent_name_internal)
+                        study_name = get_next_study_name(cfg.group, cfg.experiment_id, target_agent_name)
                         direction = cfg.hydra.sweeper.get("direction", "minimize") if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "sweeper") else "minimize"
                         create_optuna_study(storage_url, study_name, direction=direction)
                         cmd_args.append(f"++hydra.sweeper.study_name={study_name}")
+                        if "--multirun" not in sanitized_extra_args and "-m" not in sanitized_extra_args:
+                            cmd_args.append("--multirun")
                     cmd_args += sanitized_extra_args
                     train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
                     script_content += f'echo "=== [Phase: Offline Training (Parallel GPU)] {agent_config} on {dataset_id} ==="\n'
                     script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} &\n\n"
 
         script_content += 'echo "Waiting for all concurrent training methods on GPU to complete..."\nwait\n\n'
+
+        if is_sweep:
+            script_content += 'echo "=== Promoting Winning Checkpoints for All Methods & Datasets ==="\n'
+            storage_arg = storage_url if storage_url else ""
+            for dataset_id in dataset_list:
+                dataset_name_internal = normalize_agent_name(dataset_id)
+                for agent_config in offline_list:
+                    agent_name_internal = normalize_agent_name(agent_config)
+                    target_agent_name = f"{agent_name_internal}_{dataset_name_internal}" if len(dataset_list) > 1 else agent_name_internal
+                    study_name = f"{cfg.experiment_id}_{target_agent_name}"
+                    script_content += f"$PROJECT_ROOT/venv/bin/python3 -c \"from src.pipeline.optuna_utils import promote_best_trial_checkpoint; promote_best_trial_checkpoint('{cfg.group}', '{cfg.experiment_id}', '{target_agent_name}', '{storage_arg}', '{study_name}')\"\n"
+            script_content += '\n'
 
         # 3. Final Plotting
         if not args.no_plot:
