@@ -21,7 +21,7 @@ def get_gres_header(partition, gpus, gpu_type=None, gres=None, no_gres=False):
     return f"#SBATCH --gres=gpu:{gpus}\n"
 
 
-def generate_sbatch_header(job_name, log_dir, partition="gpu", gpus=1, cores=16, nodes=1, time="01:00:00", gpu_type=None, gres=None, no_gres=False, dependency=None, dependency_type="afterok", mail_user="cegbert@ncsu.edu", mail_type="END,FAIL"):
+def generate_sbatch_header(job_name, log_dir, partition="gpu", gpus=1, cores=16, nodes=1, time="01:00:00", mem="64G", gpu_type=None, gres=None, no_gres=False, dependency=None, dependency_type="afterok", mail_user="cegbert@ncsu.edu", mail_type="END,FAIL"):
     """Generate standardized SBATCH script header."""
     script = "#!/bin/bash\n"
     script += f"#SBATCH --job-name={job_name}\n"
@@ -31,6 +31,8 @@ def generate_sbatch_header(job_name, log_dir, partition="gpu", gpus=1, cores=16,
     script += f"#SBATCH --time={time}\n"
     script += f"#SBATCH --ntasks-per-node={cores}\n"
     script += f"#SBATCH --nodes={nodes}\n"
+    if mem:
+        script += f"#SBATCH --mem={mem}\n"
     script += f"#SBATCH --output={log_dir}/%x_%j.out\n"
     script += f"#SBATCH --error={log_dir}/%x_%j.err\n"
     if mail_user:

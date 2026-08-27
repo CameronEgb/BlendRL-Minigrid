@@ -86,21 +86,22 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
 
         # 2. Offline Training Commands
         if not args.no_offline:
-            for dataset_id in dataset_list:
-                dataset_name_internal = normalize_agent_name(dataset_id)
-                yaml_ds_path = cfg.mode.get("dataset_path", None) if hasattr(cfg, "mode") else None
-                try:
-                    dataset_path = resolve_dataset_path(
-                        dataset_id=dataset_name_internal,
-                        group=cfg.group,
-                        experiment_id=cfg.experiment_id,
-                        yaml_ds_path=yaml_ds_path
-                    )
-                except FileNotFoundError:
-                    dataset_path = Path("in/datasets") / cfg.group / dataset_name_internal
+            for agent_config in offline_list:
+                agent_name_internal = normalize_agent_name(agent_config)
+                script_content += f'echo "=== [Phase: Offline Training] Method: {agent_config} across {len(dataset_list)} Problems ==="\n'
+                for dataset_id in dataset_list:
+                    dataset_name_internal = normalize_agent_name(dataset_id)
+                    yaml_ds_path = cfg.mode.get("dataset_path", None) if hasattr(cfg, "mode") else None
+                    try:
+                        dataset_path = resolve_dataset_path(
+                            dataset_id=dataset_name_internal,
+                            group=cfg.group,
+                            experiment_id=cfg.experiment_id,
+                            yaml_ds_path=yaml_ds_path
+                        )
+                    except FileNotFoundError:
+                        dataset_path = Path("in/datasets") / cfg.group / dataset_name_internal
 
-                for agent_config in offline_list:
-                    agent_name_internal = normalize_agent_name(agent_config)
                     target_agent_name = f"{agent_name_internal}_{dataset_name_internal}" if len(dataset_list) > 1 else agent_name_internal
                     cmd_args = [
                         "src/train.py",
@@ -124,10 +125,14 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                             cmd_args.append("--multirun")
                     cmd_args += sanitized_extra_args
                     train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
-                    script_content += f'echo "=== [Phase: Offline Training (Parallel GPU)] {agent_config} on {dataset_id} ==="\n'
-                    script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} &\n\n"
+                    if len(dataset_list) > 1:
+                        script_content += f'echo "  -> Starting problem {dataset_id} in background..."\n'
+                        script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} &\n\n"
+                    else:
+                        script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd}\n\n"
 
-        script_content += 'echo "Waiting for all concurrent training methods on GPU to complete..."\nwait\n\n'
+                if len(dataset_list) > 1:
+                    script_content += f'echo "Waiting for all {agent_config} problem runs to complete..."\nwait\n\n'
 
         if is_sweep:
             script_content += 'echo "=== Promoting Winning Checkpoints for All Methods & Datasets ==="\n'
