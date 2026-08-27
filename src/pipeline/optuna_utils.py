@@ -202,7 +202,42 @@ def create_optuna_study(storage_url, study_name, direction="minimize"):
         print(f"Warning: Failed to pre-initialize Optuna study '{study_name}': {e}")
 
 
-def promote_best_trial_checkpoint(group: str, experiment_id: str, agent_name: str, storage_url: str, study_name: str):
+def find_best_trial_from_logs(group: str, experiment_id: str, agent_name: str, direction: str = "minimize"):
+    """Scan CSV logs to find the winning trial number and score for in-memory sweeps."""
+    import pandas as pd
+    from pathlib import Path
+    log_dir = Path("results/logs") / group / experiment_id / agent_name
+    best_id = "0"
+    best_val = float("inf") if direction == "minimize" else float("-inf")
+    
+    if not log_dir.exists():
+        return best_id, None
+        
+    for v_dir in sorted(log_dir.glob("version_*"), key=lambda p: int(p.name.split("_")[-1]) if p.name.split("_")[-1].isdigit() else 0):
+        metrics_file = v_dir / "metrics.csv"
+        if not metrics_file.exists():
+            continue
+        try:
+            df = pd.read_csv(metrics_file)
+            trial_num = v_dir.name.split("_")[-1]
+            val = None
+            for col in ["val/loss", "val/robust_loss", "losses/bellman_loss", "losses/total_loss", "eval/reward"]:
+                if col in df.columns:
+                    valid_series = df[col].dropna()
+                    if len(valid_series) > 0:
+                        val = float(valid_series.iloc[-1])
+                        break
+            if val is not None:
+                if (direction == "minimize" and val < best_val) or (direction == "maximize" and val > best_val):
+                    best_val = val
+                    best_id = trial_num
+        except Exception:
+            pass
+            
+    return best_id, (best_val if best_val != float("inf") and best_val != float("-inf") else None)
+
+
+def promote_best_trial_checkpoint(group: str, experiment_id: str, agent_name: str, storage_url: str = None, study_name: str = None):
     """After an Optuna sweep, queries the winning trial, copies its checkpoint
     and hyperparameters to the main agent checkpoint root, and writes a summary."""
     import shutil
@@ -210,14 +245,15 @@ def promote_best_trial_checkpoint(group: str, experiment_id: str, agent_name: st
     import yaml
     from pathlib import Path
     
-    best_id = get_best_trial_id(storage_url, study_name)
     ckpt_root = Path("results/checkpoints") / group / experiment_id / agent_name
-    trial_ckpt_path = ckpt_root / best_id / "best_model.ckpt"
+    ckpt_root.mkdir(parents=True, exist_ok=True)
     target_ckpt_path = ckpt_root / "best_model.ckpt"
     
-    best_info = {"best_trial_id": best_id, "study_name": study_name}
+    best_info = {"study_name": study_name}
+    best_id = "0"
     
-    if storage_url:
+    if is_valid_storage_url(storage_url):
+        best_id = get_best_trial_id(storage_url, study_name)
         try:
             import optuna
             study = optuna.load_study(study_name=study_name, storage=storage_url)
@@ -231,18 +267,41 @@ def promote_best_trial_checkpoint(group: str, experiment_id: str, agent_name: st
                 yaml.dump(study.best_trial.params, f, default_flow_style=False)
         except Exception as e:
             print(f"Notice: Could not load full Optuna study details: {e}")
+    else:
+        # In-memory storage: Find best trial from CSV logs
+        best_id, best_val = find_best_trial_from_logs(group, experiment_id, agent_name)
+        best_info["best_value"] = best_val
+        best_info["direction"] = "minimize"
+        
+        # Copy hparams if available
+        hparams_src = Path("results/logs") / group / experiment_id / agent_name / f"version_{best_id}" / "hparams.yaml"
+        if hparams_src.exists():
+            shutil.copy2(hparams_src, ckpt_root / "best_params.yaml")
             
+    best_info["best_trial_id"] = best_id
+    trial_ckpt_path = ckpt_root / best_id / "best_model.ckpt"
+    
     if trial_ckpt_path.exists():
         shutil.copy2(trial_ckpt_path, target_ckpt_path)
-        print(f"\n[Optuna Winner] Promoted Best Trial #{best_id} checkpoint -> {target_ckpt_path}")
+        # Also save explicitly named checkpoint in both local folder and parent experiment root
+        named_ckpt_path = ckpt_root / f"{agent_name}.ckpt"
+        shutil.copy2(trial_ckpt_path, named_ckpt_path)
+        parent_ckpt_root = Path("results/checkpoints") / group / experiment_id
+        shutil.copy2(trial_ckpt_path, parent_ckpt_root / f"{agent_name}.ckpt")
+        print(f"\n[Optuna Winner] Promoted Best Trial #{best_id} -> {named_ckpt_path.name}")
         if "best_value" in best_info and best_info["best_value"] is not None:
             print(f"[Optuna Winner] Best Score ({best_info.get('direction', 'metric')}): {best_info['best_value']:.4f}")
-        if "best_params" in best_info:
-            print(f"[Optuna Winner] Best Hyperparameters: {best_info['best_params']}\n")
-    elif not target_ckpt_path.exists():
+    else:
         all_ckpts = list(ckpt_root.rglob("best_model*.ckpt"))
+        # Exclude target if it's in the list
+        all_ckpts = [c for c in all_ckpts if c.resolve() != target_ckpt_path.resolve()]
         if all_ckpts:
             shutil.copy2(all_ckpts[0], target_ckpt_path)
+            named_ckpt_path = ckpt_root / f"{agent_name}.ckpt"
+            shutil.copy2(all_ckpts[0], named_ckpt_path)
+            parent_ckpt_root = Path("results/checkpoints") / group / experiment_id
+            shutil.copy2(all_ckpts[0], parent_ckpt_root / f"{agent_name}.ckpt")
+            print(f"\n[Optuna Fallback] Promoted checkpoint -> {named_ckpt_path.name}")
             
     with open(ckpt_root / "best_trial_summary.json", "w") as f:
         json.dump(best_info, f, indent=2)

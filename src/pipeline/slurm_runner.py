@@ -258,6 +258,8 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                     direction = cfg.hydra.sweeper.get("direction", "minimize") if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "sweeper") else "minimize"
                     create_optuna_study(storage_url, study_name, direction=direction)
                     cmd_args.append(f"++hydra.sweeper.study_name={study_name}")
+                    if "--multirun" not in sanitized_extra_args and "-m" not in sanitized_extra_args:
+                        cmd_args.append("--multirun")
                 cmd_args += sanitized_extra_args
                 
                 train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
@@ -273,6 +275,16 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
 
             if len(dataset_list) > 1:
                 script_content += 'echo "Waiting for all concurrent problem sweeps to complete on GPU..."\nwait\n\n'
+
+            if is_sweep:
+                script_content += 'echo "=== Promoting Winning Checkpoints for All Datasets ==="\n'
+                storage_arg = storage_url if storage_url else ""
+                for d_id in dataset_list:
+                    d_name = normalize_agent_name(d_id)
+                    t_agent = f"{agent_name_internal}_{d_name}" if len(dataset_list) > 1 else agent_name_internal
+                    s_name = f"{cfg.experiment_id}_{t_agent}"
+                    script_content += f"$PROJECT_ROOT/venv/bin/python3 -c \"from src.pipeline.optuna_utils import promote_best_trial_checkpoint; promote_best_trial_checkpoint('{cfg.group}', '{cfg.experiment_id}', '{t_agent}', '{storage_arg}', '{s_name}')\"\n"
+                script_content += '\n'
 
             slurm_file = log_dir / f"{job_name}.slurm"
             with open(slurm_file, "w") as f:

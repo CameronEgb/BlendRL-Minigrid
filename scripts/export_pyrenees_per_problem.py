@@ -115,6 +115,8 @@ def find_checkpoint(problem_id: str, ckpt_root: Path = None) -> Path:
     if ckpt_root:
         search_roots.append(ckpt_root)
     search_roots.extend([
+        PROJECT_ROOT / "results" / "checkpoints" / "pyrenees" / "tune_pyrenees_3way",
+        PROJECT_ROOT / "results" / "checkpoints" / "pyrenees" / "tune_pyrenees_blendrl_resnet",
         PROJECT_ROOT / "results" / "checkpoints" / "pyrenees" / "pyrenees_scaled",
         PROJECT_ROOT / "results" / "checkpoints" / "pyrenees" / "per_problem",
         PROJECT_ROOT / "results" / "checkpoints" / "pyrenees",
@@ -124,9 +126,14 @@ def find_checkpoint(problem_id: str, ckpt_root: Path = None) -> Path:
         if not root.exists():
             continue
         for aid in alt_ids:
-            # Check exact directory match
+            # 1. Direct filename match (e.g. cql_blendrl_human_neural_ex132_w.ckpt or ex132(w).ckpt)
+            for p in root.rglob("*.ckpt"):
+                stem = p.stem
+                if stem.endswith(f"_{aid}") or stem == aid or f"_{aid}" in stem:
+                    return p
+            # 2. Directory match (e.g. cql_blendrl_human_neural_ex132_w/best_model.ckpt)
             for p in root.rglob("best_model*.ckpt"):
-                parent_name = p.parent.parent.name if p.parent.name in ("0", "1", "2") else p.parent.name
+                parent_name = p.parent.parent.name if p.parent.name in ("0", "1", "2", "3", "4", "5") else p.parent.name
                 if parent_name.endswith(f"_{aid}") or parent_name == aid or f"/{aid}/" in str(p):
                     return p
 

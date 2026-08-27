@@ -113,6 +113,8 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
                 overrides += sanitized_extra_args
                 
                 if is_sweep:
+                    if "--multirun" not in sanitized_extra_args and "-m" not in sanitized_extra_args:
+                        overrides.append("--multirun")
                     delete_optuna_study(storage_url, study_name)
                     direction = cfg.hydra.sweeper.get("direction", "minimize") if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "sweeper") else "minimize"
                     create_optuna_study(storage_url, study_name, direction=direction)
@@ -120,6 +122,6 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
                 run_experiment(overrides)
 
                 if is_sweep:
-                    promote_best_trial_checkpoint(cfg.group, cfg.experiment_id, agent_name_internal, storage_url, study_name)
+                    promote_best_trial_checkpoint(cfg.group, cfg.experiment_id, target_agent_name, storage_url, study_name)
     else:
         print("\n=== Skipping Offline Training Phase ===")

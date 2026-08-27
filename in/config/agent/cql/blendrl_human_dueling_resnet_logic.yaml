@@ -1,0 +1,15 @@
+defaults:
+  - /agent/cql/dueling_resnet
+
+name: cql_blendrl_human_dueling_resnet_logic
+algorithm: blendrl_cql
+actor_mode: hybrid
+blender_mode: logic
+blend_function: softmax
+architecture: dueling_resnet
+pos_action_weight: 20.0
+
+modules:
+  - type: nsfr
+    rules: ${env.rules}
+  - type: neural
