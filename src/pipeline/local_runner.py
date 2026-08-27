@@ -107,9 +107,9 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
                 if cfg.env.name == "pyrenees":
                     ruleset = "default" if dataset_id == "problem" else "step"
                     overrides.append(f"++env.rules={ruleset}")
-                    overrides.append(f"++env.problem_type={dataset_id}")
+                    overrides.append(f"++env.problem_type='{dataset_id}'")
                 if not dataset_path_override:
-                    overrides.append(f"++mode.dataset_path={dataset_path}")
+                    overrides.append(f"++mode.dataset_path='{dataset_path}'")
                 overrides += sanitized_extra_args
                 
                 if is_sweep:

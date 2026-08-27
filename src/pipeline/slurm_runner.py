@@ -110,12 +110,12 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                         f"mode=offline",
                         f"agent={agent_config}",
                         f"++agent.name={target_agent_name}",
-                        f"++mode.dataset_path={dataset_path}"
+                        f"++mode.dataset_path='{dataset_path}'"
                     ]
                     if cfg.env.name == "pyrenees":
                         ruleset = "default" if dataset_id == "problem" else "step"
                         cmd_args.append(f"++env.rules={ruleset}")
-                        cmd_args.append(f"++env.problem_type={dataset_id}")
+                        cmd_args.append(f"++env.problem_type='{dataset_id}'")
                     if is_sweep:
                         study_name = get_next_study_name(cfg.group, cfg.experiment_id, target_agent_name)
                         direction = cfg.hydra.sweeper.get("direction", "minimize") if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "sweeper") else "minimize"
