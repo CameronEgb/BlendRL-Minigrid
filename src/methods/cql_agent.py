@@ -387,18 +387,36 @@ class CQLAgent(OfflineAgentBase):
     def configure_optimizers(self):
         weight_decay = float(self.get_cfg("weight_decay", 0.0))
         lr = float(self.get_cfg("lr", 3e-4))
+        logic_lr = float(self.get_cfg("logic_lr", lr))
         blender_lr = float(self.get_cfg("blender_lr", lr))
         if self.is_modular:
-            if hasattr(self.model, "blender") and blender_lr != lr:
-                blender_params = list(self.model.blender.parameters())
-                blender_param_ids = set(id(p) for p in blender_params)
-                other_params = [p for p in self.model.parameters() if id(p) not in blender_param_ids]
-                param_groups = [
-                    {"params": other_params, "lr": lr, "weight_decay": weight_decay},
-                    {"params": blender_params, "lr": blender_lr, "weight_decay": weight_decay},
-                ]
-                return optim.Adam(param_groups)
-            return optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
+            param_groups = []
+            used_param_ids = set()
+
+            # 1. Logic modules (NSFR / reasoner)
+            if hasattr(self.model, "policy_modules"):
+                for m, m_type in zip(self.model.policy_modules, self.model.module_types):
+                    if m_type != "neural":
+                        m_params = [p for p in m.parameters() if p.requires_grad and id(p) not in used_param_ids]
+                        if m_params:
+                            for p in m_params: used_param_ids.add(id(p))
+                            param_groups.append({"params": m_params, "lr": logic_lr, "weight_decay": weight_decay})
+
+            # 2. Blender module
+            if hasattr(self.model, "blender") and self.model.blender is not None:
+                b_params = [p for p in self.model.blender.parameters() if p.requires_grad and id(p) not in used_param_ids]
+                if b_params:
+                    for p in b_params: used_param_ids.add(id(p))
+                    param_groups.append({"params": b_params, "lr": blender_lr, "weight_decay": weight_decay})
+
+            # 3. All remaining parameters (neural actor, Q-networks, critic)
+            remaining_params = [p for p in self.model.parameters() if p.requires_grad and id(p) not in used_param_ids]
+            if remaining_params:
+                param_groups.append({"params": remaining_params, "lr": lr, "weight_decay": weight_decay})
+
+            if not param_groups:
+                return optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
+            return optim.Adam(param_groups)
         return optim.Adam(self.q_network.parameters(), lr=lr, weight_decay=weight_decay)
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:

@@ -7,7 +7,7 @@ actor_mode: hybrid
 blender_mode: logic
 blend_function: softmax
 architecture: dueling_resnet
-pos_action_weight: 20.0
+pos_action_weight: 1.0
 
 modules:
   - type: nsfr
