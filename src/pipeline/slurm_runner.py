@@ -262,16 +262,17 @@ def run_slurm_training(cfg, args, online_list, offline_list, dataset_list, sanit
                 
                 train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
                 
-                if len(dataset_list) > 1 and not is_sweep:
-                    script_content += f'echo "=== [Phase: Offline Training (Parallel GPU)] {agent_config} on {dataset_id} ==="\n'
+                if len(dataset_list) > 1:
+                    phase_label = "Offline Sweep (Parallel GPU)" if is_sweep else "Offline Training (Parallel GPU)"
+                    script_content += f'echo "=== [Phase: {phase_label}] {agent_config} on {dataset_id} ==="\n'
                     script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd} &\n\n"
                 else:
                     phase_label = "Offline Sweep" if is_sweep else "Offline Training"
                     script_content += f'echo "=== [Phase: {phase_label}] {agent_config} on {dataset_id} ==="\n'
                     script_content += f"$PROJECT_ROOT/venv/bin/python3 {train_cmd}\n\n"
 
-            if len(dataset_list) > 1 and not is_sweep:
-                script_content += 'echo "Waiting for all concurrent dataset trainings to complete on GPU..."\nwait\n\n'
+            if len(dataset_list) > 1:
+                script_content += 'echo "Waiting for all concurrent problem sweeps to complete on GPU..."\nwait\n\n'
 
             slurm_file = log_dir / f"{job_name}.slurm"
             with open(slurm_file, "w") as f:
