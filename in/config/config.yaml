@@ -22,6 +22,8 @@ dataset_path: "${dataset_root}/${agent.name}/${hydra:job.num}"
 
 # Redirect Hydra output and multirun directories inside results/hydra/
 hydra:
+  job:
+    chdir: false
   run:
     dir: results/hydra/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
   sweep:

@@ -136,9 +136,15 @@ def main(cfg: DictConfig):
     from src.data.rl_data_module import RLDataModule
     datamodule = RLDataModule(cfg)
     
+    from hydra.utils import get_original_cwd
+    try:
+        base_root = get_original_cwd()
+    except Exception:
+        base_root = os.getcwd()
+
     # Loggers
-    log_dir = os.path.join("results/logs", cfg.group, cfg.experiment_id)
-    tb_dir = os.path.join("results/tensorboard", cfg.group, cfg.experiment_id)
+    log_dir = os.path.join(base_root, "results/logs", cfg.group, cfg.experiment_id)
+    tb_dir = os.path.join(base_root, "results/tensorboard", cfg.group, cfg.experiment_id)
     
     loggers = [CSVLogger(log_dir, name=cfg.agent.name)]
     try:
@@ -158,7 +164,7 @@ def main(cfg: DictConfig):
             trial_id = str(HydraConfig.get().job.num)
         except Exception:
             pass
-    ckpt_dir = os.path.join("results/checkpoints", cfg.group, cfg.experiment_id, cfg.agent.name, trial_id)
+    ckpt_dir = os.path.join(base_root, "results/checkpoints", cfg.group, cfg.experiment_id, cfg.agent.name, trial_id)
     
     is_offline_only = cfg.env.get("offline_only", False) or cfg.env.name in ["mimic", "pyrenees"]
     
@@ -175,7 +181,7 @@ def main(cfg: DictConfig):
             init_ckpt = os.path.join(self.ckpt_dir, "best_model.ckpt")
             trainer.save_checkpoint(init_ckpt)
             # Also save explicitly named checkpoint in parent experiment root
-            parent_ckpt_root = os.path.join("results/checkpoints", self.cfg.group, self.cfg.experiment_id)
+            parent_ckpt_root = os.path.join(base_root, "results/checkpoints", self.cfg.group, self.cfg.experiment_id)
             os.makedirs(parent_ckpt_root, exist_ok=True)
             named_ckpt = os.path.join(parent_ckpt_root, f"{self.cfg.agent.name}.ckpt")
             import shutil
