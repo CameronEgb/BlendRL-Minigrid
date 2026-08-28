@@ -23,12 +23,16 @@ def build_online_overrides(experiment, agent_config, agent_name, dataset_path,
     Returns:
         list[str]: Hydra override arguments
     """
+    safe_ds_path = str(dataset_path) if dataset_path is not None else ""
+    if dataset_path and any(c in str(dataset_path) for c in "(), "):
+        safe_ds_path = f'"{dataset_path}"'
+
     overrides = [
         f"+experiment={experiment}",
         "mode=online",
         f"agent={agent_config}",
         f"++agent.name={agent_name}",
-        f"++dataset_path={dataset_path}",
+        f"++dataset_path={safe_ds_path}",
     ]
     if study_name:
         overrides.append(f"++hydra.sweeper.study_name={study_name}")
@@ -57,12 +61,16 @@ def build_offline_overrides(experiment, agent_config, agent_name, dataset_path,
     Returns:
         list[str]: Hydra override arguments
     """
+    safe_ds_path = str(dataset_path) if dataset_path is not None else ""
+    if dataset_path and any(c in str(dataset_path) for c in "(), "):
+        safe_ds_path = f'"{dataset_path}"'
+
     overrides = [
         f"+experiment={experiment}",
         "mode=offline",
         f"agent={agent_config}",
         f"++agent.name={agent_name}",
-        f"++mode.dataset_path={dataset_path}",
+        f"++mode.dataset_path={safe_ds_path}",
     ]
     if study_name:
         overrides.append(f"++hydra.sweeper.study_name={study_name}")

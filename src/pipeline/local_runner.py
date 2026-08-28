@@ -24,12 +24,18 @@ def run_local_training(cfg, context):
     """Execute online and offline training phases locally as blocking subprocesses."""
     best_online_trial_ids = {}
 
-    ckpt_dir = Path("results/checkpoints") / cfg.group / cfg.experiment_id
-    if ckpt_dir.exists():
-        import time
-        backup_path = f"{ckpt_dir}_backup_{int(time.time())}"
-        print(f"Backing up old checkpoints from {ckpt_dir} to {backup_path}...")
-        ckpt_dir.rename(backup_path)
+    # Hard-overwrite checkpoints and logs on re-run unless recover=true is explicitly set
+    if not cfg.get("recover", False):
+        import shutil
+        ckpt_dir = Path("results/checkpoints") / cfg.group / cfg.experiment_id
+        if ckpt_dir.exists():
+            shutil.rmtree(ckpt_dir)
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+        exp_log_dir = Path("results/logs") / cfg.group / cfg.experiment_id
+        if exp_log_dir.exists():
+            shutil.rmtree(exp_log_dir)
+        exp_log_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Online Training Phases
     if not cfg.get("no_online", False):

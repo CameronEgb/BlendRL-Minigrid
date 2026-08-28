@@ -29,18 +29,23 @@ def run_slurm_training(cfg, context):
     """
     log_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
     if log_dir.exists():
-        print(f"Clearing old logs in {log_dir}...")
         for log_file in log_dir.glob("*"):
             if log_file.is_file():
                 log_file.unlink()
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    ckpt_dir = Path("results/checkpoints") / cfg.group / cfg.experiment_id
-    if ckpt_dir.exists():
-        import time
-        backup_path = f"{ckpt_dir}_backup_{int(time.time())}"
-        print(f"Backing up old checkpoints from {ckpt_dir} to {backup_path}...")
-        ckpt_dir.rename(backup_path)
+    # Hard-overwrite checkpoints and logs on re-run unless recover=true is explicitly set
+    if not cfg.get("recover", False):
+        import shutil
+        ckpt_dir = Path("results/checkpoints") / cfg.group / cfg.experiment_id
+        if ckpt_dir.exists():
+            shutil.rmtree(ckpt_dir)
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+        exp_log_dir = Path("results/logs") / cfg.group / cfg.experiment_id
+        if exp_log_dir.exists():
+            shutil.rmtree(exp_log_dir)
+        exp_log_dir.mkdir(parents=True, exist_ok=True)
 
     resources = cfg.get("resources", {})
     should_consolidate = cfg.get("consolidate", False)
