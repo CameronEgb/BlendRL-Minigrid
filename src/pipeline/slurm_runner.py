@@ -77,7 +77,7 @@ def run_slurm_training(cfg, context):
                     cmd_args.append(f"++hydra.sweeper.study_name={study_name}")
                 train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
                 script_content += f'echo "=== [Phase: Online Training] {agent_config} ==="\n'
-                script_content += f"{python_cmd} {train_cmd}\n\n"
+                script_content += f"{python_cmd} src/train.py {train_cmd}\n\n"
 
         # 2. Offline Training Commands (All methods & datasets in parallel)
         if not cfg.get("no_offline", False):
@@ -118,9 +118,9 @@ def run_slurm_training(cfg, context):
                     train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
                     if total_runs > 1:
                         script_content += f'echo "  -> Starting [{agent_config}] on [{dataset_id}] in background..."\n'
-                        script_content += f"{python_cmd} {train_cmd} &\n\n"
+                        script_content += f"{python_cmd} src/train.py {train_cmd} &\n\n"
                     else:
-                        script_content += f"{python_cmd} {train_cmd}\n\n"
+                        script_content += f"{python_cmd} src/train.py {train_cmd}\n\n"
 
             if total_runs > 1:
                 script_content += 'echo "Waiting for all concurrent training runs to complete on GPU..."\nwait\n\n'
@@ -261,11 +261,11 @@ def run_slurm_training(cfg, context):
                 if len(dataset_list) > 1:
                     phase_label = "Offline Sweep (Parallel GPU)" if is_sweep else "Offline Training (Parallel GPU)"
                     script_content += f'echo "=== [Phase: {phase_label}] {agent_config} on {dataset_id} ==="\n'
-                    script_content += f"{python_cmd} {train_cmd} &\n\n"
+                    script_content += f"{python_cmd} src/train.py {train_cmd} &\n\n"
                 else:
                     phase_label = "Offline Sweep" if is_sweep else "Offline Training"
                     script_content += f'echo "=== [Phase: {phase_label}] {agent_config} on {dataset_id} ==="\n'
-                    script_content += f"{python_cmd} {train_cmd}\n\n"
+                    script_content += f"{python_cmd} src/train.py {train_cmd}\n\n"
 
             if len(dataset_list) > 1:
                 script_content += 'echo "Waiting for all concurrent problem sweeps to complete on GPU..."\nwait\n\n'

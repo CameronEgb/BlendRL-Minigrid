@@ -70,9 +70,15 @@ def get_shell_env_block(site_cfg=None) -> str:
     """
     lines = [f"export PROJECT_ROOT={PROJECT_ROOT}"]
 
-    # Module loads
-    for mod in getattr(site_cfg, "module_loads", []) or []:
-        lines.append(f"module load {mod}")
+    # Module loads (safe initialization for non-interactive Slurm subshells)
+    mod_list = getattr(site_cfg, "module_loads", []) or []
+    if mod_list:
+        lines.append("if ! command -v module &> /dev/null; then")
+        lines.append("    [ -f /usr/share/modules/init/bash ] && source /usr/share/modules/init/bash")
+        lines.append("    [ -f /etc/profile.d/modules.sh ] && source /etc/profile.d/modules.sh")
+        lines.append("fi")
+        for mod in mod_list:
+            lines.append(f"command -v module &> /dev/null && module load {mod} || true")
 
     # PYTHONPATH
     pp_parts = ["$PROJECT_ROOT", "$PROJECT_ROOT/src"]

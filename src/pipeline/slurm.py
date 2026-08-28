@@ -105,7 +105,7 @@ def generate_sbatch_script(job_name, cmd_args, log_dir, cfg, dependency=None):
 
     # Construct the python command using site-aware venv path
     python_cmd = get_shell_python_cmd(site_cfg)
-    cmd_str = python_cmd + " " + " ".join(shlex.quote(arg) for arg in cmd_args)
+    cmd_str = python_cmd + " src/train.py " + " ".join(shlex.quote(arg) for arg in cmd_args)
     script += f'echo "Running: {cmd_str}"\n'
     script += f"{cmd_str}\n"
     
