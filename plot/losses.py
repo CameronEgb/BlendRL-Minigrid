@@ -125,21 +125,3 @@ class LossesPlotter(BasePlotter):
         loss_cfg.setdefault("filename_prefix", "comparison_")
         self.plot_metric_series(exp_id, group, output_dir, metrics, loss_cfg)
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate Specific Loss Plots for an Experiment")
-    parser.add_argument("experiment_id", type=str, help="Experiment ID to plot")
-    parser.add_argument("--metrics", nargs="+", help="Specific loss metrics to plot (e.g. losses/actor_loss losses/q_loss)")
-    parser.add_argument("--window", type=int, help="Smoothing window size")
-    parser.add_argument("--dpi", type=int, help="Plot resolution DPI")
-    args = parser.parse_args()
-
-    cli_overrides = {}
-    if args.metrics:
-        cli_overrides["metrics"] = args.metrics
-    if args.window:
-        cli_overrides["smoothing_window"] = args.window
-    if args.dpi:
-        cli_overrides["dpi"] = args.dpi
-
-    plotter = LossesPlotter()
-    plotter.run(args.experiment_id, cli_overrides)

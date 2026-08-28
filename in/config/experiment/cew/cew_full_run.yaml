@@ -1,9 +1,8 @@
 # @package _global_
 defaults:
+  - cew/_base
   - override /env: cartpole
 
-experiment_id: cew_full_run
-group: cew
 total_timesteps: 250000
 intervals_count: 10
 eval_episodes: 100

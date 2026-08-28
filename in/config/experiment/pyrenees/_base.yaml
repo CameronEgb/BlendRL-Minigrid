@@ -4,9 +4,27 @@ defaults:
   - override /agent: cql/dnn
   - override /mode: offline
 
-group: pyrenees
-offline_datasets: [pyrenees]
+
+offline_datasets:
+  - problem
+  - ex132(w)
+  - ex132a(w)
+  - ex152a(w)
+  - ex212(w)
+  - ex242(w)
+  - ex252(w)
+  - ex252a(w)
+  - exc137(w)
+  - exp426d(w)
+  - exp426e(w)
+
 offline_methods: [cql/dnn]
+
+resources:
+  time: "02:00:00"
+  gpus: 1
+  cores: 16
+  memory: "32G"
 
 agent:
   epochs_per_interval: 20
@@ -16,9 +34,3 @@ agent:
   cql_alpha: 1.0
   soft_target_tau: 0.005
   blender_lr: 3e-4
-
-plots:
-  losses:
-    metrics: ["losses/total_loss", "losses/bellman_loss", "losses/cql_loss", "losses/q_loss", "losses/actor_loss"]
-  policy_eval: {}
-  reports: {}

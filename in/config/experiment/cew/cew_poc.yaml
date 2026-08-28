@@ -1,9 +1,8 @@
 # @package _global_
 defaults:
   - override /env: cartpole
+  - cew/_base
 
-experiment_id: cew_poc
-group: cew
 total_timesteps: 10000
 eval_episodes: 20
 online_methods: ppo/cp_tuned

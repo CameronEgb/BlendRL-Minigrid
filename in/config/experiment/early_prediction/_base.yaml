@@ -1,0 +1,5 @@
+# @package _global_
+defaults:
+  - override /env: mimic
+
+task: early_prediction_sweep

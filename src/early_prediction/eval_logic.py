@@ -63,7 +63,7 @@ from src.pipeline.datasets import resolve_mimic_npz_path
 
 def resolve_mimic_dataset(args):
     """Resolve the MIMIC .npz dataset path from args or standard dataset directories."""
-    fname = args.dataset_path or getattr(args, "dataset_name", None)
+    fname = dataset_path or getattr(args, "dataset_name", None)
     return str(resolve_mimic_npz_path(fname))
 
 
@@ -620,64 +620,15 @@ def write_counterfactual_table(cf_data, csv_path, txt_path):
 #  Main
 # ---------------------------------------------------------------------------
 
-def main():
-    parser = argparse.ArgumentParser(description="MIMIC Sepsis EP Evaluation (Multi-Architecture)")
-    parser.add_argument("--experiment", "-e", type=str, default=None,
-                        help="Experiment ID — resolves checkpoint dir under results/checkpoints/")
-    parser.add_argument("--checkpoint", type=str, default=None,
-                        help="Root directory containing per-method checkpoint subdirs")
-    parser.add_argument("--dataset-name", type=str,
-                        default="mimic_lazy_0_interventions_balanced.npz",
-                        help="MIMIC dataset filename")
-    parser.add_argument("--dataset-path", type=str, default=None,
-                        help="Direct path to the MIMIC .npz file")
-    parser.add_argument("--output-dir", type=str, default=None,
-                        help="Output directory for plots and tables")
-    parser.add_argument("--ep-ckpt-root", type=str,
-                        default="results/checkpoints/early_prediction",
-                        help="Root dir for EP model checkpoints (tuned_early_pred_sweep)")
-    parser.add_argument("--n-splits", type=int, default=20,
-                        help="Number of random data splits for counterfactual eval")
-    parser.add_argument("--tau-min", type=int, default=1, help="Min tau for EP sweep")
-    parser.add_argument("--tau-max", type=int, default=33, help="Max tau for EP sweep")
-    parser.add_argument("--tau-step", type=int, default=4, help="Tau step size")
-    parser.add_argument("--window-hours", type=int, default=12,
-                        help="Observation window for EP models (hours)")
-    parser.add_argument("--use-volatility", action="store_true", default=True)
-    parser.add_argument("--no-volatility", dest="use_volatility", action="store_false")
-    parser.add_argument("--remake", action="store_true", help="Force overwrite")
-    args = parser.parse_args()
+def compute_ep_eval_data(checkpoint_root, dataset_path, ep_ckpt_root='results/checkpoints/early_prediction', n_splits=20, tau_min=1, tau_max=33, tau_step=4, window_hours=12, use_volatility=True):
 
-    # Resolve checkpoint root
-    if args.experiment and not args.checkpoint:
-        ckpt_root = Path("results/checkpoints")
-        matches = list(ckpt_root.glob(f"**/{args.experiment}"))
-        if not matches:
-            matches = list(ckpt_root.glob(f"*{args.experiment}*"))
-        if matches:
-            args.checkpoint = str(matches[0])
-            print(f"Resolved experiment '{args.experiment}' -> {args.checkpoint}")
-        else:
-            raise FileNotFoundError(
-                f"No checkpoint dir for experiment '{args.experiment}' under {ckpt_root}"
-            )
 
-    if not args.checkpoint:
-        parser.error("Either --experiment or --checkpoint must be provided.")
 
-    # Resolve output dir
-    if args.output_dir:
-        report_dir = Path(args.output_dir)
-    else:
-        ckpt_path = Path(args.checkpoint)
-        parts = ckpt_path.parts
-        if len(parts) >= 4 and parts[0] == "results" and parts[1] == "checkpoints":
-            group, exp_id = parts[2], parts[3]
-            report_dir = Path("results/plots") / group / exp_id
-        else:
-            report_dir = Path("results/plots/early_prediction") / ckpt_path.name
-    report_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Output directory: {report_dir}")
+
+    if not checkpoint_root:
+        raise ValueError("checkpoint_root must be provided.")
+
+
 
     device = torch.device("cuda" if torch.cuda.is_available() else
                           ("mps" if torch.backends.mps.is_available() else "cpu"))
@@ -686,7 +637,11 @@ def main():
     # -----------------------------------------------------------------------
     #  1. Load dataset
     # -----------------------------------------------------------------------
-    dataset_path = resolve_mimic_dataset(args)
+    if not dataset_path:
+        from src.pipeline.datasets import resolve_mimic_npz_path
+        dataset_path = str(resolve_mimic_npz_path("mimic_lazy_0_interventions_balanced.npz"))
+    else:
+        dataset_path = str(dataset_path)
     print(f"Loading dataset: {dataset_path}")
     data = np.load(dataset_path, allow_pickle=True)
     X = data["X"]        # (N, 240, features)
@@ -701,7 +656,7 @@ def main():
     # -----------------------------------------------------------------------
     #  2. Discover RL policy checkpoints
     # -----------------------------------------------------------------------
-    policies = discover_policy_checkpoints(args.checkpoint)
+    policies = discover_policy_checkpoints(checkpoint_root)
     print(f"\nDiscovered {len(policies)} RL policy checkpoints:")
     for k, v in policies.items():
         print(f"  {k}: {v}")
@@ -711,7 +666,7 @@ def main():
     # -----------------------------------------------------------------------
     #  3. Discover EP model checkpoints
     # -----------------------------------------------------------------------
-    ep_models = discover_ep_checkpoints(args.ep_ckpt_root)
+    ep_models = discover_ep_checkpoints(ep_ckpt_root)
     ep_model_keys = sorted(ep_models.keys())
     all_taus = set()
     for mk in ep_model_keys:
@@ -720,7 +675,7 @@ def main():
                 all_taus.add(k)
     all_taus = sorted(all_taus)
     if not all_taus and ep_models:
-        all_taus = list(range(args.tau_min, args.tau_max + 1, args.tau_step))
+        all_taus = list(range(tau_min, tau_max + 1, tau_step))
     print(f"\nDiscovered EP models: {ep_model_keys}")
     print(f"Available taus: {all_taus}")
 
@@ -728,7 +683,7 @@ def main():
         print("WARNING: No EP model checkpoints found. EP shock-over-tau graph will be skipped.")
 
     # Compute the tau sweep list (intersect CLI range with available checkpoints)
-    tau_sweep = [t for t in range(args.tau_min, args.tau_max + 1, args.tau_step)]
+    tau_sweep = [t for t in range(tau_min, tau_max + 1, tau_step)]
     tau_sweep_available = [t for t in tau_sweep if t in all_taus] if all_taus else []
     print(f"Tau sweep (CLI): {tau_sweep}")
     print(f"Tau sweep (available): {tau_sweep_available}")
@@ -771,7 +726,7 @@ def main():
     # -----------------------------------------------------------------------
     #  5. Counterfactual evaluation: per policy, per split
     # -----------------------------------------------------------------------
-    w_steps = 2 * args.window_hours
+    w_steps = 2 * window_hours
 
     # For each policy + clinician, compute per-patient agreement and collect
     # counterfactual statistics across splits.
@@ -859,7 +814,7 @@ def main():
         split_recalls = []
         split_f1s = []
 
-        for split_idx in range(args.n_splits):
+        for split_idx in range(n_splits):
             seed_val = 42 + split_idx
             _, test_indices = train_test_split(
                 np.arange(N_patients), test_size=0.2, random_state=seed_val
@@ -979,7 +934,7 @@ def main():
                                 if raw_seq.shape[-1] > 48:
                                     raw_seq[t_rel, 48] = act[0]
 
-                        if args.use_volatility:
+                        if use_volatility:
                             feat_seq = compute_volatility_features(raw_seq)
                         else:
                             feat_seq = raw_seq
@@ -1033,32 +988,10 @@ def main():
     # -----------------------------------------------------------------------
     print(f"\n{'='*60}")
     print("Generating plots and tables...")
-    print(f"{'='*60}")
-
-    # 7a. Agreement vs Shock Rate (All Patients)
-    rl_agreements = {k: v for k, v in patient_agreements.items() if k != "clinician"}
-    if rl_agreements:
-        plot_agreement_vs_shock(rl_agreements, y, report_dir)
-        plot_agreement_vs_shock_deciles(rl_agreements, y, report_dir)
-    else:
-        print("  No RL policies found — skipping agreement plots.")
-
-    # 7b. EP Shock over tau
-    if ep_shock_results:
-        plot_ep_shock_over_tau(ep_shock_results, report_dir)
-    else:
-        print("  No EP shock results — skipping tau plot.")
-
-    # 7c. Counterfactual table
-    if cf_data:
-        csv_path = report_dir / "counterfactual_summary.csv"
-        txt_path = report_dir / "counterfactual_summary.txt"
-        write_counterfactual_table(cf_data, csv_path, txt_path)
-
-    print(f"\n{'='*60}")
-    print(f"EP Evaluation complete! All outputs saved to: {report_dir}")
-    print(f"{'='*60}")
-
-
-if __name__ == "__main__":
-    main()
+    print("\n=== Evaluation Computation Complete ===")
+    return {
+        "rl_agreements": {k: v for k, v in patient_agreements.items() if k != "clinician"},
+        "y": y,
+        "ep_shock_results": ep_shock_results,
+        "cf_data": cf_data
+    }

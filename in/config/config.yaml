@@ -2,9 +2,11 @@ defaults:
   - agent: ppo/dnn
   - env: cartpole
   - mode: online
+  - site: local
   - _self_
 
 experiment_id: "default_exp"
+experiment_name: "ungrouped/default_exp"
 group: "ungrouped"
 seed: 1
 total_timesteps: 10000
@@ -13,6 +15,18 @@ eval_episodes: 100
 save_dataset: true
 local: true
 recover: false
+
+# Pipeline Orchestration Flags
+consolidate: false
+plot_style: null
+no_plot: false
+no_online: false
+no_offline: false
+dry_run: false
+dash: false
+dash_only: false
+sweep: false
+remake: false
 
 # Paths
 results_dir: "results"

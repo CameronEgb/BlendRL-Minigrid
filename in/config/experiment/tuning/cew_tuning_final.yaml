@@ -1,10 +1,9 @@
 # @package _global_
 defaults:
+  - tuning/_base
   - override /env: cartpole
   - override /agent: cew/base
 
-experiment_id: cew_tuning_final
-group: tuning
 total_timesteps: 100000
 intervals_count: 10
 eval_episodes: 100
@@ -24,7 +23,5 @@ agent:
 env:
   gamma: 0.99
 
-save_dataset: false
-seed: 1
 local: true
 recover: false

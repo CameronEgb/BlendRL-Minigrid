@@ -1,11 +1,16 @@
 name: pyrenees
+monitor_metric: "val/loss"
+preprocess_on_load: true
 env_id: pyrenees
 offline_only: true
 gamma: 0.99
 gae_lambda: 0.95
-rules: default
+rules: step
 reasoner: nsfr
 architecture: mlp
 reward_type: outcome
+problem_type: pyrenees
 # 3 discrete actions: PS (0), WE (1), FWE (2)
 n_actions: 3
+
+default_plots: [losses, action_distribution, reports]

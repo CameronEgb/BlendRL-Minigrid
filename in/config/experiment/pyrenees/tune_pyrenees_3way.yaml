@@ -3,8 +3,6 @@ defaults:
   - pyrenees/_base
   - override /hydra/sweeper: optuna_offline
 
-experiment_id: tune_pyrenees_3way
-group: pyrenees
 consolidate: true
 
 offline_datasets:

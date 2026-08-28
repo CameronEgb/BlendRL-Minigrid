@@ -12,18 +12,17 @@ fyd_path = os.path.join(PROJECT_ROOT, "src", "fyd_repo", "src")
 if fyd_path not in sys.path:
     sys.path.insert(0, fyd_path)
 
-import glob
-import re
 import yaml
-import argparse
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 
 # Import styling and alias resolution from the unified method registry
-from src.method_registry import clean_label, get_style_info, get_canonical_method_name, get_method_aliases
+from src.method_registry import clean_label, get_style_info, get_method_aliases, get_canonical_method_name
 
 def moving_average(a: np.ndarray, n: int = 5) -> np.ndarray:
     if len(a) == 0:
@@ -123,6 +122,18 @@ class BasePlotter:
     def get_experiment_config(self, exp_id: str, exp_config_name: Optional[str] = None) -> dict:
         """Finds, resolves, and loads the experiment configuration YAML or saved run config."""
         clean_exp = Path(exp_id).stem
+
+        # 1. First try to load the saved config.yaml from the experiment's log directory
+        for base_dir in [Path("results/logs"), Path("results/checkpoints")]:
+            if base_dir.exists():
+                matches = list(base_dir.glob(f"*/{clean_exp}/config.yaml"))
+                if matches:
+                    return self._load_yaml(matches[0])
+                matches_nested = list(base_dir.glob(f"*/{clean_exp}/*/config.yaml"))
+                if matches_nested:
+                    return self._load_yaml(matches_nested[0])
+
+        # 2. Fall back to parsing the experiment YAML
         candidates = []
         if exp_config_name:
             clean_base = Path(exp_config_name).stem
@@ -142,16 +153,6 @@ class BasePlotter:
             if cand.exists():
                 raw = self._load_yaml(cand)
                 return self._resolve_config_defaults(raw)
-
-        # Check saved run configs in results/logs and results/checkpoints
-        for base_dir in [Path("results/logs"), Path("results/checkpoints")]:
-            if base_dir.exists():
-                matches = list(base_dir.glob(f"*/{clean_exp}/config.yaml"))
-                if matches:
-                    return self._resolve_config_defaults(self._load_yaml(matches[0]))
-                matches_nested = list(base_dir.glob(f"*/{clean_exp}/*/config.yaml"))
-                if matches_nested:
-                    return self._resolve_config_defaults(self._load_yaml(matches_nested[0]))
 
         return {}
 

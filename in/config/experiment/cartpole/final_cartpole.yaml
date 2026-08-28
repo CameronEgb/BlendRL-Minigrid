@@ -1,11 +1,9 @@
 # @package _global_
 defaults:
-  - override /env: cartpole
+  - cartpole/_base
   - override /hydra/sweeper: optuna_online
 
 # Culminating Experiment for CartPole
-experiment_id: final_cartpole
-group: cartpole
 total_timesteps: 100000
 eval_episodes: 100
 intervals_count: 10
@@ -21,10 +19,7 @@ offline_methods: >-
 # Only train on the absolute best online datasets
 offline_datasets: ppo/final_cp,ppo/blendrl_final_cp
 
-save_dataset: true
-seed: 1
 local: false
-recover: false
 
 hydra:
   sweeper:

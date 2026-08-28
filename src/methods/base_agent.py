@@ -180,7 +180,7 @@ class OfflineAgentBase(BaseAgent):
         """
         datamodule = getattr(self.trainer, "datamodule", None)
         if datamodule is not None and hasattr(datamodule, "reader") and datamodule.reader is not None:
-            is_offline_only = getattr(self.cfg.env, "offline_only", False) or getattr(self.cfg.env, "name", "") in ["mimic", "pyrenees"]
+            is_offline_only = getattr(self.cfg.env, "offline_only", False)
             intervals_count = 1 if is_offline_only else self.cfg.get("intervals_count", 1)
             if intervals_count > 1:
                 epochs_per_interval = self.get_cfg("epochs_per_interval", 1)
@@ -194,7 +194,7 @@ class OfflineAgentBase(BaseAgent):
     def _log_offline_transitions(self):
         """Calculate and log the current transition count for offline training."""
         cfg = self.cfg
-        is_offline_only = getattr(cfg.env, "offline_only", False) or getattr(cfg.env, "name", "") in ["mimic", "pyrenees"]
+        is_offline_only = getattr(cfg.env, "offline_only", False)
         intervals_count = 1 if is_offline_only else cfg.get("intervals_count", 1)
         if intervals_count > 1:
             epochs_per_interval = self.get_cfg("epochs_per_interval", 1)

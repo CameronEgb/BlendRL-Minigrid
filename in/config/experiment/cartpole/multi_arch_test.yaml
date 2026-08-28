@@ -1,9 +1,7 @@
 # @package _global_
 defaults:
-  - override /env: cartpole
+  - cartpole/_base
 
-experiment_id: multi_arch_test
-group: cartpole
 total_timesteps: 50000
 eval_episodes: 100
 online_methods: ppo/cp_tuned
@@ -18,7 +16,4 @@ env:
   architecture: mlp
   rules: default
 
-save_dataset: true
-seed: 1
 local: true
-recover: false

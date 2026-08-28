@@ -262,8 +262,6 @@ class TensorEncoder(object):
     def get_fact_index(self, fact):
         """Convert a fact to the index in the ordered set of all facts.
         """
-        try:
-            index = self.fact_index_dic[fact]
-        except KeyError:
-            index = 0
-        return index
+        if fact not in self.fact_index_dic:
+            raise KeyError(f"Fact '{fact}' not found in fact index dictionary. This usually means a rule used a predicate or object that wasn't properly initialized.")
+        return self.fact_index_dic[fact]

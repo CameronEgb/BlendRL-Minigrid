@@ -1,10 +1,8 @@
 # @package _global_
 defaults:
-  - override /env: cartpole
+  - cartpole/_base
 
 # Optimized Final Configuration for CartPole
-experiment_id: cp_final
-group: cartpole
 total_timesteps: 100000
 eval_episodes: 100
 online_methods: ppo/cp_tuned,ppo/blendrl_cp_tuned
@@ -23,7 +21,4 @@ plots:
   reports:
     include_hyperparameters: true
 
-save_dataset: true
-seed: 1
 local: true
-recover: false

@@ -15,6 +15,12 @@ defaults:
 
 task: reciprocal_refinement
 
+resources:
+  time: "48:00:00"
+  gpus: 1
+  cores: 32
+  memory: "128G"
+
 # Reciprocal refinement configuration
 reciprocal:
   max_rounds: 3            # Number of co-training iterations (0 = bootstrap only)
@@ -50,4 +56,4 @@ env:
 plots:
   losses:
     metrics: ["losses/total_loss", "losses/bellman_loss", "losses/cql_loss"]
-  policy_eval: {}
+  clinical_alignment: {}

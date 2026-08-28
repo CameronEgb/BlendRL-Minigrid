@@ -73,8 +73,8 @@ class EPRewardShaper:
             print(f"WARNING: EP checkpoint directory {self.ep_ckpt_dir} does not exist.")
             return
         
-        # Find all .pt files, optionally filtering by architecture
-        pt_files = sorted(self.ep_ckpt_dir.rglob("*.pt"))
+        # Find all .pt files (shallow search up to 2 levels to avoid NFS storms)
+        pt_files = sorted(list(self.ep_ckpt_dir.glob("*.pt")) + list(self.ep_ckpt_dir.glob("*/*.pt")) + list(self.ep_ckpt_dir.glob("*/*/*.pt")))
         if self.ep_architecture:
             pt_files = [f for f in pt_files if self.ep_architecture in f.stem]
         
@@ -247,7 +247,7 @@ class EPRewardShaper:
         # Pre-compute V(s) if models expect it and a CQL checkpoint is available
         v_all = None
         if self._models_use_v():
-            v_all = self._precompute_v_values(reader)
+            v_all = self._precompute_v_values(reader, cfg)
         
         # Compute potentials for each trajectory
         all_potentials = np.zeros(n_transitions, dtype=np.float32)
@@ -297,62 +297,63 @@ class EPRewardShaper:
         print(f"  Shaping bonus stats: mean={shaped_bonus.mean():.4f}, std={shaped_bonus.std():.4f}, "
               f"min={shaped_bonus.min():.4f}, max={shaped_bonus.max():.4f}")
     
-    def _precompute_v_values(self, reader) -> Optional[np.ndarray]:
+    def _precompute_v_values(self, reader, cfg=None) -> Optional[np.ndarray]:
         """Pre-compute V(s) = max_a Q(s,a) from a CQL checkpoint for V-augmented EP models.
         
-        Looks for CQL checkpoints in standard locations.
+        Requires a valid CQL checkpoint path provided via cfg or EP_SHAPE_CQL_CKPT.
         """
-        cql_ckpt_dir = os.environ.get("EP_SHAPE_CQL_CKPT", "results/checkpoints/mimic")
+        rs_cfg = cfg.env.get("reward_shaping", {}) if cfg and hasattr(cfg, "env") else {}
+        cql_ckpt_dir = rs_cfg.get("cql_ckpt_dir") or os.environ.get("EP_SHAPE_CQL_CKPT")
+        if not cql_ckpt_dir:
+            raise ValueError("EP models require V(s), but cql_ckpt_dir config / EP_SHAPE_CQL_CKPT environment variable is not set.")
+            
+        ckpt_path = Path(cql_ckpt_dir)
         cql_ckpt_path = None
         
-        ckpt_dir = Path(cql_ckpt_dir)
-        if ckpt_dir.exists():
-            candidates = sorted(ckpt_dir.rglob("best_model*.ckpt"), key=lambda p: p.stat().st_mtime, reverse=True)
-            if not candidates:
-                candidates = sorted(ckpt_dir.rglob("*.ckpt"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if ckpt_path.is_file() and ckpt_path.suffix == '.ckpt':
+            cql_ckpt_path = ckpt_path
+        elif ckpt_path.is_dir():
+            # Strict search for best_model.ckpt in the provided directory
+            candidates = list(ckpt_path.glob("best_model*.ckpt"))
             if candidates:
+                candidates = sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)
                 cql_ckpt_path = candidates[0]
-        
-        if not cql_ckpt_path:
-            print("  WARNING: No CQL checkpoint found for V(s) computation. Using zeros.")
-            return np.zeros((len(reader.obs), 1), dtype=np.float32)
+                
+        if not cql_ckpt_path or not cql_ckpt_path.exists():
+            raise FileNotFoundError(f"Could not find a valid CQL checkpoint for V(s) computation at: {ckpt_path}")
         
         print(f"  Computing V(s) from CQL checkpoint: {cql_ckpt_path}")
-        try:
-            from src.methods.cql_agent import CQLAgent
-            torch.serialization.add_safe_globals([
-                getattr(sys.modules.get('omegaconf.dictconfig', None), 'DictConfig', None)
-            ])
-            agent = CQLAgent.load_from_checkpoint(str(cql_ckpt_path), map_location=self.device, weights_only=False)
-            agent.eval()
-            
-            n = len(reader.obs)
-            v_vals = np.zeros((n, 1), dtype=np.float32)
-            batch_sz = 512
-            
-            with torch.no_grad():
-                for i in range(0, n, batch_sz):
-                    batch_obs = reader.obs[i:i+batch_sz].to(self.device)
-                    if hasattr(agent, 'q_network'):
-                        q = agent.q_network(batch_obs)
-                    elif hasattr(agent, 'model'):
-                        q = agent.model.get_q_values(batch_obs, None)
-                    else:
-                        continue
-                    v = torch.max(q, dim=-1)[0].unsqueeze(-1).cpu().numpy()
-                    v_vals[i:i+batch_obs.size(0)] = v
-            
-            print(f"  V(s) computed: mean={v_vals.mean():.4f}, std={v_vals.std():.4f}")
-            return v_vals
-        except Exception as e:
-            print(f"  WARNING: V(s) computation failed: {e}")
-            return np.zeros((len(reader.obs), 1), dtype=np.float32)
+        from src.methods.cql_agent import CQLAgent
+        torch.serialization.add_safe_globals([
+            getattr(sys.modules.get('omegaconf.dictconfig', None), 'DictConfig', None)
+        ])
+        agent = CQLAgent.load_from_checkpoint(str(cql_ckpt_path), map_location=self.device, weights_only=False)
+        agent.eval()
+        
+        n = len(reader.obs)
+        v_vals = np.zeros((n, 1), dtype=np.float32)
+        batch_sz = 512
+        
+        with torch.no_grad():
+            for i in range(0, n, batch_sz):
+                batch_obs = reader.obs[i:i+batch_sz].to(self.device)
+                if hasattr(agent, 'q_network'):
+                    q = agent.q_network(batch_obs)
+                elif hasattr(agent, 'model'):
+                    q = agent.model.get_q_values(batch_obs, None)
+                else:
+                    raise AttributeError("CQL agent does not have a recognizable Q-network attribute ('q_network' or 'model').")
+                v = torch.max(q, dim=-1)[0].unsqueeze(-1).cpu().numpy()
+                v_vals[i:i+batch_obs.size(0)] = v
+        
+        print(f"  V(s) computed: mean={v_vals.mean():.4f}, std={v_vals.std():.4f}")
+        return v_vals
 
 
 def shape_rewards_ep(reader, cfg=None):
     """Convenience function for hooks.py integration.
     
-    Reads configuration from environment variables:
+    Reads configuration from cfg.env.reward_shaping, falling back to environment variables:
         EP_SHAPE_CKPT_DIR: EP checkpoint directory (default: results/checkpoints/early_prediction)
         EP_SHAPE_LAMBDA: Shaping coefficient (default: 1.0)
         EP_SHAPE_GAMMA: Discount factor (default: 0.99)
@@ -360,11 +361,13 @@ def shape_rewards_ep(reader, cfg=None):
         EP_SHAPE_ARCH: EP architecture filter (default: None = use all)
         EP_SHAPE_CQL_CKPT: CQL checkpoint dir for V(s) (default: results/checkpoints/mimic)
     """
-    ep_ckpt_dir = os.environ.get("EP_SHAPE_CKPT_DIR", "results/checkpoints/early_prediction")
-    lambda_coef = float(os.environ.get("EP_SHAPE_LAMBDA", "1.0"))
-    gamma = float(os.environ.get("EP_SHAPE_GAMMA", "0.99"))
-    window_hours = int(os.environ.get("EP_SHAPE_WINDOW", "12"))
-    ep_arch = os.environ.get("EP_SHAPE_ARCH", None)
+    rs_cfg = cfg.env.get("reward_shaping", {}) if cfg and hasattr(cfg, "env") else {}
+    
+    ep_ckpt_dir = rs_cfg.get("ep_ckpt_dir") or os.environ.get("EP_SHAPE_CKPT_DIR", "results/checkpoints/early_prediction")
+    lambda_coef = float(rs_cfg.get("lambda_coef", os.environ.get("EP_SHAPE_LAMBDA", "1.0")))
+    gamma = float(rs_cfg.get("gamma", os.environ.get("EP_SHAPE_GAMMA", "0.99")))
+    window_hours = int(rs_cfg.get("window_hours", os.environ.get("EP_SHAPE_WINDOW", "12")))
+    ep_arch = rs_cfg.get("ep_arch") or os.environ.get("EP_SHAPE_ARCH", None)
     
     shaper = EPRewardShaper(
         ep_ckpt_dir=ep_ckpt_dir,

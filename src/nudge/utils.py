@@ -302,7 +302,7 @@ def load_neuralppo_model(model_dir,
     # Setup the environment
     env = NudgeBaseEnv.from_name(environment, mode=algorithm, **env_kwargs)
     # model = ActorCritic(env).to(device)
-    from src.utils import CNNActor
+    from src.models.architectures import CNNActor
     model = CNNActor(n_actions=18) #, device=device, verbose=1)
     # Load the model weights
     with open(checkpoint_path, "rb") as f:

@@ -1,4 +1,7 @@
 name: seaquest
+monitor_metric: "eval/reward"
+offline_only: false
+preprocess_on_load: false
 env_id: SeaquestNoFrameskip-v4
 num_envs: 20
 num_steps: 128
@@ -7,3 +10,5 @@ gae_lambda: 0.95
 rules: default
 reasoner: nsfr
 architecture: cnn
+
+default_plots: [convergence, losses, reports]

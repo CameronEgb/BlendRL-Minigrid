@@ -1,0 +1,27 @@
+# Site profile: NCSU HPC (ncshare) cluster
+name: ncshare
+slurm_enabled: true
+python_executable: auto
+venv_dir: venv
+mail_user: cegbert@ncsu.edu
+mail_type: "END,FAIL"
+gres_format: "gpu:{gpu_type}:{gpus}"   # e.g. gpu:a100:1
+resources:
+  partition: gpu
+  gpus: 1
+  cores: 16
+  time: "01:00:00"
+  memory: "32G"
+  nodes: 1
+  gpu_type: null
+  gres: null
+  no_gres: false
+module_loads:
+  - "cuda"
+extra_pythonpath: []                    # fyd_repo added dynamically only when needed
+extra_env_vars:
+  PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
+  PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
+extra_sbatch_flags: []
+dataset_search_dirs:
+  - "/hpc/home/cegbert1/Offline-BlendRL/in/datasets"

@@ -14,7 +14,7 @@ import webbrowser
 DEFAULT_OPTUNA_DB_URL = "sqlite:///results/optuna/optuna.db"
 
 
-from src.pipeline.config import get_python_executable
+from src.pipeline.runtime import get_python_executable
 
 
 def is_valid_storage_url(storage_url) -> bool:
@@ -69,7 +69,7 @@ def launch_optuna_dashboard(storage_url):
         if storage_url in ps_output and "optuna_dashboard" in ps_output:
             print(f"Optuna Dashboard already running for: {storage_url}. Skipping launch.")
             return
-    except:
+    except Exception:
         pass
 
     print(f"Launching Optuna Dashboard for: {storage_url}")
@@ -89,7 +89,7 @@ def launch_optuna_dashboard(storage_url):
                 # Use a dummy check to see if port is in use
                 subprocess.run(["nc", "-z", "localhost", str(p)], capture_output=True, check=True)
                 continue # Port is in use
-            except:
+            except Exception:
                 port = p
                 break
 

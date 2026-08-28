@@ -4,8 +4,6 @@ defaults:
   - override /agent: cql/blendrl_human_cew_dueling_resnet
   - override /hydra/sweeper: optuna_offline
 
-experiment_id: tune_pyrenees_cew_resnet
-group: pyrenees
 
 agent:
   epochs_per_interval: 15

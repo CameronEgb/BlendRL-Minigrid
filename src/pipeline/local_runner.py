@@ -2,11 +2,10 @@
 
 Executes online and offline RL training phases sequentially as local subprocesses.
 """
-import os
-import shutil
 import sys
 from pathlib import Path
 
+from src.pipeline.commands import build_online_overrides, build_offline_overrides, get_sweep_direction
 from src.pipeline.config import normalize_agent_name
 from src.pipeline.datasets import ensure_online_dataset_path, resolve_dataset_path, run_experiment
 from src.pipeline.optuna_utils import (
@@ -14,20 +13,26 @@ from src.pipeline.optuna_utils import (
 )
 
 
-def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanitized_extra_args, storage_url, is_sweep):
+def run_local_training(cfg, context):
+    online_list = context["online_list"]
+    offline_list = context["offline_list"]
+    dataset_list = context["dataset_list"]
+    sanitized_extra_args = context["sanitized_extra_args"]
+    storage_url = context["storage_url"]
+    is_sweep = context["is_sweep"]
+
     """Execute online and offline training phases locally as blocking subprocesses."""
     best_online_trial_ids = {}
 
     ckpt_dir = Path("results/checkpoints") / cfg.group / cfg.experiment_id
     if ckpt_dir.exists():
-        print(f"Clearing old checkpoints in {ckpt_dir} for fresh experiment execution...")
-        try:
-            shutil.rmtree(ckpt_dir)
-        except OSError as e:
-            print(f"Notice: Could not clear checkpoint dir {ckpt_dir}: {e}")
+        import time
+        backup_path = f"{ckpt_dir}_backup_{int(time.time())}"
+        print(f"Backing up old checkpoints from {ckpt_dir} to {backup_path}...")
+        ckpt_dir.rename(backup_path)
 
     # 1. Online Training Phases
-    if not args.no_online:
+    if not cfg.get("no_online", False):
         for agent_config in online_list:
             agent_name_internal = normalize_agent_name(agent_config)
             study_name = get_next_study_name(cfg.group, cfg.experiment_id, agent_name_internal)
@@ -45,19 +50,20 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
                 continue
 
             print(f"\n=== Phase: Online Training ({agent_config}) ===")
-            overrides = [
-                f"+experiment={args.experiment}",
-                f"++local=true",
-                f"mode=online",
-                f"agent={agent_config}",
-                f"++agent.name={agent_name_internal}",
-                f"++dataset_path={dataset_path}",
-                f"++hydra.sweeper.study_name={study_name}"
-            ] + sanitized_extra_args
+            overrides = build_online_overrides(
+                experiment=cfg.get("experiment_name", ""),
+                agent_config=agent_config,
+                agent_name=agent_name_internal,
+                dataset_path=dataset_path,
+                local_val=True,
+                study_name=study_name,
+                extra_args=sanitized_extra_args,
+                cfg=cfg
+            )
             
             if is_sweep:
                 delete_optuna_study(storage_url, study_name)
-                direction = cfg.hydra.sweeper.get("direction", "maximize") if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "sweeper") else "maximize"
+                direction = get_sweep_direction(cfg, "online")
                 create_optuna_study(storage_url, study_name, direction=direction)
                 
             run_experiment(overrides)
@@ -72,7 +78,7 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
         print("\n=== Skipping Online Training Phase ===")
 
     # 2. Offline Training Phases (Many-to-Many)
-    if not args.no_offline:
+    if not cfg.get("no_offline", False):
         for dataset_id in dataset_list:
             dataset_name_internal = normalize_agent_name(dataset_id)
             
@@ -94,29 +100,25 @@ def run_local_training(cfg, args, online_list, offline_list, dataset_list, sanit
                 study_name = get_next_study_name(cfg.group, cfg.experiment_id, agent_name_internal)
                 
                 print(f"\n=== Phase: Offline Training ({agent_config}) on Dataset ({dataset_id}) ===")
-                dataset_path_override = any("mode.dataset_path=" in arg for arg in sanitized_extra_args)
                 target_agent_name = f"{agent_name_internal}_{dataset_name_internal}" if len(dataset_list) > 1 else agent_name_internal
-                overrides = [
-                    f"+experiment={args.experiment}",
-                    f"++local=true",
-                    f"mode=offline",
-                    f"agent={agent_config}",
-                    f"++agent.name={target_agent_name}",
-                    f"++hydra.sweeper.study_name={study_name}"
-                ]
-                if cfg.env.name == "pyrenees":
-                    ruleset = "default" if dataset_id == "problem" else "step"
-                    overrides.append(f"++env.rules={ruleset}")
-                    overrides.append(f"++env.problem_type='{dataset_id}'")
-                if not dataset_path_override:
-                    overrides.append(f"++mode.dataset_path='{dataset_path}'")
-                overrides += sanitized_extra_args
+                
+                overrides = build_offline_overrides(
+                    experiment=cfg.get("experiment_name", ""),
+                    agent_config=agent_config,
+                    agent_name=target_agent_name,
+                    dataset_path=dataset_path,
+                    local_val=True,
+                    study_name=study_name,
+                    extra_args=sanitized_extra_args,
+                    cfg=cfg,
+                    dataset_id=dataset_id
+                )
                 
                 if is_sweep:
                     if "--multirun" not in sanitized_extra_args and "-m" not in sanitized_extra_args:
                         overrides.append("--multirun")
                     delete_optuna_study(storage_url, study_name)
-                    direction = cfg.hydra.sweeper.get("direction", "minimize") if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "sweeper") else "minimize"
+                    direction = get_sweep_direction(cfg, "offline")
                     create_optuna_study(storage_url, study_name, direction=direction)
                     
                 run_experiment(overrides)

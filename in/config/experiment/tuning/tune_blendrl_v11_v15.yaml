@@ -1,10 +1,9 @@
 # @package _global_
 defaults:
+  - tuning/_base
   - override /env: cartpole
 
 # Targeted Hyperparameter Sweep v11-v15
-experiment_id: tune_blendrl_v11_v15
-group: tuning
 total_timesteps: 50000
 
 eval_episodes: 100
@@ -13,6 +12,5 @@ offline_methods:
 intervals_count: 20
 
 save_dataset: true
-seed: 1
 local: true
 recover: false

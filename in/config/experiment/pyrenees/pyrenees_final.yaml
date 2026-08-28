@@ -1,0 +1,18 @@
+# @package _global_
+defaults:
+  - pyrenees/_base
+
+consolidate: true
+
+offline_methods:
+  - cql/dnn
+  - cql/blendrl_human_neural
+
+agent:
+  epochs_per_interval: 50
+  eval_interval_epochs: 5
+  batch_size: 256
+  lr: 3e-4
+  cql_alpha: 1.0
+  soft_target_tau: 0.005
+  blender_lr: 3e-4

@@ -3,9 +3,6 @@ defaults:
   - pyrenees/_base
   - override /hydra/sweeper: optuna_offline
 
-name: tune_pyrenees_scaled
-experiment_id: tune_pyrenees_scaled
-group: pyrenees
 
 offline_datasets:
   - problem

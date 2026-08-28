@@ -80,7 +80,7 @@ class PPOAgent(BaseAgent):
             )
             self.register_buffer("logic_obs", torch.zeros((self.num_steps, self.num_envs) + self.logic_observation_space))
         else:
-            from src.utils import get_neural_agent
+            from src.core.factories import get_neural_agent
             self.model = get_neural_agent(
                 cfg.env.name, 
                 self.n_actions, 
@@ -98,8 +98,11 @@ class PPOAgent(BaseAgent):
         self.register_buffer("truncations", torch.zeros((self.num_steps, self.num_envs)))
         self.register_buffer("values", torch.zeros((self.num_steps, self.num_envs)))
         
-        self.next_obs = dummy_neural
-        self.next_logic_obs = dummy_logic
+        if hasattr(self, 'dummy_neural'):
+            self.next_obs = self.dummy_neural
+        else:
+            self.next_obs = self.env.reset()[0] if not isinstance(self.env.reset(), tuple) else self.env.reset()[1]
+        self.next_logic_obs = getattr(self, 'dummy_logic', torch.zeros((self.num_envs,) + self.logic_observation_space))
         self.next_done = torch.zeros(self.num_envs)
         self.next_terminated = torch.zeros(self.num_envs)
         self.next_truncated = torch.zeros(self.num_envs)
@@ -156,7 +159,11 @@ class PPOAgent(BaseAgent):
             self.actions[step] = action.cpu()
             self.logprobs[step] = logprob.cpu()
 
-            next_logic, next_neural, reward, terminated, truncated = self.env.step(action.cpu().numpy())
+            (next_logic, next_neural), reward, terminated, truncated, infos = self.env.step(action.cpu().numpy())
+            
+            reward = torch.tensor(reward, dtype=torch.float32).to(self.device)
+            terminated = torch.tensor(terminated, dtype=torch.bool).to(self.device)
+            truncated = torch.tensor(truncated, dtype=torch.bool).to(self.device)
             
             # Save dataset transitions if configured
             if hasattr(self, "dataset_writer") and self.dataset_writer is not None:
@@ -194,7 +201,7 @@ class PPOAgent(BaseAgent):
                     nextnonterminal = 1.0 - self.next_done.float()
                     nextvalues = next_value
                 else:
-                    nextnonterminal = 1.0 - (self.terminations[t + 1] | self.truncations[t + 1]).float()
+                    nextnonterminal = 1.0 - ((self.terminations[t + 1] + self.truncations[t + 1]) > 0).float()
                     nextvalues = self.values[t + 1]
                 delta = self.rewards[t] + self.gamma * nextvalues * nextnonterminal - self.values[t]
                 advantages[t] = lastgaelam = delta + self.gamma * self.gae_lambda * nextnonterminal * lastgaelam

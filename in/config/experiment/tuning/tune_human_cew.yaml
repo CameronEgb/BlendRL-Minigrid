@@ -1,11 +1,10 @@
 # @package _global_
 defaults:
+  - tuning/_base
   - override /env: cartpole
   - override /hydra/sweeper: optuna_offline
   - _self_
 
-experiment_id: tune_human_cew
-group: tuning
 total_timesteps: 50000
 eval_episodes: 50
 online_methods: ppo/cp_tuned
@@ -17,7 +16,6 @@ env:
   rules: default
 
 save_dataset: true
-seed: 1
 local: true
 
 hydra:

@@ -2,8 +2,12 @@
 defaults:
   - mimic/_base
 
-name: all_mimic
-experiment_id: all_mimic
+
+resources:
+  time: "24:00:00"
+  gpus: 1
+  cores: 16
+  memory: "64G"
 
 offline_methods:
   - cql/dnn

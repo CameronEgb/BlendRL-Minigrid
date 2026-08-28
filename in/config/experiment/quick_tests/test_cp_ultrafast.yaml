@@ -3,8 +3,6 @@ defaults:
   - override /env: cartpole
   - override /agent: ppo/blendrl_human_neural
   - override /mode: online
-experiment_id: test_cp_ultrafast
-group: quick_tests
 seed: 1
 total_timesteps: 40000
 intervals_count: 20

@@ -3,8 +3,6 @@ defaults:
   - pyrenees/_base
   - override /agent: cql/dueling_resnet
 
-name: pyrenees_scaled
-experiment_id: pyrenees_scaled
 
 offline_datasets:
   - problem

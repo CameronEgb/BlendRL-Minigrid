@@ -4,7 +4,6 @@ defaults:
   - override /agent: cql/dnn
   - override /mode: offline
 
-group: mimic
 offline_datasets: [mimic_lazy_0_interventions_balanced]
 offline_methods: [cql/dnn, cql/blendrl_human_neural, cql/blendrl_human_cew, cew/fyd]
 
@@ -37,6 +36,6 @@ agent:
 plots:
   losses:
     metrics: ["losses/total_loss", "losses/bellman_loss", "losses/cql_loss", "losses/entropy", "losses/blend_entropy"]
-  policy_eval:
+  clinical_alignment:
     plots: ["agreement_vs_shock", "agreement_vs_shock_deciles"]
   reports: {}

@@ -125,10 +125,10 @@ def main():
     print("      RUNNING OFF-POLICY PEDAGOGICAL EVALUATION")
     print("=" * 70)
     try:
-        from plot.policy_eval import PolicyEvalPlotter
-        plotter = PolicyEvalPlotter()
+        from plot.action_distribution import ActionDistributionPlotter
+        plotter = ActionDistributionPlotter()
         plotter.run("pyrenees_best")
-        print("✅ Policy evaluation completed. Check results in results/plots/pyrenees/pyrenees_best/")
+        print("✅ Pedagogical action distribution evaluation completed. Check results in results/plots/pyrenees/pyrenees_best/")
     except Exception as e:
         print(f"Notice: Policy evaluation run skipped or encountered error: {e}")
 

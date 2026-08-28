@@ -1,6 +1,8 @@
 import os
 import sys
 import argparse
+import hydra
+from omegaconf import DictConfig, OmegaConf
 import math
 import numpy as np
 import torch
@@ -132,18 +134,55 @@ def objective(trial, seq_data_dict, y_cohort, c_indices, args):
     mean_score = float(np.mean(split_scores))
     return mean_score
 
-def main():
-    parser = argparse.ArgumentParser(description="Modular Optuna Hyperparameter Search for Early Prediction Models")
-    parser.add_argument("--n-trials", type=int, default=30, help="Number of Optuna trials")
-    parser.add_argument("--model-target", type=str, default="all", help="Target architecture to tune: lstm_no_v, lstm_with_v, transformer_no_v, transformer_with_v, or all")
-    parser.add_argument("--dataset-path", type=str, default=str(resolve_mimic_npz_path()))
-    parser.add_argument("--checkpoint", type=str, default="results/checkpoints/mimic/tune_mimic_cql")
-    parser.add_argument("--window-hours", type=int, default=12)
-    parser.add_argument("--use-volatility", action="store_true", default=True)
-    parser.add_argument("--metric", type=str, default="auprc", choices=["auprc", "accuracy", "f1", "roc_auc"], help="Optimization metric for Optuna (auprc, accuracy, f1, roc_auc)")
-    parser.add_argument("--n-eval-splits", type=int, default=5, help="Number of stratified cross-validation splits evaluated and averaged per trial (default: 5)")
-    parser.add_argument("--out-dir", type=str, default="results/plots/early_prediction/tune_early_pred")
-    args = parser.parse_args()
+class Dict2Obj:
+    def __init__(self, d, defaults=None):
+        if defaults:
+            for k, v in defaults.items():
+                setattr(self, k, v)
+        for k, v in d.items():
+            setattr(self, k, v)
+
+@hydra.main(version_base=None, config_path="../../in/config", config_name="config")
+def main(cfg: DictConfig):
+    # Auto-infer experiment_id from Hydra task override if not explicitly specified
+    if cfg.get("experiment_id", "default_exp") == "default_exp":
+        try:
+            from hydra.core.hydra_config import HydraConfig
+            if HydraConfig.initialized():
+                for override in HydraConfig.get().overrides.task:
+                    if override.startswith("+experiment=") or override.startswith("experiment="):
+                        exp_stem = Path(override.split("=")[-1]).stem
+                        cfg.experiment_id = exp_stem
+                        break
+        except Exception:
+            pass
+
+    ep_cfg = cfg.get("early_prediction", {})
+    if isinstance(ep_cfg, DictConfig):
+        ep_cfg = OmegaConf.to_container(ep_cfg, resolve=True)
+        
+    defaults = {
+        "n_trials": 30,
+        "model_target": "all",
+        "dataset_path": str(resolve_mimic_npz_path()),
+        "checkpoint": "results/checkpoints/mimic/tune_mimic_cql",
+        "window_hours": 12,
+        "use_volatility": True,
+        "metric": "auprc",
+        "n_eval_splits": 5,
+        "out_dir": "results/plots/early_prediction/tune_early_pred"
+    }
+    
+    # Check for CLI overrides mapped through the task pipeline
+    import sys
+    for i, arg in enumerate(sys.argv):
+        if arg.startswith("--model-target"):
+            if "=" in arg:
+                defaults["model_target"] = arg.split("=")[1]
+            else:
+                defaults["model_target"] = sys.argv[i+1]
+                
+    args = Dict2Obj(ep_cfg, defaults)
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Loading dataset from: {args.dataset_path}")
@@ -263,5 +302,3 @@ def main():
     except Exception as e:
         print(f"Warning: Could not save optimization history plot: {e}")
 
-if __name__ == "__main__":
-    main()

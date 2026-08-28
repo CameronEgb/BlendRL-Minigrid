@@ -4,8 +4,6 @@ defaults:
   - override /agent: cql/blendrl_human_dueling_resnet
   - override /hydra/sweeper: optuna_offline
 
-experiment_id: tune_pyrenees_blendrl_resnet
-group: pyrenees
 
 offline_datasets:
   - problem

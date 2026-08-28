@@ -28,7 +28,7 @@ class RLDataModule(L.LightningDataModule):
             import os
             from pathlib import Path
             dataset_path = Path(self.cfg.mode.dataset_path)
-            if self.cfg.env.name == "pyrenees" and (not dataset_path.exists() or not list(dataset_path.glob("*.pkl"))):
+            if self.cfg.env.get("preprocess_on_load", False) and (not dataset_path.exists() or not list(dataset_path.glob("*.pkl"))):
                 print(f"[RLDataModule] Pyrenees dataset missing at '{dataset_path}'. Auto-running preprocess_pyrenees_per_problem.py...")
                 import subprocess, sys
                 script = Path("scripts/preprocess_pyrenees_per_problem.py")
@@ -38,7 +38,7 @@ class RLDataModule(L.LightningDataModule):
             full_reader = DatasetReader(self.cfg.mode.dataset_path)
             
             # Determine if validation split should be enabled
-            is_offline_only = self.cfg.env.get("offline_only", False) or self.cfg.env.name in ["mimic", "pyrenees"]
+            is_offline_only = self.cfg.env.get("offline_only", False)
             val_split = self.cfg.get("val_split", None)
             if val_split is None:
                 val_split = 0.1 if is_offline_only else 0.0

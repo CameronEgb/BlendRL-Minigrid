@@ -1,40 +1,84 @@
 """Slurm cluster utilities.
 
 Provides functions for generating SBATCH scripts and submitting jobs.
+All cluster-specific values (email, partition, cores) are read from site config.
 """
-import os
 import re
 import subprocess
 
+from src.pipeline.runtime import get_shell_env_block, get_shell_python_cmd
 
-def get_gres_header(partition, gpus, gpu_type=None, gres=None, no_gres=False):
+
+from omegaconf import OmegaConf
+
+def get_gres_header(res, site_cfg):
     """Generate the appropriate --gres header.
     
     Emits --gres=gpu:{gpus} automatically when gpus > 0 unless explicitly disabled.
     """
-    if no_gres or gres in ("none", "False", "false") or not gpus or int(gpus) == 0:
+    gpus = res.get("gpus")
+    gres = res.get("gres")
+    gpu_type = res.get("gpu_type")
+    no_gres = res.get("no_gres") or getattr(site_cfg, "no_gres", False)
+    partition = str(res.get("partition", "")).lower()
+    is_cpu_partition = partition in ("common", "serial", "cpu", "standard", "debug_cpu")
+
+    if no_gres or is_cpu_partition or gres in ("none", "False", "false") or not gpus or int(gpus) == 0:
         return ""
     if gres:
         return f"#SBATCH --gres={gres}\n"
+    
+    # Optional site-specific gres format template (e.g., "gpu:{gpu_type}:{gpus}")
+    gres_format = getattr(site_cfg, "gres_format", None)
+    if gres_format and gpu_type:
+        return f"#SBATCH --gres={gres_format.format(gpu_type=gpu_type, gpus=gpus)}\n"
+    elif gres_format and not gpu_type and "{gpu_type}" not in gres_format:
+        return f"#SBATCH --gres={gres_format.format(gpus=gpus)}\n"
+        
     if gpu_type:
         return f"#SBATCH --gres=gpu:{gpu_type}:{gpus}\n"
     return f"#SBATCH --gres=gpu:{gpus}\n"
 
 
-def generate_sbatch_header(job_name, log_dir, partition="gpu", gpus=1, cores=16, nodes=1, time="01:00:00", mem="64G", gpu_type=None, gres=None, no_gres=False, dependency=None, dependency_type="afterok", mail_user="cegbert@ncsu.edu", mail_type="END,FAIL"):
-    """Generate standardized SBATCH script header."""
+def generate_sbatch_header(job_name, log_dir, cfg, dependency=None, dependency_type="afterok"):
+    """Generate standardized SBATCH script header using pure Hydra composition."""
+    site_cfg = getattr(cfg, "site", None)
+    
+    # Merge site resources with experiment resources (experiment overrides site)
+    site_resources = getattr(site_cfg, "resources", {}) if site_cfg else {}
+    exp_resources = getattr(cfg, "resources", {})
+    res = OmegaConf.merge(site_resources, exp_resources)
+    
+    partition = res.get("partition")
+    cores = res.get("cores")
+    time = res.get("time")
+    memory = res.get("memory")
+    nodes = res.get("nodes", 1)
+    
+    mail_user = getattr(site_cfg, "mail_user", None)
+    mail_type = getattr(site_cfg, "mail_type", "END,FAIL")
+
     script = "#!/bin/bash\n"
     script += f"#SBATCH --job-name={job_name}\n"
     if partition:
         script += f"#SBATCH --partition={partition}\n"
-    script += get_gres_header(partition, gpus, gpu_type=gpu_type, gres=gres, no_gres=no_gres)
-    script += f"#SBATCH --time={time}\n"
-    script += f"#SBATCH --ntasks-per-node={cores}\n"
-    script += f"#SBATCH --nodes={nodes}\n"
-    if mem:
-        script += f"#SBATCH --mem={mem}\n"
+    script += get_gres_header(res, site_cfg)
+    if time:
+        script += f"#SBATCH --time={time}\n"
+    if nodes:
+        script += f"#SBATCH --nodes={nodes}\n"
+    script += f"#SBATCH --ntasks=1\n"
+    if cores:
+        script += f"#SBATCH --cpus-per-task={cores}\n"
+    if memory:
+        script += f"#SBATCH --mem={memory}\n"
     script += f"#SBATCH --output={log_dir}/%x_%j.out\n"
     script += f"#SBATCH --error={log_dir}/%x_%j.err\n"
+
+    # Extra site-specific sbatch flags
+    for flag in getattr(site_cfg, "extra_sbatch_flags", []) or []:
+        script += f"#SBATCH {flag}\n"
+
     if mail_user:
         script += f"#SBATCH --mail-type={mail_type}\n"
         script += f"#SBATCH --mail-user={mail_user}\n"
@@ -43,28 +87,25 @@ def generate_sbatch_header(job_name, log_dir, partition="gpu", gpus=1, cores=16,
     return script
 
 
-def generate_sbatch_script(job_name, cmd_args, log_dir, partition="gpu", gpus=1, cores=16, nodes=1, gpu_type=None, gres=None, no_gres=False, dependency=None, time="01:00:00"):
+def generate_sbatch_script(job_name, cmd_args, log_dir, cfg, dependency=None):
     """Generate an SBATCH script string for Slurm submission."""
+    import shlex
+
     script = generate_sbatch_header(
         job_name=job_name,
         log_dir=log_dir,
-        partition=partition,
-        gpus=gpus,
-        cores=cores,
-        nodes=nodes,
-        time=time,
-        gpu_type=gpu_type,
-        gres=gres,
-        no_gres=no_gres,
+        cfg=cfg,
         dependency=dependency
     )
-    script += f"\n"
-    script += f"export PROJECT_ROOT={os.getcwd()}\n"
-    script += f"export PYTHONPATH=$PROJECT_ROOT:$PROJECT_ROOT/src:$PROJECT_ROOT/src/fyd_repo/src:$PYTHONPATH\n"
+    script += "\n"
     
-    # Construct the python command with absolute venv path
-    import shlex
-    cmd_str = "$PROJECT_ROOT/venv/bin/python3 " + " ".join(shlex.quote(arg) for arg in cmd_args)
+    site_cfg = getattr(cfg, "site", None)
+    script += get_shell_env_block(site_cfg)
+    script += "\n"
+
+    # Construct the python command using site-aware venv path
+    python_cmd = get_shell_python_cmd(site_cfg)
+    cmd_str = python_cmd + " " + " ".join(shlex.quote(arg) for arg in cmd_args)
     script += f'echo "Running: {cmd_str}"\n'
     script += f"{cmd_str}\n"
     
@@ -72,23 +113,32 @@ def generate_sbatch_script(job_name, cmd_args, log_dir, partition="gpu", gpus=1,
 
 
 def submit_sbatch(script_content):
-    """Submit an SBATCH script to Slurm and return the job ID."""
+    """Submit an SBATCH script to Slurm and return the job ID.
+    
+    Uses --parsable for robust job ID extraction.
+    Returns None if submission fails or sbatch is not available.
+    """
     print(f"Submitting Slurm job via stdin...")
     try:
-        # Pipe script_content directly to sbatch stdin
+        # Use --parsable for reliable job ID output (just the number)
         result = subprocess.run(
-            ["sbatch"], 
+            ["sbatch", "--parsable"], 
             input=script_content, 
             capture_output=True, 
             text=True, 
             check=True
         )
-        match = re.search(r"Submitted batch job (\d+)", result.stdout)
-        if match:
-            job_id = match.group(1)
+        job_id = result.stdout.strip().split(";")[0]  # --parsable may include cluster name after ;
+        if job_id.isdigit():
             print(f"-> Job ID: {job_id}")
             return job_id
         else:
+            # Fallback: try regex parsing for non-standard sbatch output
+            match = re.search(r"(\d+)", result.stdout)
+            if match:
+                job_id = match.group(1)
+                print(f"-> Job ID: {job_id}")
+                return job_id
             print(f"Could not parse job ID from: {result.stdout}")
             return None
     except subprocess.CalledProcessError as e:
@@ -96,4 +146,4 @@ def submit_sbatch(script_content):
         return None
     except FileNotFoundError:
         print("Error: 'sbatch' command not found. Are you on the Slurm cluster?")
-        return "99999"
+        return None

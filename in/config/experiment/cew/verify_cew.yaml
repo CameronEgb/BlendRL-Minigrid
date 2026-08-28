@@ -1,5 +1,6 @@
 # @package _global_
 defaults:
+  - cew/_base
   - override /agent: cew/fyd
   - override /mode: offline
 
@@ -32,5 +33,3 @@ agent:
 mode:
   dataset_path: in/datasets/ungrouped/cp_final/ppo_cp_tuned
 
-experiment_id: verify_cew
-group: cew

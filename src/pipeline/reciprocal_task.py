@@ -30,19 +30,21 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-
-from src.pipeline.optuna_utils import get_python_executable
 
 
-def run_reciprocal_refinement(cfg, args, local_val):
+from src.pipeline.runtime import get_python_executable, get_subprocess_env
+from src.pipeline.task_registry import register_task
+
+@register_task("reciprocal_refinement")
+def run_reciprocal_refinement_task(cfg, context):
+    run_reciprocal_refinement(cfg, context.get("local_val", True))
+    sys.exit(0)
+
+def run_reciprocal_refinement(cfg, local_val):
     """Execute the reciprocal refinement iterative co-training loop.
     
     Args:
         cfg: Hydra experiment config with 'reciprocal' section
-        args: CLI arguments from run_pipeline.py
         local_val: Whether to run locally (True) or via Slurm (False)
     """
     rc = cfg.get("reciprocal", {})
@@ -56,7 +58,8 @@ def run_reciprocal_refinement(cfg, args, local_val):
     group = cfg.get("group", "mimic")
     exp_id = cfg.get("experiment_id", cfg.get("name", "reciprocal_refinement"))
     
-    python_exe = get_python_executable()
+    site_cfg = cfg.get("site", None)
+    python_exe = get_python_executable(site_cfg)
     
     # Standard paths
     base_ckpt_dir = Path("results/checkpoints") / group / exp_id
@@ -93,7 +96,7 @@ def run_reciprocal_refinement(cfg, args, local_val):
         # ==================================================================
         print(f"\n--- Round {round_k}: Step 1 — Train CQL ---")
         
-        env_vars = os.environ.copy()
+        env_vars = get_subprocess_env(site_cfg)
         env_vars["BLENDRL_ENV_NAME"] = "mimic"
         
         if round_k == 0:
@@ -117,7 +120,7 @@ def run_reciprocal_refinement(cfg, args, local_val):
         
         cql_cmd = [
             python_exe, "-u", "src/train.py",
-            f"experiment={args.experiment}",
+            f"experiment={cfg.get('experiment_name', '')}",
             f"experiment_id={round_exp_id}",
             "mode=offline",
             f"agent.name={cql_methods.split(',')[0]}",
@@ -175,15 +178,31 @@ def run_reciprocal_refinement(cfg, args, local_val):
         # ==================================================================
         print(f"\n--- Round {round_k}: Step 3 — Evaluate ---")
         
-        eval_cmd = [
-            python_exe, "-u", "src/early_prediction/eval.py",
-            "--checkpoint", str(round_ckpt_dir),
-            "--ep-ckpt-root", str(round_ep_ckpt_dir),
-            "--output-dir", str(round_results_dir),
-        ]
-        
         if local_val:
-            result = subprocess.run(eval_cmd, env=env_vars)
+            from src.early_prediction.eval_logic import (
+                compute_ep_eval_data,
+                plot_agreement_vs_shock,
+                plot_agreement_vs_shock_deciles,
+                plot_ep_shock_over_tau,
+                write_counterfactual_table
+            )
+            try:
+                eval_results = compute_ep_eval_data(
+                    checkpoint_root=str(round_ckpt_dir),
+                    dataset_path=None,
+                    ep_ckpt_root=str(round_ep_ckpt_dir)
+                )
+                
+                plot_agreement_vs_shock(eval_results["rl_agreements"], eval_results["y"], round_results_dir)
+                plot_agreement_vs_shock_deciles(eval_results["rl_agreements"], eval_results["y"], round_results_dir)
+                plot_ep_shock_over_tau(eval_results["ep_shock_results"], round_results_dir)
+                write_counterfactual_table(
+                    eval_results["cf_data"], 
+                    round_results_dir / "counterfactual_summary.csv", 
+                    round_results_dir / "counterfactual_summary.txt"
+                )
+            except Exception as e:
+                print(f"  WARNING: Evaluation had issues in round {round_k}: {e}")
         
         # ==================================================================
         # Step 4: Collect metrics and check convergence
@@ -191,9 +210,13 @@ def run_reciprocal_refinement(cfg, args, local_val):
         metrics = _collect_round_metrics(round_results_dir, round_k)
         round_metrics.append(metrics)
         
-        # Save convergence log
-        with open(convergence_log, "w") as f:
+        # Save convergence log atomically
+        tmp_log = str(convergence_log) + ".tmp"
+        with open(tmp_log, "w") as f:
             json.dump(round_metrics, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_log, convergence_log)
         
         print(f"\n  Round {round_k} metrics: {json.dumps(metrics, indent=2)}")
         

@@ -10,18 +10,9 @@ if PROJECT_ROOT not in sys.path:
 import argparse
 import importlib
 import pkgutil
-import shutil
-import yaml
 
 from plot.base import BasePlotter
 
-# Environment-based default plot modules.
-# Experiments can override by defining a `plots:` section in their YAML.
-ENV_DEFAULT_PLOTS = {
-    "mimic":    ["losses", "policy_eval", "reports"],
-    "pyrenees": ["losses", "policy_eval", "reports"],
-    "cartpole": ["convergence", "losses", "reports"],
-}
 FALLBACK_PLOTS = ["convergence", "losses", "reports"]
 
 
@@ -50,7 +41,7 @@ def get_requested_plots(exp_cfg: dict, exp_id: str) -> dict:
     
     Priority:
       1. Explicit `plots:` section in experiment YAML (list or dict form)
-      2. Environment-based defaults from ENV_DEFAULT_PLOTS
+      2. Environment-based defaults from env config (`default_plots`)
       3. FALLBACK_PLOTS
     """
     plots_val = exp_cfg.get("plots", None)
@@ -61,27 +52,13 @@ def get_requested_plots(exp_cfg: dict, exp_id: str) -> dict:
             return plots_val
 
     # Fall back to env-based defaults
-    env_name = ""
     env_val = exp_cfg.get("env", {})
     if isinstance(env_val, dict):
-        env_name = env_val.get("name", "")
-    elif isinstance(env_val, str):
-        env_name = env_val
-
-    if not env_name and "group" in exp_cfg:
-        env_name = exp_cfg["group"]
-    if not env_name and "/" in exp_id:
-        env_name = exp_id.split("/")[0]
-
-    # Also check for early_prediction task types
-    task_name = exp_cfg.get("task", "")
-    defaults = ENV_DEFAULT_PLOTS.get(env_name, FALLBACK_PLOTS)
-    
-    # Auto-include early_prediction if relevant
+        defaults = env_val.get("default_plots", FALLBACK_PLOTS)
+    else:
+        defaults = FALLBACK_PLOTS
+        
     result = {name: {} for name in defaults}
-    if "early_prediction" not in result:
-        if "early_pred" in exp_id or "early_prediction" in task_name:
-            result["early_prediction"] = {}
     
     return result
 

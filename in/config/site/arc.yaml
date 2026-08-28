@@ -1,0 +1,25 @@
+# Site profile: ARC cluster (arc.csc.ncsu.edu)
+# Boilerplate — edit partition names, GRES syntax, and paths as needed.
+name: arc
+slurm_enabled: true
+python_executable: auto
+venv_dir: venv
+mail_user: cegbert@arc.csc.ncsu.edu
+mail_type: "END,FAIL"
+gres_format: "gpu:{gpus}"              # ARC may differ from ncshare; edit as needed
+resources:
+  partition: batch
+  gpus: 1
+  cores: 8
+  time: "02:00:00"
+  memory: null
+  nodes: 1
+  gpu_type: null
+  gres: null
+  no_gres: false
+module_loads: []                        # TODO: add if ARC requires module load commands
+extra_pythonpath: []
+extra_env_vars:
+  PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
+extra_sbatch_flags: []                  # e.g. ["--mem=32G"] if needed
+dataset_search_dirs: []                 # TODO: add ARC dataset paths

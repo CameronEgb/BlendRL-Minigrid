@@ -1,12 +1,10 @@
 """Pre-flight configuration validation module."""
-import os
-import sys
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, List
 
 from src.methods.registry import list_registered_agents, auto_discover
 from src.pipeline.datasets import resolve_dataset_path
-from src.pipeline.config import parse_method_list
+from src.pipeline.config import parse_method_list, normalize_agent_name, resolve_experiment_config_name
 
 
 def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = False) -> List[str]:
@@ -17,16 +15,14 @@ def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = 
     fatal_errors = []
     
     env_name = getattr(cfg.env, "name", "unknown") if hasattr(cfg, "env") else "unknown"
-    is_offline_only = getattr(cfg.env, "offline_only", False) or env_name in ["mimic", "pyrenees"]
+    is_offline_only = getattr(cfg.env, "offline_only", False)
     mode_type = getattr(cfg.mode, "type", "online") if hasattr(cfg, "mode") else "online"
     
     # 1. Check intervals_count on offline-only datasets
     if is_offline_only:
         # Check if the user explicitly set intervals_count > 1 in the experiment file
-        exp_path = Path("in/config/experiment") / f"{experiment_name}.yaml"
-        if not exp_path.exists():
-            matches = list(Path("in/config/experiment").glob(f"**/{experiment_name}.yaml"))
-            if matches: exp_path = matches[0]
+        rel_path = resolve_experiment_config_name(experiment_name)
+        exp_path = Path("in/config/experiment") / f"{rel_path}.yaml"
         if exp_path.exists():
             import yaml
             with open(exp_path) as f:
@@ -57,7 +53,9 @@ def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = 
         offline_datasets = parse_method_list(cfg.get("offline_datasets", []))
         for ds in offline_datasets:
             # If dataset will be generated in online phase, that's fine
-            if ds in online_methods or ds.replace("/", "_") in [m.replace("/", "_") for m in online_methods]:
+            norm_ds = normalize_agent_name(ds)
+            norm_online = [normalize_agent_name(m) for m in online_methods]
+            if ds in online_methods or norm_ds in norm_online:
                 continue
             try:
                 yaml_ds_path = cfg.mode.get("dataset_path", None) if hasattr(cfg, "mode") else None

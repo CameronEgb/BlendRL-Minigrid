@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - override /env: cartpole
+
+save_dataset: true
+seed: 1
+recover: false
+
+plots:
+  losses:
+    metrics: ["losses/total_loss", "losses/bellman_loss", "losses/cql_loss", "losses/entropy", "losses/blend_entropy"]
+  convergence: {}

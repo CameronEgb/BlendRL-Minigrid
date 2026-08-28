@@ -373,10 +373,3 @@ class ReportsPlotter(BasePlotter):
             pd.DataFrame(csv_records).to_csv(time_csv_path, index=False)
             print(f"  Saved: {time_csv_path}")
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate Markdown Reports for an Experiment")
-    parser.add_argument("experiment_id", type=str, help="Experiment ID to generate reports for")
-    args = parser.parse_args()
-
-    plotter = ReportsPlotter()
-    plotter.run(args.experiment_id)

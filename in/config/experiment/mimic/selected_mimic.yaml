@@ -2,8 +2,6 @@
 defaults:
   - mimic/_base
 
-name: selected_mimic
-experiment_id: selected_mimic
 
 offline_methods:
   - cql/dueling_resnet

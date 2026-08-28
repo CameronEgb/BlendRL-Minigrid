@@ -35,7 +35,7 @@ class IQLAgent(OfflineAgentBase):
 
         num_in_features = np.prod(self.observation_space)
         if cfg.env.architecture == "mlp":
-            from src.utils import MLPQNetwork, MLPValueNetwork
+            from src.models.architectures import MLPQNetwork, MLPValueNetwork
             self.q_network = MLPQNetwork(n_actions=self.n_actions, num_in_features=num_in_features, hidden_sizes=hidden_sizes)
             self.q_network2 = MLPQNetwork(n_actions=self.n_actions, num_in_features=num_in_features, hidden_sizes=hidden_sizes)
             self.value_network = MLPValueNetwork(num_in_features=num_in_features, hidden_sizes=hidden_sizes)
@@ -43,7 +43,7 @@ class IQLAgent(OfflineAgentBase):
             self.target_q_network = MLPQNetwork(n_actions=self.n_actions, num_in_features=num_in_features, hidden_sizes=hidden_sizes)
             self.target_q_network2 = MLPQNetwork(n_actions=self.n_actions, num_in_features=num_in_features, hidden_sizes=hidden_sizes)
         else:
-            from src.utils import QNetwork, ValueNetwork
+            from src.models.architectures import QNetwork, ValueNetwork
             self.q_network = QNetwork(n_actions=self.n_actions)
             self.q_network2 = QNetwork(n_actions=self.n_actions)
             self.value_network = ValueNetwork()
@@ -72,7 +72,7 @@ class IQLAgent(OfflineAgentBase):
                 cfg=cfg.agent
             )
         else:
-            from src.utils import get_neural_agent
+            from src.core.factories import get_neural_agent
             self.actor = get_neural_agent(cfg.env.name, self.n_actions, self.device, arch_name=cfg.env.architecture, hidden_sizes=hidden_sizes)
 
     def _prepare_logic_obs(self, obs, logic_obs=None):

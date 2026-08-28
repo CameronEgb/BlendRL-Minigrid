@@ -1,16 +1,13 @@
 # @package _global_
 defaults:
+  - tuning/_base
   - override /env: cartpole
   - override /agent: cew/base
   - override /mode: offline
   - override /hydra/sweeper: optuna_offline
-experiment_id: tune_cew
-group: tuning
-seed: 1
 total_timesteps: 250000
 intervals_count: 1
 eval_episodes: 100
-save_dataset: false
 
 # Force dataset path to the best PPO dataset
 mode:

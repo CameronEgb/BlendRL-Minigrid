@@ -1,11 +1,10 @@
 # @package _global_
 defaults:
+  - tuning/_base
   - override /env: cartpole
   - override /mode: online
 
 # Tuning Experiment for BlendRL on CartPole (10 variants)
-experiment_id: tune_blendrl
-group: tuning
 total_timesteps: 50000
 intervals_count: 10
 eval_episodes: 100
@@ -16,6 +15,5 @@ online_methods: >-
 
 offline_methods: 
 save_dataset: true
-seed: 1
 local: true
 recover: false

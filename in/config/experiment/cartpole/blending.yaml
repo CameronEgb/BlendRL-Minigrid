@@ -1,9 +1,7 @@
 # @package _global_
 defaults:
-  - override /env: cartpole
+  - cartpole/_base
 
-experiment_id: blending
-group: cartpole
 total_timesteps: 100000
 eval_episodes: 100
 online_methods: ppo/cp_tuned,ppo/blendrl_multi_logic
@@ -14,7 +12,4 @@ env:
   rules: "default, variant1"
   architecture: mlp
 
-save_dataset: true
-seed: 1
 local: true
-recover: false

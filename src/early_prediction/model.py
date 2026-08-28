@@ -1,6 +1,8 @@
 import os
 import sys
 import argparse
+import hydra
+from omegaconf import DictConfig, OmegaConf
 import math
 import numpy as np
 import torch
@@ -256,75 +258,9 @@ def normalize_features(X_train_list, X_test_list):
     return [(s - mean) / std for s in X_train_list], [(s - mean) / std for s in X_test_list]
 
 # --- Training Helper Functions ---
-def train_lstm_model(X_train, y_train, input_dim, hidden_dim=64, num_layers=2, epochs=15, batch_size=64, lr=1e-3, weight_decay=1e-4, use_focal_loss=False, use_tcn_conv=False, bidirectional=False, device="cpu", seed=42, use_norm=True):
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    
-    lengths_train = torch.tensor([len(seq) for seq in X_train], dtype=torch.long)
-    max_len = max(lengths_train).item()
-    
-    X_train_padded = np.zeros((len(X_train), max_len, input_dim), dtype=np.float32)
-    for idx, seq in enumerate(X_train):
-        X_train_padded[idx, :len(seq), :] = seq
-        
-    X_train_tensor = torch.tensor(X_train_padded, dtype=torch.float32).to(device)
-    y_train_tensor = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1).to(device)
-    
-    n_pos = (y_train == 1).sum()
-    n_neg = (y_train == 0).sum()
-    pos_weight = torch.tensor([n_neg / max(1, n_pos)], dtype=torch.float32).to(device)
-    
-    model = SepsisLSTM(input_dim=input_dim, hidden_dim=hidden_dim, num_layers=num_layers, dropout=0.2, use_tcn_conv=use_tcn_conv, bidirectional=bidirectional).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    
-    if use_focal_loss:
-        criterion = FocalLoss(pos_weight=pos_weight, gamma=2.0)
-    else:
-        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-        
-    train_losses = []
-    dataset_size = len(X_train)
-    
-    for epoch in range(epochs):
-        model.train()
-        permutation = torch.randperm(dataset_size)
-        epoch_loss = 0.0
-        batches = 0
-        for i in range(0, dataset_size, batch_size):
-            indices = permutation[i:i+batch_size]
-            batch_x = X_train_tensor[indices]
-            batch_y = y_train_tensor[indices]
-            batch_lengths = lengths_train[indices]
-            
-            optimizer.zero_grad()
-            logits = model(batch_x, batch_lengths)
-            loss = criterion(logits, batch_y)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
-            
-            epoch_loss += loss.item()
-            batches += 1
-            
-        train_losses.append(epoch_loss / max(1, batches))
-        
-    return model, train_losses
 
-def evaluate_lstm_model(model, X_test, input_dim, device="cpu"):
-    model.eval()
-    lengths_test = torch.tensor([len(seq) for seq in X_test], dtype=torch.long)
-    max_len = max(lengths_test).item()
-    
-    X_test_padded = np.zeros((len(X_test), max_len, input_dim), dtype=np.float32)
-    for idx, seq in enumerate(X_test):
-        X_test_padded[idx, :len(seq), :] = seq
-        
-    X_test_tensor = torch.tensor(X_test_padded, dtype=torch.float32).to(device)
-    
-    with torch.no_grad():
-        logits = model(X_test_tensor, lengths_test)
-        probs = torch.sigmoid(logits).cpu().numpy().squeeze(1)
-    return probs
+
+
 
 def train_transformer_model(X_train, y_train, input_dim, d_model=64, nhead=4, num_layers=2, dropout=0.1, weight_decay=1e-3, norm_first=True, pos_type="learned", use_cls_token=True, use_tcn_conv=False, use_focal_loss=False, epochs=20, batch_size=64, lr=1e-3, device="cpu", seed=42):
     torch.manual_seed(seed)
@@ -395,24 +331,105 @@ def train_transformer_model(X_train, y_train, input_dim, d_model=64, nhead=4, nu
         
     return model, train_losses
 
+
+from src.early_prediction.lightning_module import EPSepsisDataset, collate_ep_batch, EPSepsisLightningModule, build_ep_trainer
+from torch.utils.data import DataLoader
+import lightning as L
+
+def get_pos_weight(y_train, device):
+    n_pos = (y_train == 1).sum()
+    n_neg = (y_train == 0).sum()
+    pos_weight = torch.tensor([n_neg / max(1, n_pos)], dtype=torch.float32).to(device)
+    return pos_weight
+
+def train_lstm_model(X_train, y_train, input_dim, hidden_dim=64, num_layers=2, epochs=15, batch_size=64, lr=1e-3, weight_decay=1e-4, use_focal_loss=False, use_tcn_conv=False, bidirectional=False, device="cpu", seed=42, use_norm=True):
+    L.seed_everything(seed)
+    pos_w = get_pos_weight(y_train, device)
+    
+    module = EPSepsisLightningModule(
+        architecture_name="lstm",
+        input_dim=input_dim,
+        lr=lr,
+        hidden_dim=hidden_dim,
+        num_layers=num_layers,
+        use_tcn_conv=use_tcn_conv,
+        bidirectional=bidirectional,
+        weight_decay=weight_decay,
+        use_focal_loss=use_focal_loss,
+        pos_weight=pos_w
+    )
+    
+    dataset = EPSepsisDataset(X_train, y_train, input_dim)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_ep_batch)
+    
+    trainer = build_ep_trainer(epochs, str(device))
+    trainer.fit(module, train_dataloaders=loader)
+    
+    return module, []
+
+def evaluate_lstm_model(model, X_test, input_dim, device="cpu"):
+    model.eval()
+    model.to(device)
+    dataset = EPSepsisDataset(X_test, [0]*len(X_test), input_dim)
+    loader = DataLoader(dataset, batch_size=128, shuffle=False, collate_fn=collate_ep_batch)
+    
+    all_probs = []
+    with torch.no_grad():
+        for batch in loader:
+            x, _, lengths, _ = batch
+            logits = model(x.to(device), lengths=lengths.to(device))
+            probs = torch.sigmoid(logits).cpu().numpy().squeeze(1)
+            all_probs.append(probs)
+            
+    import numpy as np
+    return np.concatenate(all_probs)
+
+def train_transformer_model(X_train, y_train, input_dim, d_model=64, nhead=4, num_layers=2, dropout=0.1, weight_decay=1e-3, norm_first=True, pos_type="learned", use_cls_token=True, use_tcn_conv=False, use_focal_loss=False, epochs=15, batch_size=64, lr=1e-3, device="cpu", seed=42, use_norm=True):
+    L.seed_everything(seed)
+    pos_w = get_pos_weight(y_train, device)
+    
+    module = EPSepsisLightningModule(
+        architecture_name="transformer",
+        input_dim=input_dim,
+        lr=lr,
+        d_model=d_model,
+        nhead=nhead,
+        num_layers=num_layers,
+        dropout=dropout,
+        weight_decay=weight_decay,
+        norm_first=norm_first,
+        pos_type=pos_type,
+        use_cls_token=use_cls_token,
+        use_tcn_conv=use_tcn_conv,
+        use_focal_loss=use_focal_loss,
+        pos_weight=pos_w
+    )
+    
+    dataset = EPSepsisDataset(X_train, y_train, input_dim)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_ep_batch)
+    
+    trainer = build_ep_trainer(epochs, str(device))
+    trainer.fit(module, train_dataloaders=loader)
+    
+    return module, []
+
 def evaluate_transformer_model(model, X_test, input_dim, device="cpu"):
     model.eval()
-    lengths_test = torch.tensor([len(seq) for seq in X_test], dtype=torch.long)
-    max_len = max(lengths_test).item()
+    model.to(device)
+    dataset = EPSepsisDataset(X_test, [0]*len(X_test), input_dim)
+    loader = DataLoader(dataset, batch_size=128, shuffle=False, collate_fn=collate_ep_batch)
     
-    X_test_padded = np.zeros((len(X_test), max_len, input_dim), dtype=np.float32)
-    mask_test = np.ones((len(X_test), max_len), dtype=bool)
-    for idx, seq in enumerate(X_test):
-        X_test_padded[idx, :len(seq), :] = seq
-        mask_test[idx, :len(seq)] = False
-        
-    X_test_tensor = torch.tensor(X_test_padded, dtype=torch.float32).to(device)
-    mask_test_tensor = torch.tensor(mask_test, dtype=torch.bool).to(device)
-    
+    all_probs = []
     with torch.no_grad():
-        logits = model(X_test_tensor, mask_test_tensor)
-        probs = torch.sigmoid(logits).cpu().numpy().squeeze(1)
-    return probs
+        for batch in loader:
+            x, _, _, padding_mask = batch
+            logits = model(x.to(device), padding_mask=padding_mask.to(device))
+            probs = torch.sigmoid(logits).cpu().numpy().squeeze(1)
+            all_probs.append(probs)
+            
+    import numpy as np
+    return np.concatenate(all_probs)
+
 
 def find_default_mimic_npz():
     from src.pipeline.datasets import resolve_mimic_npz_path
@@ -430,41 +447,62 @@ def load_target_params(tune_dir, m_cfg_name):
             return yaml.safe_load(f)
     return {}
 
-def main():
-    parser = argparse.ArgumentParser(description="Controlled Septic Shock Early Prediction Sweep with Fixed Cohort")
-    parser.add_argument("--exp-id", type=str, default="", help="Experiment ID to save under results/plots/early_prediction/<exp_id>")
-    parser.add_argument("--checkpoint", type=str, default="results/checkpoints/mimic/tune_mimic_cql", help="Path to CQL agent checkpoints (optional for V(s))")
-    parser.add_argument("--dataset-path", type=str, default=find_default_mimic_npz(), help="Path to MIMIC dataset")
-    parser.add_argument("--tune-dir", type=str, default="results/plots/early_prediction/tune_early_pred", help="Path to directory containing tuned hyperparameter YAML files")
-    parser.add_argument("--use-tuned-params", action="store_true", default=True, help="Load optimal hyperparameters per model from tune-dir (default: True)")
-    parser.add_argument("--no-tuned-params", dest="use_tuned_params", action="store_false", help="Disable loading tuned hyperparameters and use CLI defaults")
-    parser.add_argument("--save-checkpoints", action="store_true", default=True, help="Save PyTorch model checkpoints (.pt) for evaluation against clinician policies (default: True)")
-    parser.add_argument("--no-save-checkpoints", dest="save_checkpoints", action="store_false", help="Disable saving PyTorch model checkpoints")
-    parser.add_argument("--target-model", type=str, default="all", help="Specific architecture to run ('all', 'lstm_no_v', 'lstm_with_v', 'transformer_no_v', 'transformer_with_v')")
-    parser.add_argument("--tau-min", type=int, default=1, help="Minimum tau in hours")
-    parser.add_argument("--tau-max", type=int, default=36, help="Maximum tau in hours")
-    parser.add_argument("--tau-step", type=int, default=4, help="Step size for tau sweep in hours")
-    parser.add_argument("--tau-train", type=int, default=12, help="Lead time tau in hours used to train the single model (default: 12)")
-    parser.add_argument("--per-tau-training", action="store_true", default=False, help="Train a separate model for each tau instead of a single model")
-    parser.add_argument("--window-hours", type=int, default=12, help="Observation window length in hours (default: 12)")
-    parser.add_argument("--use-all-history", action="store_true", default=False, help="Use full observation sequence from t=0 to cutoff instead of fixed window")
-    parser.add_argument("--full-history", dest="use_all_history", action="store_true", help="Use full history from t=0 instead of window")
-    parser.add_argument("--use-all-trajectories", action="store_true", default=False, help="Use all valid trajectories for each tau (dynamic cohort)")
-    parser.add_argument("--restricted-cohort", dest="use_all_trajectories", action="store_false", help="Restrict cohort to stays >= tau_max + window_hours (default: True)")
-    parser.add_argument("--use-norm", action="store_true", default=True, help="Apply feature standardization per split (default: True)")
-    parser.add_argument("--no-norm", dest="use_norm", action="store_false", help="Disable feature standardization")
-    parser.add_argument("--epochs", type=int, default=20, help="Number of training epochs for each model (default: 20)")
-    parser.add_argument("--batch-size", type=int, default=64, help="Batch size for training (default: 64)")
-    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate (default: 1e-3)")
-    parser.add_argument("--d-model", type=int, default=64, help="Transformer embedding dimension (default: 64)")
-    parser.add_argument("--nhead", type=int, default=4, help="Transformer attention heads (default: 4)")
-    parser.add_argument("--num-layers", type=int, default=2, help="Number of layers for Transformer / LSTM (default: 2)")
-    parser.add_argument("--hidden-dim", type=int, default=64, help="LSTM hidden dimension (default: 64)")
-    parser.add_argument("--use-volatility", action="store_true", default=True, help="Compute 1-hour rolling min/max and deltas for feature volatility (default: True)")
-    parser.add_argument("--no-volatility", dest="use_volatility", action="store_false", help="Disable rolling min/max and delta feature expansion")
-    parser.add_argument("--n-splits", "--n-models", type=int, dest="n_splits", default=20, help="Number of data splits to evaluate (default: 20)")
-    parser.add_argument("--output-dir", type=str, default="results/plots/early_prediction", help="Base directory to save plots")
-    args = parser.parse_args()
+class Dict2Obj:
+    def __init__(self, d, defaults=None):
+        if defaults:
+            for k, v in defaults.items():
+                setattr(self, k, v)
+        for k, v in d.items():
+            setattr(self, k, v)
+
+@hydra.main(version_base=None, config_path="../../in/config", config_name="config")
+def main(cfg: DictConfig):
+    # Auto-infer experiment_id from Hydra task override if not explicitly specified
+    if cfg.get("experiment_id", "default_exp") == "default_exp":
+        try:
+            from hydra.core.hydra_config import HydraConfig
+            if HydraConfig.initialized():
+                for override in HydraConfig.get().overrides.task:
+                    if override.startswith("+experiment=") or override.startswith("experiment="):
+                        exp_stem = Path(override.split("=")[-1]).stem
+                        cfg.experiment_id = exp_stem
+                        break
+        except Exception:
+            pass
+
+    ep_cfg = cfg.get("early_prediction", {})
+    if isinstance(ep_cfg, DictConfig):
+        ep_cfg = OmegaConf.to_container(ep_cfg, resolve=True)
+        
+    defaults = {
+        "exp_id": cfg.experiment_id,
+        "checkpoint": "results/checkpoints/mimic/tune_mimic_cql",
+        "dataset_path": find_default_mimic_npz(),
+        "tune_dir": "results/plots/early_prediction/tune_early_pred",
+        "use_tuned_params": True,
+        "save_checkpoints": True,
+        "target_model": "all",
+        "tau_min": 1,
+        "tau_max": 36,
+        "tau_step": 4,
+        "tau_train": 12,
+        "per_tau_training": False,
+        "window_hours": 12,
+        "use_all_history": False,
+        "use_all_trajectories": False,
+        "use_norm": True,
+        "epochs": 20,
+        "batch_size": 64,
+        "lr": 1e-3,
+        "d_model": 64,
+        "nhead": 4,
+        "num_layers": 2,
+        "hidden_dim": 64,
+        "use_volatility": True,
+        "n_splits": 20,
+        "output_dir": "results/plots/early_prediction"
+    }
+    args = Dict2Obj(ep_cfg, defaults)
 
     w_steps = 2 * args.window_hours
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -496,45 +534,34 @@ def main():
         cql_ckpt_path = str(checkpoint_arg)
         
     if not cql_ckpt_path or not os.path.exists(cql_ckpt_path):
-        # Fallback check under results/checkpoints/mimic
-        fallback_dir = Path("results/checkpoints/mimic")
-        if fallback_dir.exists():
-            fallback_candidates = list(fallback_dir.glob("**/*.ckpt"))
-            if fallback_candidates:
-                cql_ckpt_path = str(fallback_candidates[-1])
+        if checkpoint_arg:
+            raise FileNotFoundError(f"Requested checkpoint {args.checkpoint} does not exist. Failing fast to prevent corrupting EP evaluation.")
 
     if cql_ckpt_path and os.path.exists(cql_ckpt_path):
-        try:
-            from src.methods.cql_agent import CQLAgent
-            torch.serialization.add_safe_globals([
-                getattr(sys.modules.get('omegaconf.dictconfig', None), 'DictConfig', None)
-            ])
-            print(f"Loading CQL agent from: {cql_ckpt_path} for V(s)...")
-            cql_agent = CQLAgent.load_from_checkpoint(cql_ckpt_path, map_location=device, weights_only=False)
-            cql_agent.eval()
-            
-            v_vals_all = np.zeros((len(X), 240, 1), dtype=np.float32)
-            batch_sz = 128
-            with torch.no_grad():
-                for i in range(0, len(X), batch_sz):
-                    batch_x = torch.tensor(X[i:i+batch_sz, :, :46], dtype=torch.float32).to(device)
-                    B_curr = batch_x.size(0)
-                    flat_x = batch_x.view(-1, 46)
-                    flat_q = cql_agent.q_network(flat_x)
-                    q_vals = flat_q.view(B_curr, 240, 2)
-                    v_vals = torch.max(q_vals, dim=-1)[0].unsqueeze(-1).cpu().numpy()
-                    v_vals_all[i:i+batch_sz] = v_vals
-            print("CQL V(s) pre-computation complete.")
-        except Exception as e:
-            print(f"Warning: Could not compute V(s) from checkpoint {cql_ckpt_path}: {e}")
+        from src.methods.cql_agent import CQLAgent
+        torch.serialization.add_safe_globals([
+            getattr(sys.modules.get('omegaconf.dictconfig', None), 'DictConfig', None)
+        ])
+        print(f"Loading CQL agent from: {cql_ckpt_path} for V(s)...")
+        cql_agent = CQLAgent.load_from_checkpoint(cql_ckpt_path, map_location=device, weights_only=False)
+        cql_agent.eval()
+        
+        v_vals_all = np.zeros((len(X), 240, 1), dtype=np.float32)
+        batch_sz = 128
+        with torch.no_grad():
+            for i in range(0, len(X), batch_sz):
+                batch_x = torch.tensor(X[i:i+batch_sz, :, :46], dtype=torch.float32).to(device)
+                B_curr = batch_x.size(0)
+                flat_x = batch_x.view(-1, 46)
+                flat_q = cql_agent.q_network(flat_x)
+                q_vals = flat_q.view(B_curr, 240, 2)
+                v_vals = torch.max(q_vals, dim=-1)[0].unsqueeze(-1).cpu().numpy()
+                v_vals_all[i:i+batch_sz] = v_vals
+        print("CQL V(s) pre-computation complete.")
 
     # Set up tau sweep list
     tau_list = list(range(args.tau_min, args.tau_max + 1, args.tau_step))
     print(f"Sweeping tau (hours early): {tau_list}")
-
-    if v_vals_all is None:
-        print("WARNING: CQL checkpoint for V(s) feature was not found. Using zero-padded V(s) feature placeholder for (with V) models.")
-        v_vals_all = np.zeros((len(X), 240, 1), dtype=np.float32)
 
     all_configs = [
         ("LSTM (no V)", "lstm", False, "lstm_no_v"),
@@ -549,6 +576,10 @@ def main():
             model_configs = [(name, m_type, use_v) for name, m_type, use_v, key in all_configs]
     else:
         model_configs = [(name, m_type, use_v) for name, m_type, use_v, key in all_configs]
+        
+    for name, m_type, use_v in model_configs:
+        if use_v and v_vals_all is None:
+            raise ValueError(f"Model '{name}' requires V(s) features, but CQL checkpoint was not provided or failed to load. Failing fast.")
     
     results = {}
     for m_cfg, _, _ in model_configs:
@@ -936,5 +967,3 @@ def main():
     
     print(f"Early prediction evaluation finished successfully! Results saved to {out_dir}")
 
-if __name__ == "__main__":
-    main()

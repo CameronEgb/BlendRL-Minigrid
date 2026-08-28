@@ -4,8 +4,6 @@ defaults:
   - override /mode: online
   - override /hydra/sweeper: optuna_online
 
-experiment_id: "quick_test"
-group: "quick_tests"
 seed: 1
 total_timesteps: 10000
 intervals_count: 5

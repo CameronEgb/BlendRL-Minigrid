@@ -17,7 +17,7 @@ from torch.distributions.categorical import Categorical
 from nsfr.utils.common import load_module
 from nsfr.common import get_nsfr_model
 
-from src.utils import get_blender, load_cleanrl_agent, get_neural_agent
+from src.core.factories import get_blender, load_cleanrl_agent, get_neural_agent
 from nudge.utils import print_program
 
 from src.methods.cew_utils import run_CLIP, run_ECM, rule_creation, run_FYD, MultiFLC
