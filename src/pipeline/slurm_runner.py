@@ -209,28 +209,17 @@ def run_slurm_training(cfg, context):
     else:
         print("\n=== Skipping Online Training Phase ===")
 
-    # 2. Offline Training Phases (1 Slurm Job per Method, running datasets in parallel on GPU)
+    # 2. Offline Training Phases (1 Slurm Job per Method-Dataset Pair -> 1 Process per Node)
     eval_job_ids = []
     if not cfg.get("no_offline", False):
         for agent_config in offline_list:
             agent_name_internal = normalize_agent_name(agent_config)
-            job_name = f"{agent_name_internal}_{cfg.experiment_id}"
-            
-            # Aggregate dependencies if datasets were generated from online jobs
-            deps = [online_job_ids.get(ds) for ds in dataset_list if online_job_ids.get(ds)]
-            dependency_str = ":".join(deps) if deps else None
-
-            script_content = generate_sbatch_header(
-                job_name=job_name,
-                log_dir=log_dir,
-                cfg=cfg,
-                dependency=dependency_str,
-            )
-            script_content += "\n" + get_shell_env_block(site_cfg) + "\n"
-            python_cmd = get_shell_python_cmd(site_cfg)
 
             for dataset_id in dataset_list:
                 dataset_name_internal = normalize_agent_name(dataset_id)
+                target_agent_name = f"{agent_name_internal}_{dataset_name_internal}" if len(dataset_list) > 1 else agent_name_internal
+                job_name = f"{target_agent_name}_{cfg.experiment_id}"
+
                 yaml_ds_path = cfg.mode.get("dataset_path", None) if hasattr(cfg, "mode") else None
                 try:
                     dataset_path = resolve_dataset_path(
@@ -242,7 +231,19 @@ def run_slurm_training(cfg, context):
                 except FileNotFoundError:
                     dataset_path = Path("in/datasets") / cfg.group / dataset_name_internal
 
-                target_agent_name = f"{agent_name_internal}_{dataset_name_internal}" if len(dataset_list) > 1 else agent_name_internal
+                # Aggregate dependencies if dataset was generated from an online job
+                dep_job_id = online_job_ids.get(dataset_id)
+                dependency_str = dep_job_id if dep_job_id else None
+
+                script_content = generate_sbatch_header(
+                    job_name=job_name,
+                    log_dir=log_dir,
+                    cfg=cfg,
+                    dependency=dependency_str,
+                )
+                script_content += "\n" + get_shell_env_block(site_cfg) + "\n"
+                python_cmd = get_shell_python_cmd(site_cfg)
+
                 cmd_args = build_offline_overrides(
                     experiment=cfg.get("experiment_name", ""),
                     agent_config=agent_config,
@@ -252,7 +253,7 @@ def run_slurm_training(cfg, context):
                     dataset_id=dataset_id,
                     extra_args=sanitized_extra_args
                 )
-                
+
                 if is_sweep:
                     study_name = get_next_study_name(cfg.group, cfg.experiment_id, target_agent_name)
                     direction = get_sweep_direction(cfg, "offline")
@@ -260,41 +261,48 @@ def run_slurm_training(cfg, context):
                     cmd_args.append(f"++hydra.sweeper.study_name={study_name}")
                     if "--multirun" not in sanitized_extra_args and "-m" not in sanitized_extra_args:
                         cmd_args.append("--multirun")
-                
+
                 train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
-                
-                if len(dataset_list) > 1:
-                    phase_label = "Offline Sweep (Parallel GPU)" if is_sweep else "Offline Training (Parallel GPU)"
-                    script_content += f'echo "=== [Phase: {phase_label}] {agent_config} on {dataset_id} ==="\n'
-                    script_content += f"{python_cmd} src/train.py {train_cmd} &\n\n"
-                else:
-                    phase_label = "Offline Sweep" if is_sweep else "Offline Training"
-                    script_content += f'echo "=== [Phase: {phase_label}] {agent_config} on {dataset_id} ==="\n'
-                    script_content += f"{python_cmd} src/train.py {train_cmd}\n\n"
+                phase_label = "Offline Sweep" if is_sweep else "Offline Training"
+                script_content += f'echo "=== [Phase: {phase_label}] {agent_config} on {dataset_id} ==="\n'
+                script_content += f"{python_cmd} src/train.py {train_cmd}\n\n"
 
-            if len(dataset_list) > 1:
-                script_content += 'echo "Waiting for all concurrent problem sweeps to complete on GPU..."\nwait\n\n'
+                if is_sweep:
+                    storage_arg = storage_url if storage_url else ""
+                    study_name = f"{cfg.experiment_id}_{target_agent_name}"
+                    script_content += f'echo "=== Promoting Winning Checkpoint for {target_agent_name} ==="\n'
+                    script_content += f"{python_cmd} -c \"from src.pipeline.optuna_utils import promote_best_trial_checkpoint; promote_best_trial_checkpoint('{cfg.group}', '{cfg.experiment_id}', '{target_agent_name}', '{storage_arg}', '{study_name}')\"\n\n"
 
-            if is_sweep:
-                script_content += 'echo "=== Promoting Winning Checkpoints for All Datasets ==="\n'
-                storage_arg = storage_url if storage_url else ""
-                for d_id in dataset_list:
-                    d_name = normalize_agent_name(d_id)
-                    t_agent = f"{agent_name_internal}_{d_name}" if len(dataset_list) > 1 else agent_name_internal
-                    s_name = f"{cfg.experiment_id}_{t_agent}"
-                    script_content += f"{python_cmd} -c \"from src.pipeline.optuna_utils import promote_best_trial_checkpoint; promote_best_trial_checkpoint('{cfg.group}', '{cfg.experiment_id}', '{t_agent}', '{storage_arg}', '{s_name}')\"\n"
-                script_content += '\n'
+                slurm_file = log_dir / f"{job_name}.slurm"
+                with open(slurm_file, "w") as f:
+                    f.write(script_content)
 
-            slurm_file = log_dir / f"{job_name}.slurm"
-            with open(slurm_file, "w") as f:
-                f.write(script_content)
-
-            print(f"\nSubmitting Method Slurm Job ({agent_config} -> {len(dataset_list)} datasets in parallel on GPU): {slurm_file}")
-            job_id = submit_sbatch(script_content)
-            if job_id:
-                job_ids.append(job_id)
+                print(f"\nSubmitting Slurm Job ({agent_config} on {dataset_id} -> 1 job/node): {slurm_file}")
+                job_id = submit_sbatch(script_content)
+                if job_id:
+                    job_ids.append(job_id)
     else:
         print("\n=== Skipping Offline Training Phase ===")
+
+    # 3. Downstream Plotting Job (dependent on all training jobs)
+    if not cfg.get("no_plot", False) and job_ids:
+        plot_job_name = f"plot_{cfg.experiment_id}"
+        dependency_str = ":".join(job_ids)
+        plot_header = generate_sbatch_header(
+            job_name=plot_job_name,
+            log_dir=log_dir,
+            cfg=cfg,
+            dependency=dependency_str,
+        )
+        python_cmd = get_shell_python_cmd(site_cfg)
+        plot_cmd = f"{python_cmd} plot/manager.py {cfg.experiment_id}"
+        if cfg.get("plot_style", None):
+            plot_cmd += f" --style {cfg.get('plot_style', None)}"
+        plot_content = plot_header + "\n" + get_shell_env_block(site_cfg) + f"\n\necho \"=== [Generating Final Plots] ===\"\n{plot_cmd}\n"
+        plot_slurm_file = log_dir / f"{plot_job_name}.slurm"
+        with open(plot_slurm_file, "w") as f:
+            f.write(plot_content)
+        submit_sbatch(plot_content)
 
     job_ids.extend(eval_job_ids)
     return job_ids, eval_commands, False

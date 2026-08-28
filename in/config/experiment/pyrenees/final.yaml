@@ -6,6 +6,7 @@ consolidate: false
 
 resources:
   partition: common
+  memory: "8G"
 
 offline_methods:
   - cql/dnn
