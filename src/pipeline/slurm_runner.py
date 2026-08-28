@@ -50,9 +50,9 @@ def run_slurm_training(cfg, context):
     resources = cfg.get("resources", {})
     should_consolidate = cfg.get("consolidate", False)
 
-    # Consolidated Single 1-GPU Slurm Job Execution
+    # Consolidated Single Slurm Job Execution
     if should_consolidate:
-        print(f"\n=== Preparing Consolidated 1-GPU Slurm Job ({cfg.experiment_id}) ===")
+        print(f"\n=== Preparing Consolidated Slurm Job ({cfg.experiment_id}) ===")
         job_name = f"all_{cfg.experiment_id}"
         script_content = generate_sbatch_header(
             job_name=job_name,
@@ -87,7 +87,7 @@ def run_slurm_training(cfg, context):
         # 2. Offline Training Commands (All methods & datasets in parallel)
         if not cfg.get("no_offline", False):
             total_runs = len(offline_list) * len(dataset_list)
-            script_content += f'echo "=== [Phase: Offline Training] Launching all {total_runs} models concurrently on GPU ==="\n\n'
+            script_content += f'echo "=== [Phase: Offline Training] Launching all {total_runs} models concurrently ==="\n\n'
             for agent_config in offline_list:
                 agent_name_internal = normalize_agent_name(agent_config)
                 for dataset_id in dataset_list:
@@ -128,7 +128,7 @@ def run_slurm_training(cfg, context):
                         script_content += f"{python_cmd} src/train.py {train_cmd}\n\n"
 
             if total_runs > 1:
-                script_content += 'echo "Waiting for all concurrent training runs to complete on GPU..."\nwait\n\n'
+                script_content += 'echo "Waiting for all concurrent training runs to complete..."\nwait\n\n'
 
         if is_sweep:
             script_content += 'echo "=== Promoting Winning Checkpoints for All Methods & Datasets ==="\n'
@@ -154,7 +154,7 @@ def run_slurm_training(cfg, context):
         with open(slurm_file, "w") as f:
             f.write(script_content)
 
-        print(f"Submitting Consolidated 1-GPU Slurm Job: {slurm_file}")
+        print(f"Submitting Consolidated Slurm Job: {slurm_file}")
         job_id = submit_sbatch(script_content)
         job_ids = [job_id] if job_id else []
         return job_ids, [], True

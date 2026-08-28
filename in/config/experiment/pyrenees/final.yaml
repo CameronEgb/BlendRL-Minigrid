@@ -2,7 +2,7 @@
 defaults:
   - pyrenees/_base
 
-consolidate: true
+consolidate: false 
 
 resources:
   partition: common
