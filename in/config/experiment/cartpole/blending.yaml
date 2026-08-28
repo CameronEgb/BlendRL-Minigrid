@@ -12,4 +12,3 @@ env:
   rules: "default, variant1"
   architecture: mlp
 
-local: true

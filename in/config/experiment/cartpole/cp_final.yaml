@@ -21,4 +21,3 @@ plots:
   reports:
     include_hyperparameters: true
 
-local: true

@@ -27,5 +27,4 @@ mode:
   dataset_path: in/datasets/ungrouped/cp_final/ppo_cp_tuned
 
 seed: 1
-local: true
 recover: false

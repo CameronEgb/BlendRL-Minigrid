@@ -25,7 +25,6 @@ def build_online_overrides(experiment, agent_config, agent_name, dataset_path,
     """
     overrides = [
         f"+experiment={experiment}",
-        f"++local={'true' if local_val else 'false'}",
         "mode=online",
         f"agent={agent_config}",
         f"++agent.name={agent_name}",
@@ -40,7 +39,7 @@ def build_online_overrides(experiment, agent_config, agent_name, dataset_path,
 
 
 def build_offline_overrides(experiment, agent_config, agent_name, dataset_path,
-                            local_val, study_name=None, extra_args=None,
+                            local_val=True, study_name=None, extra_args=None,
                             cfg=None, dataset_id=None):
     """Build Hydra override list for offline training.
 
@@ -49,7 +48,7 @@ def build_offline_overrides(experiment, agent_config, agent_name, dataset_path,
         agent_config: Agent Hydra config path
         agent_name: Normalized agent name for filesystem
         dataset_path: Path to offline dataset
-        local_val: Whether running locally (bool)
+        local_val: Unused (deprecated)
         study_name: Optuna study name (optional)
         extra_args: Additional Hydra overrides from CLI
         cfg: Full Hydra config (passed to hooks)
@@ -60,7 +59,6 @@ def build_offline_overrides(experiment, agent_config, agent_name, dataset_path,
     """
     overrides = [
         f"+experiment={experiment}",
-        f"++local={'true' if local_val else 'false'}",
         "mode=offline",
         f"agent={agent_config}",
         f"++agent.name={agent_name}",

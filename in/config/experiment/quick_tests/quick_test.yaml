@@ -12,7 +12,6 @@ online_methods: "ppo/cp_tuned,ppo/blendrl_cp_tuned"
 offline_methods: "iql/cp_tuned,iql/blendrl_cp_tuned"
 offline_datasets: "ppo/cp_tuned"
 save_dataset: true
-local: true
 recover: false
 
 trainer:

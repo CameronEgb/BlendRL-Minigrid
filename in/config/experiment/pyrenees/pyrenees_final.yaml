@@ -4,6 +4,9 @@ defaults:
 
 consolidate: true
 
+resources:
+  partition: common
+
 offline_methods:
   - cql/dnn
   - cql/blendrl_human_neural

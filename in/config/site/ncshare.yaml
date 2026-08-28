@@ -1,6 +1,5 @@
 # Site profile: NCSU HPC (ncshare) cluster
 name: ncshare
-slurm_enabled: true
 python_executable: auto
 venv_dir: venv
 mail_user: cegbert@ncsu.edu

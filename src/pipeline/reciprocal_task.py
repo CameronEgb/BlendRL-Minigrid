@@ -37,7 +37,8 @@ from src.pipeline.task_registry import register_task
 
 @register_task("reciprocal_refinement")
 def run_reciprocal_refinement_task(cfg, context):
-    run_reciprocal_refinement(cfg, context.get("local_val", True))
+    is_interactive = context.get("is_interactive", context.get("local_val", True))
+    run_reciprocal_refinement(cfg, is_interactive)
     sys.exit(0)
 
 def run_reciprocal_refinement(cfg, local_val):

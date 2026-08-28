@@ -13,7 +13,6 @@ total_timesteps: 10000
 intervals_count: 4
 eval_episodes: 100
 save_dataset: true
-local: true
 recover: false
 
 # Pipeline Orchestration Flags

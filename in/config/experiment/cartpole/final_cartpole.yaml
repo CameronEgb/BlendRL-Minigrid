@@ -19,8 +19,6 @@ offline_methods: >-
 # Only train on the absolute best online datasets
 offline_datasets: ppo/final_cp,ppo/blendrl_final_cp
 
-local: false
-
 hydra:
   sweeper:
     sampler:

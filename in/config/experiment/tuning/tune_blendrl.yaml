@@ -15,5 +15,4 @@ online_methods: >-
 
 offline_methods: 
 save_dataset: true
-local: true
 recover: false

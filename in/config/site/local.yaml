@@ -1,6 +1,5 @@
-# Site profile: Local development (macOS / Linux workstation)
+# Site profile: Local / interactive command-line execution (local machine or interactive cluster node)
 name: local
-slurm_enabled: false
 python_executable: auto   # auto-detect from venv or sys.executable
 venv_dir: venv
 mail_user: null

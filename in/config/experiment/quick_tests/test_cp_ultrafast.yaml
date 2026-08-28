@@ -10,7 +10,6 @@ eval_episodes: 100
 online_methods: ppo/blendrl_human_neural
 offline_methods: 
 save_dataset: true
-local: true
 recover: false
 
 agent:

@@ -1,7 +1,6 @@
 # Site profile: ARC cluster (arc.csc.ncsu.edu)
 # Boilerplate — edit partition names, GRES syntax, and paths as needed.
 name: arc
-slurm_enabled: true
 python_executable: auto
 venv_dir: venv
 mail_user: cegbert@arc.csc.ncsu.edu

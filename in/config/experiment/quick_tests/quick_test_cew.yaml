@@ -11,5 +11,4 @@ intervals_count: 2
 
 save_dataset: true
 seed: 1
-local: true
 recover: false

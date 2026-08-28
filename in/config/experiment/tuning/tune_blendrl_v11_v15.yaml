@@ -12,5 +12,4 @@ offline_methods:
 intervals_count: 20
 
 save_dataset: true
-local: true
 recover: false

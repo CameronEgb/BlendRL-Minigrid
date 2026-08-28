@@ -109,10 +109,10 @@ Priority: CLI flags > experiment `resources:` > site config > hardcoded fallback
 - **Downstream Usage:** `RLDataModule` (`src/data/rl_data_module.py`) reads these chunks to create the offline replay buffer.
 
 ## 5. Operational Challenges & Environment
-- **Execution Mode (`local`):** 
-    - **Local (Default):** `run_pipeline.py` defaults to local execution (`local=true`), running experiments as standard subprocesses.
-    - **Cluster:** Historically used for Slurm (`sbatch`) job submission.
-    - **Cluster Push Mandate:** Whenever recommending or generating a command to run on the cluster (e.g., `local=false` or Slurm submission), the agent MUST push changes to GitHub so the codebase is ready to be pulled and run on the cluster.
+- **Site Profiles & Execution Modes (`site`):** 
+    - **Interactive / Local CLI (`site=local`, Default):** `run_pipeline.py` defaults to interactive command-line execution (`site=local`), running experiments as standard subprocesses. Use this on your local machine or interactively on a cluster compute node (`salloc` / `srun`).
+    - **Slurm Cluster Batch (`site=ncshare`, `site=arc`):** Generates and submits Slurm batch scripts using site-specific partition, module load, and resource configurations.
+    - **Cluster Push Mandate:** Whenever recommending or generating a command to submit to the cluster (e.g., `site=ncshare` or `site=arc`), the agent MUST push changes to GitHub so the codebase is ready to be pulled and run on the cluster.
 - **Filesystem Storage Rules:**
     - `/mnt/beegfs/` is **slow** bulk network storage and MUST NEVER be used for active training, dataset loading, or fallback resolution paths.
     - All datasets and training workloads must strictly execute from repository paths (`in/datasets/`) or local user storage (`/hpc/home/`).

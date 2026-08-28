@@ -27,10 +27,12 @@ def main():
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print("Usage: python run_pipeline.py <group>/<experiment_id> [Hydra Overrides]")
         print("Standard Orchestration Overrides (use Hydra syntax, e.g. key=value):")
+        print("  site=local            Interactive CLI execution (default, for local machine or cluster interactive node)")
+        print("  site=ncshare          Slurm cluster execution on NCShare")
+        print("  site=arc              Slurm cluster execution on ARC")
         print("  no_plot=true          Skip automatic plotting")
         print("  no_online=true        Skip online training phase")
         print("  no_offline=true       Skip offline training phase")
-        print("  local=false           Force Slurm cluster execution")
         print("  dry_run=true          Validate config and exit")
         print("  sweep=true            Run Optuna hyperparameter sweep")
         print("  dash=true             Launch Optuna dashboard during run")
@@ -98,8 +100,10 @@ def main():
         print(f"\n[Validation Success] Experiment config '{experiment_arg}' is valid and ready to run.")
         sys.exit(0)
 
-    local_val = cfg.get("local", True)
-    print(f"Execution Mode: {'Local' if local_val else 'Slurm Cluster'}")
+    # Execution mode is determined solely by the site profile: site=local -> interactive CLI, any other site -> Slurm cluster
+    site_name = getattr(cfg.site, "name", "local") if hasattr(cfg, "site") else "local"
+    is_interactive = (site_name == "local")
+    print(f"Execution Mode: {'Interactive (Local CLI)' if is_interactive else f'Slurm Cluster ({site_name})'}")
 
     storage_url = None
     if "hydra" in cfg and "sweeper" in cfg.hydra and "storage" in cfg.hydra.sweeper:
@@ -109,7 +113,7 @@ def main():
         import os
         os.makedirs("results/optuna", exist_ok=True)
         
-    if local_val and storage_url and (cfg.get("dash") or cfg.get("dash_only")):
+    if is_interactive and storage_url and (cfg.get("dash") or cfg.get("dash_only")):
         launch_optuna_dashboard(storage_url)
         if cfg.get("dash_only"):
             print("Dashboard running in persistent mode. Press Ctrl+C to exit.")
@@ -138,7 +142,9 @@ def main():
 
     # Build context for tasks
     context = {
-        "local_val": local_val,
+        "is_interactive": is_interactive,
+        "site_name": site_name,
+        "local_val": is_interactive,
         "sanitized_extra_args": sanitized_extra_args,
         "storage_url": storage_url,
         "is_sweep": is_sweep,
@@ -156,8 +162,7 @@ def main():
 
     @register_task("rl")
     def run_standard_rl_task(cfg, context):
-        local_val = context["local_val"]
-        if local_val:
+        if context["is_interactive"]:
             run_local_training(cfg, context)
         else:
             run_slurm_training(cfg, context)

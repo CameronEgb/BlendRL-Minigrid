@@ -18,5 +18,4 @@ env:
 
 save_dataset: true
 seed: 1
-local: true
 recover: false

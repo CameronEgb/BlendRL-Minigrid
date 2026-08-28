@@ -16,8 +16,6 @@ env:
   rules: default
 
 save_dataset: true
-local: true
-
 hydra:
   sweeper:
     sampler:

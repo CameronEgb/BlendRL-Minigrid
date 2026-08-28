@@ -21,5 +21,4 @@ trainer:
 
 save_dataset: false
 seed: 1
-local: true
 recover: false

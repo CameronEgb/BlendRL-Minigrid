@@ -8,7 +8,6 @@ total_timesteps: 40000
 intervals_count: 10
 eval_episodes: 100
 save_dataset: true
-local: true
 recover: false
 
 agent:

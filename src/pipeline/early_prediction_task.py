@@ -17,7 +17,7 @@ from src.pipeline.task_registry import register_task
 def run_early_prediction_task_wrapper(cfg, context):
     run_early_prediction_task(
         cfg, 
-        context.get("local_val", True), 
+        context.get("is_interactive", context.get("local_val", True)), 
         context.get("sanitized_extra_args", []), 
         context.get("storage_url"), 
         context.get("is_sweep", False)

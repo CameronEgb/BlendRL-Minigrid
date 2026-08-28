@@ -23,5 +23,4 @@ agent:
 env:
   gamma: 0.99
 
-local: true
 recover: false

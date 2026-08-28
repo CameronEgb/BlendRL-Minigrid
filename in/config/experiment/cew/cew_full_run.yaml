@@ -18,5 +18,4 @@ trainer:
 
 save_dataset: true
 seed: 1
-local: false
 recover: false
