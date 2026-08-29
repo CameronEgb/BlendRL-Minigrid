@@ -45,9 +45,11 @@ def generate_sbatch_header(job_name, log_dir, cfg, dependency=None, dependency_t
     site_cfg = getattr(cfg, "site", None)
     
     # Merge site resources with experiment resources (experiment overrides site)
-    site_resources = getattr(site_cfg, "resources", {}) if site_cfg else {}
-    exp_resources = getattr(cfg, "resources", {})
-    res = OmegaConf.merge(site_resources, exp_resources)
+    site_res_raw = getattr(site_cfg, "resources", {}) if site_cfg else {}
+    exp_res_raw = getattr(cfg, "resources", {}) if hasattr(cfg, "resources") else {}
+    site_dict = OmegaConf.to_container(site_res_raw, resolve=True) if OmegaConf.is_config(site_res_raw) else (dict(site_res_raw) if isinstance(site_res_raw, dict) else {})
+    exp_dict = OmegaConf.to_container(exp_res_raw, resolve=True) if OmegaConf.is_config(exp_res_raw) else (dict(exp_res_raw) if isinstance(exp_res_raw, dict) else {})
+    res = {**site_dict, **exp_dict}
     
     partition = res.get("partition")
     if is_consolidated or cfg.get("consolidate", False):
