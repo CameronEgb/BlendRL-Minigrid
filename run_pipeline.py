@@ -179,4 +179,6 @@ def main():
         task_fn(cfg, context)
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] not in ("-h", "--help"):
+        print(f"🚀 Initializing BlendRL pipeline for: {sys.argv[1]} ...", flush=True)
     main()

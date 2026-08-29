@@ -57,7 +57,8 @@ def run_slurm_training(cfg, context):
         script_content = generate_sbatch_header(
             job_name=job_name,
             log_dir=log_dir,
-            cfg=cfg
+            cfg=cfg,
+            is_consolidated=True
         )
         script_content += "\n" + get_shell_env_block(site_cfg) + "\n"
         python_cmd = get_shell_python_cmd(site_cfg)
@@ -163,6 +164,11 @@ def run_slurm_training(cfg, context):
     online_job_ids = {}
     eval_commands = []
 
+    total_online = len(online_list) if not cfg.get("no_online", False) else 0
+    total_offline = (len(offline_list) * len(dataset_list)) if not cfg.get("no_offline", False) else 0
+    total_jobs_count = total_online + total_offline
+    submitted_idx = 0
+
     # 1. Online Training Phases
     if not cfg.get("no_online", False):
         for agent_config in online_list:
@@ -176,11 +182,10 @@ def run_slurm_training(cfg, context):
             )
 
             if has_pkl:
-                print(f"Dataset already exists at {dataset_path}. Skipping online training.")
+                print(f"Dataset already exists at {dataset_path}. Skipping online training.", flush=True)
                 online_job_ids[agent_config] = None
                 continue
 
-            print(f"\n=== Preparing Slurm Job: Online Training ({agent_config}) ===")
             job_name = f"{agent_name_internal}_{cfg.experiment_id}"
             
             dataset_arg = str(dataset_path) if not is_sweep else None
@@ -200,14 +205,16 @@ def run_slurm_training(cfg, context):
                 overrides_slurm.append(f"++hydra.sweeper.study_name={study_name}")
             
             script_content = generate_sbatch_script(
-                job_name, overrides_slurm, log_dir=str(log_dir), cfg=cfg
+                job_name, overrides_slurm, log_dir=str(log_dir), cfg=cfg, is_consolidated=False
             )
+            submitted_idx += 1
+            print(f"[{submitted_idx}/{total_jobs_count}] Submitting Online [{agent_config}] ...", end="", flush=True)
             job_id = submit_sbatch(script_content)
             if job_id:
                 job_ids.append(job_id)
                 online_job_ids[agent_config] = job_id
     else:
-        print("\n=== Skipping Online Training Phase ===")
+        print("\n=== Skipping Online Training Phase ===", flush=True)
 
     # 2. Offline Training Phases (1 Slurm Job per Method-Dataset Pair -> 1 Process per Node)
     eval_job_ids = []
@@ -240,6 +247,7 @@ def run_slurm_training(cfg, context):
                     log_dir=log_dir,
                     cfg=cfg,
                     dependency=dependency_str,
+                    is_consolidated=False,
                 )
                 script_content += "\n" + get_shell_env_block(site_cfg) + "\n"
                 python_cmd = get_shell_python_cmd(site_cfg)
@@ -277,12 +285,13 @@ def run_slurm_training(cfg, context):
                 with open(slurm_file, "w") as f:
                     f.write(script_content)
 
-                print(f"\nSubmitting Slurm Job ({agent_config} on {dataset_id} -> 1 job/node): {slurm_file}")
+                submitted_idx += 1
+                print(f"[{submitted_idx}/{total_jobs_count}] Submitting Offline [{agent_config}] on [{dataset_id}] ...", end="", flush=True)
                 job_id = submit_sbatch(script_content)
                 if job_id:
                     job_ids.append(job_id)
     else:
-        print("\n=== Skipping Offline Training Phase ===")
+        print("\n=== Skipping Offline Training Phase ===", flush=True)
 
     # 3. Downstream Plotting Job (dependent on all training jobs)
     if not cfg.get("no_plot", False) and job_ids:
@@ -302,6 +311,7 @@ def run_slurm_training(cfg, context):
         plot_slurm_file = log_dir / f"{plot_job_name}.slurm"
         with open(plot_slurm_file, "w") as f:
             f.write(plot_content)
+        print(f"[Post-Process] Submitting Plotting Job (dependent on {len(job_ids)} jobs) ...", end="", flush=True)
         submit_sbatch(plot_content)
 
     job_ids.extend(eval_job_ids)

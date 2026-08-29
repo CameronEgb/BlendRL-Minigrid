@@ -40,7 +40,7 @@ def get_gres_header(res, site_cfg):
     return f"#SBATCH --gres=gpu:{gpus}\n"
 
 
-def generate_sbatch_header(job_name, log_dir, cfg, dependency=None, dependency_type="afterok"):
+def generate_sbatch_header(job_name, log_dir, cfg, dependency=None, dependency_type="afterok", is_consolidated=False):
     """Generate standardized SBATCH script header using pure Hydra composition."""
     site_cfg = getattr(cfg, "site", None)
     
@@ -50,9 +50,13 @@ def generate_sbatch_header(job_name, log_dir, cfg, dependency=None, dependency_t
     res = OmegaConf.merge(site_resources, exp_resources)
     
     partition = res.get("partition")
-    cores = res.get("cores")
+    if is_consolidated or cfg.get("consolidate", False):
+        cores = res.get("consolidated_cores", res.get("cores", 16))
+        memory = res.get("consolidated_memory", res.get("memory", "32G"))
+    else:
+        cores = res.get("standalone_cores", 1)
+        memory = res.get("standalone_memory", "8G")
     time = res.get("time")
-    memory = res.get("memory")
     nodes = res.get("nodes", 1)
     
     mail_user = getattr(site_cfg, "mail_user", None)
@@ -87,7 +91,7 @@ def generate_sbatch_header(job_name, log_dir, cfg, dependency=None, dependency_t
     return script
 
 
-def generate_sbatch_script(job_name, cmd_args, log_dir, cfg, dependency=None):
+def generate_sbatch_script(job_name, cmd_args, log_dir, cfg, dependency=None, is_consolidated=False):
     """Generate an SBATCH script string for Slurm submission."""
     import shlex
 
@@ -95,7 +99,8 @@ def generate_sbatch_script(job_name, cmd_args, log_dir, cfg, dependency=None):
         job_name=job_name,
         log_dir=log_dir,
         cfg=cfg,
-        dependency=dependency
+        dependency=dependency,
+        is_consolidated=is_consolidated
     )
     script += "\n"
     
@@ -118,7 +123,6 @@ def submit_sbatch(script_content):
     Uses --parsable for robust job ID extraction.
     Returns None if submission fails or sbatch is not available.
     """
-    print(f"Submitting Slurm job via stdin...")
     try:
         # Use --parsable for reliable job ID output (just the number)
         result = subprocess.run(
@@ -130,20 +134,20 @@ def submit_sbatch(script_content):
         )
         job_id = result.stdout.strip().split(";")[0]  # --parsable may include cluster name after ;
         if job_id.isdigit():
-            print(f"-> Job ID: {job_id}")
+            print(f" -> Job ID: {job_id}", flush=True)
             return job_id
         else:
             # Fallback: try regex parsing for non-standard sbatch output
             match = re.search(r"(\d+)", result.stdout)
             if match:
                 job_id = match.group(1)
-                print(f"-> Job ID: {job_id}")
+                print(f" -> Job ID: {job_id}", flush=True)
                 return job_id
-            print(f"Could not parse job ID from: {result.stdout}")
+            print(f" -> Could not parse job ID from: {result.stdout}", flush=True)
             return None
     except subprocess.CalledProcessError as e:
-        print(f"Error submitting job: {e.stderr}")
+        print(f" -> Error submitting job: {e.stderr.strip()}", flush=True)
         return None
     except FileNotFoundError:
-        print("Error: 'sbatch' command not found. Are you on the Slurm cluster?")
+        print(" -> (sbatch not available locally)", flush=True)
         return None
