@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Any, List
 
-from src.methods.registry import list_registered_agents, auto_discover
+from src.method_registry import METHOD_STYLE
 from src.pipeline.datasets import resolve_dataset_path
 from src.pipeline.config import parse_method_list, normalize_agent_name, resolve_experiment_config_name
 
@@ -10,7 +10,6 @@ from src.pipeline.config import parse_method_list, normalize_agent_name, resolve
 def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = False) -> List[str]:
     """Validate experiment configuration and return list of non-fatal notices.
     Raises ValueError on fatal configuration errors."""
-    auto_discover()
     issues = []
     fatal_errors = []
     
@@ -34,19 +33,21 @@ def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = 
                     )
             
     # 2. Validate agent registrations
-    registered = set(list_registered_agents())
+    registered = set(METHOD_STYLE.keys())
     
     online_methods = parse_method_list(cfg.get("online_methods", []))
     for om in online_methods:
         base_algo = om.split("/")[0]
-        if base_algo not in registered and om not in registered:
-            issues.append(f"Notice: Online method '{om}' might not match a registered agent ({registered}).")
+        norm_om = om.replace("/", "_")
+        if base_algo not in registered and norm_om not in registered:
+            issues.append(f"Notice: Online method '{om}' might not match a registered agent.")
             
     offline_methods = parse_method_list(cfg.get("offline_methods", []))
     for ofm in offline_methods:
         base_algo = ofm.split("/")[0]
-        if base_algo not in registered and ofm not in registered:
-            issues.append(f"Notice: Offline method '{ofm}' might not match a registered agent ({registered}).")
+        norm_ofm = ofm.replace("/", "_")
+        if base_algo not in registered and norm_ofm not in registered:
+            issues.append(f"Notice: Offline method '{ofm}' might not match a registered agent.")
             
     # 3. Check offline dataset availability
     if mode_type == "offline" or offline_methods:
