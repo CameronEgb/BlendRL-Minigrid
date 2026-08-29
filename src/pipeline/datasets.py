@@ -2,11 +2,27 @@
 
 Provides functions for finding datasets, running experiments, and triggering plots.
 """
+import functools
 import os
+import shutil
 import subprocess
+import threading
+import uuid
 from pathlib import Path
 
 from src.pipeline.runtime import get_python_executable
+
+
+def fast_purge_dir(path: Path):
+    """Instantly remove a directory on network storage (NFS) via atomic rename + background purge."""
+    if not path.exists():
+        return
+    trash_path = path.parent / f".trash_{path.name}_{uuid.uuid4().hex[:8]}"
+    try:
+        path.rename(trash_path)
+        threading.Thread(target=shutil.rmtree, args=(trash_path, True), daemon=True).start()
+    except Exception:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def ensure_online_dataset_path(group: str, experiment_id: str, agent_name_internal: str, is_sweep: bool = False):
@@ -30,6 +46,7 @@ def ensure_online_dataset_path(group: str, experiment_id: str, agent_name_intern
     return dataset_path, has_pkl
 
 
+@functools.lru_cache(maxsize=128)
 def resolve_dataset_path(dataset_id: str, group: str = "", experiment_id: str = "", yaml_ds_path: str = None) -> Path:
     """Robustly resolve the filesystem path for an offline dataset.
     

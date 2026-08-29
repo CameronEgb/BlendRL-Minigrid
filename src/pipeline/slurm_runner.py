@@ -6,7 +6,7 @@ import shlex
 from pathlib import Path
 
 from src.pipeline.config import normalize_agent_name
-from src.pipeline.datasets import ensure_online_dataset_path, resolve_dataset_path
+from src.pipeline.datasets import ensure_online_dataset_path, fast_purge_dir, resolve_dataset_path
 from src.pipeline.optuna_utils import create_optuna_study, delete_optuna_study, get_next_study_name
 from src.pipeline.slurm import generate_sbatch_header, generate_sbatch_script, submit_sbatch
 from src.pipeline.commands import build_online_overrides, build_offline_overrides, get_sweep_direction
@@ -28,23 +28,17 @@ def run_slurm_training(cfg, context):
         tuple[list[str], list[str], bool]: (job_ids, eval_commands, is_consolidated)
     """
     log_dir = Path("results/logs/slurm") / cfg.group / cfg.experiment_id
-    if log_dir.exists():
-        for log_file in log_dir.glob("*"):
-            if log_file.is_file():
-                log_file.unlink()
+    fast_purge_dir(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # Hard-overwrite checkpoints and logs on re-run unless recover=true is explicitly set
     if not cfg.get("recover", False):
-        import shutil
         ckpt_dir = Path("results/checkpoints") / cfg.group / cfg.experiment_id
-        if ckpt_dir.exists():
-            shutil.rmtree(ckpt_dir)
+        fast_purge_dir(ckpt_dir)
         ckpt_dir.mkdir(parents=True, exist_ok=True)
 
         exp_log_dir = Path("results/logs") / cfg.group / cfg.experiment_id
-        if exp_log_dir.exists():
-            shutil.rmtree(exp_log_dir)
+        fast_purge_dir(exp_log_dir)
         exp_log_dir.mkdir(parents=True, exist_ok=True)
 
     resources = cfg.get("resources", {})

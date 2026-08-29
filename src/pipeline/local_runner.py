@@ -7,7 +7,7 @@ from pathlib import Path
 
 from src.pipeline.commands import build_online_overrides, build_offline_overrides, get_sweep_direction
 from src.pipeline.config import normalize_agent_name
-from src.pipeline.datasets import ensure_online_dataset_path, resolve_dataset_path, run_experiment
+from src.pipeline.datasets import ensure_online_dataset_path, fast_purge_dir, resolve_dataset_path, run_experiment
 from src.pipeline.optuna_utils import (
     create_optuna_study, delete_optuna_study, get_next_study_name, promote_best_trial_checkpoint
 )
@@ -26,15 +26,12 @@ def run_local_training(cfg, context):
 
     # Hard-overwrite checkpoints and logs on re-run unless recover=true is explicitly set
     if not cfg.get("recover", False):
-        import shutil
         ckpt_dir = Path("results/checkpoints") / cfg.group / cfg.experiment_id
-        if ckpt_dir.exists():
-            shutil.rmtree(ckpt_dir)
+        fast_purge_dir(ckpt_dir)
         ckpt_dir.mkdir(parents=True, exist_ok=True)
 
         exp_log_dir = Path("results/logs") / cfg.group / cfg.experiment_id
-        if exp_log_dir.exists():
-            shutil.rmtree(exp_log_dir)
+        fast_purge_dir(exp_log_dir)
         exp_log_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Online Training Phases
