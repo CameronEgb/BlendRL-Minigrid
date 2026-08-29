@@ -54,8 +54,8 @@ def generate_sbatch_header(job_name, log_dir, cfg, dependency=None, dependency_t
         cores = res.get("consolidated_cores", res.get("cores", 16))
         memory = res.get("consolidated_memory", res.get("memory", "32G"))
     else:
-        cores = res.get("standalone_cores", 1)
-        memory = res.get("standalone_memory", "8G")
+        cores = res.get("standalone_cores", res.get("cores", 1))
+        memory = res.get("standalone_memory", res.get("memory", "8G"))
     time = res.get("time")
     nodes = res.get("nodes", 1)
     

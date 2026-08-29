@@ -6,7 +6,10 @@ consolidate: false
 
 resources:
   partition: common
-  memory: "8G"
+  cores: 8
+  standalone_cores: 8
+  memory: "16G"
+  time: "04:00:00"
 
 offline_methods:
   - cql/dnn
